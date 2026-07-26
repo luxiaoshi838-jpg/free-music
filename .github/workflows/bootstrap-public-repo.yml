@@ -1,119 +1,23 @@
-name: Finalize Public Repository
+name: Public Repository Finalization Check
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/bootstrap-public-repo.yml
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  finalize-and-build:
+  verify-finalized-source:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
-
+    timeout-minutes: 5
     steps:
-      - name: Checkout staged public repository
+      - name: Checkout source
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
-
-      - name: Detect whether finalization is needed
-        id: detect
-        shell: bash
-        run: |
-          if compgen -G '.bootstrap/MainActivity.part*' >/dev/null; then
-            echo 'needed=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'needed=false' >> "$GITHUB_OUTPUT"
-            echo 'Repository is already finalized; no bootstrap work is needed.'
-          fi
-
-      - name: Assemble and verify MainActivity
-        if: steps.detect.outputs.needed == 'true'
+      - name: Confirm repository is finalized
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          parts=(.bootstrap/MainActivity.part*)
-          test "${#parts[@]}" -eq 11
-          mkdir -p app/src/main/java/com/jianglab/babywife
-          cat "${parts[@]}" > app/src/main/java/com/jianglab/babywife/MainActivity.java
-          actual=$(git hash-object app/src/main/java/com/jianglab/babywife/MainActivity.java)
-          expected=b1fa52169ce0fd55dfb04cd1d5c1ef590b402eaa
-          echo "MainActivity blob=$actual"
-          test "$actual" = "$expected"
-          rm -rf .bootstrap
-          rm -f FINALIZE_PUBLIC_REPO.md
-
-      - name: Verify final public source tree
-        if: steps.detect.outputs.needed == 'true'
-        run: python3 scripts/check_public_repo.py
-
-      - name: Set up JDK 17
-        if: steps.detect.outputs.needed == 'true'
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Android SDK
-        if: steps.detect.outputs.needed == 'true'
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        if: steps.detect.outputs.needed == 'true'
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Set up Gradle 8.7
-        if: steps.detect.outputs.needed == 'true'
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.7"
-
-      - name: Build public APK with five-minute watchdog
-        if: steps.detect.outputs.needed == 'true'
-        run: bash scripts/build_with_watchdog.sh build/bootstrap-build.log gradle --no-daemon assembleDebug
-
-      - name: Verify generated APK
-        if: steps.detect.outputs.needed == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          apk=app/build/outputs/apk/debug/app-debug.apk
-          test -s "$apk"
-          package_name=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
-          test "$package_name" = "com.jianglab.babywife"
-          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 -v 4 "$apk" >/dev/null
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
-          sha256sum "$apk" | tee app-debug.sha256
-
-      - name: Commit finalized public source
-        if: steps.detect.outputs.needed == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Finalize sanitized public Android source replica"
-          target_branch="${GITHUB_HEAD_REF:-main}"
-          git push origin HEAD:"$target_branch"
-
-      - name: Upload bootstrap build
-        if: steps.detect.outputs.needed == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: free-music-bootstrap-debug-apk
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app-debug.sha256
-            build/bootstrap-build.log
-          if-no-files-found: error
-          retention-days: 14
+          test -s app/src/main/java/com/jianglab/babywife/MainActivity.java
+          test ! -d .bootstrap
+          python3 scripts/check_public_repo.py
+          echo "Public repository is already finalized."
