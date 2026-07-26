@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - .github/workflows/bootstrap-public-repo.yml
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -18,8 +21,22 @@ jobs:
     steps:
       - name: Checkout staged public repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Detect whether finalization is needed
+        id: detect
+        shell: bash
+        run: |
+          if compgen -G '.bootstrap/MainActivity.part*' >/dev/null; then
+            echo 'needed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'needed=false' >> "$GITHUB_OUTPUT"
+            echo 'Repository is already finalized; no bootstrap work is needed.'
+          fi
 
       - name: Assemble and verify MainActivity
+        if: steps.detect.outputs.needed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -35,6 +52,7 @@ jobs:
           rm -rf .bootstrap
 
       - name: Install final reusable build workflow
+        if: steps.detect.outputs.needed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -113,29 +131,36 @@ jobs:
           rm -f .github/workflows/bootstrap-public-repo.yml
 
       - name: Verify final public source tree
+        if: steps.detect.outputs.needed == 'true'
         run: python3 scripts/check_public_repo.py
 
       - name: Set up JDK 17
+        if: steps.detect.outputs.needed == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Android SDK
+        if: steps.detect.outputs.needed == 'true'
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
+        if: steps.detect.outputs.needed == 'true'
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Gradle 8.7
+        if: steps.detect.outputs.needed == 'true'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
 
       - name: Build public APK with five-minute watchdog
+        if: steps.detect.outputs.needed == 'true'
         run: bash scripts/build_with_watchdog.sh build/bootstrap-build.log gradle --no-daemon assembleDebug
 
       - name: Verify generated APK
+        if: steps.detect.outputs.needed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -148,6 +173,7 @@ jobs:
           sha256sum "$apk" | tee app-debug.sha256
 
       - name: Commit finalized public source
+        if: steps.detect.outputs.needed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -155,9 +181,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "Finalize sanitized public Android source replica"
-          git push origin HEAD:main
+          target_branch="${GITHUB_HEAD_REF:-main}"
+          git push origin HEAD:"$target_branch"
 
       - name: Upload bootstrap build
+        if: steps.detect.outputs.needed == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: free-music-bootstrap-debug-apk
