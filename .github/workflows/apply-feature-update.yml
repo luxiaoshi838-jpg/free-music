@@ -26,7 +26,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .automation/update_part_*.b64 | base64 --decode > /tmp/feature_update_payload.zip
+          cat \
+            .automation/update_part_00.b64 \
+            .automation/fix_part_01a.b64 \
+            .automation/fix_part_01b.b64 \
+            .automation/update_part_02.b64 \
+            .automation/fix_part_03a.b64 \
+            .automation/fix_part_03b.b64 \
+            .automation/update_part_04.b64 \
+            .automation/update_part_05.b64 \
+            .automation/fix_part_06a.b64 \
+            .automation/fix_part_06b.b64 \
+            .automation/update_part_07.b64 \
+            | base64 --decode > /tmp/feature_update_payload.zip
           echo "ae030ea8c4aab09a4e59d349ac3f368f08bb7247b9cba93bf45580728f1ce1c9  /tmp/feature_update_payload.zip" | sha256sum -c -
           rm -rf /tmp/feature_update
           mkdir -p /tmp/feature_update
