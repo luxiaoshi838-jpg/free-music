@@ -1,0 +1,40 @@
+# Android / Gradle build outputs
+.gradle/
+build/
+app/build/
+manual-build/
+out/
+
+# Generated packages and signing sidecars
+*.apk
+*.aab
+*.idsig
+
+# Private signing material
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.env
+local.properties
+signing/
+签名/
+signing-export/
+
+# Local test screenshots and pulled reference packages
+*_screen*.png
+*_v*_screen*.png
+*_v*.png
+launch_screen*.png
+original_musicdl_screen*.png
+music-dl_*.apk
+github-artifacts*/
+apk-output/
+
+# IDE / OS files
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
