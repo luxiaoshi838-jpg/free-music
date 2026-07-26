@@ -1,0 +1,200 @@
+                            lyricView.setText("\u6682\u672a\u627e\u5230\u6b4c\u8bcd");
+                        } else {
+                            song.lyric = lyric;
+                            applyLyricText(lyric);
+                            savePlaylists();
+                        }
+                    }
+                });
+            }).start();
+        } else {
+            new Thread(() -> {
+                String lyric = fetchBestLyricByKeyword(song.title + " " + song.artist);
+                runOnUiThread(() -> {
+                    if (currentSong == song) {
+                        if (lyric.trim().isEmpty()) {
+                            lyricView.setText("\u6682\u672a\u627e\u5230\u6b4c\u8bcd");
+                        } else {
+                            song.lyric = lyric;
+                            applyLyricText(lyric);
+                            savePlaylists();
+                        }
+                    }
+                });
+            }).start();
+        }
+    }
+
+    private String fetchBestLyricByKeyword(String keyword) {
+        List<Song> candidates = searchNetease(keyword);
+        for (Song candidate : candidates) {
+            String id = neteaseIdFromSong(candidate);
+            if (id.isEmpty()) continue;
+            String lyric = fetchNeteaseLyric(id);
+            if (!lyric.trim().isEmpty()) return lyric;
+        }
+        return "";
+    }
+
+    private String neteaseIdFromSong(Song song) {
+        if (song == null || song.uri == null) return "";
+        String uri = song.uri;
+        int marker = uri.indexOf("id=");
+        if (!song.source.contains("\u7f51\u6613") || marker < 0) return "";
+        String tail = uri.substring(marker + 3);
+        int dot = tail.indexOf('.');
+        if (dot >= 0) tail = tail.substring(0, dot);
+        int amp = tail.indexOf('&');
+        if (amp >= 0) tail = tail.substring(0, amp);
+        return tail.replaceAll("[^0-9]", "");
+    }
+
+    private String fetchNeteaseLyric(String id) {
+        try {
+            JSONObject payload = httpJson(
+                "https://music.163.com/api/song/lyric?id=" + id + "&lv=1&kv=1&tv=-1",
+                "https://music.163.com/"
+            );
+            JSONObject lrc = payload.optJSONObject("lrc");
+            return lrc == null ? "" : lrc.optString("lyric", "");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private void applyLyricText(String raw) {
+        lyricLines.clear();
+        String[] lines = raw.split("\\r?\\n");
+        for (String line : lines) {
+            LyricLine parsed = parseLyricLine(line);
+            if (parsed != null) lyricLines.add(parsed);
+        }
+        if (lyricLines.isEmpty()) {
+            lyricView.setText(raw.trim().isEmpty() ? "\u6682\u65e0\u6b4c\u8bcd" : raw);
+            return;
+        }
+        renderLyricHighlight(0);
+    }
+
+    private LyricLine parseLyricLine(String line) {
+        int close = line.indexOf(']');
+        if (!line.startsWith("[") || close <= 1) return null;
+        String time = line.substring(1, close);
+        String text = line.substring(close + 1).trim();
+        String[] parts = time.split(":");
+        if (parts.length < 2) return null;
+        try {
+            long minute = Long.parseLong(parts[0]);
+            double second = Double.parseDouble(parts[1]);
+            return new LyricLine((long) (minute * 60000 + second * 1000), text.isEmpty() ? " " : text);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void updateLyricProgress() {
+        if (mediaPlayer == null || lyricLines.isEmpty()) return;
+        int position;
+        try {
+            position = mediaPlayer.getCurrentPosition();
+        } catch (Exception ignored) {
+            return;
+        }
+        int index = lyricIndexFor(position);
+        if (index != highlightedLyricIndex) renderLyricHighlight(index);
+    }
+
+    private int lyricIndexFor(long positionMs) {
+        int index = 0;
+        for (int i = 0; i < lyricLines.size(); i++) {
+            if (positionMs >= lyricLines.get(i).timeMs) index = i;
+            else break;
+        }
+        return index;
+    }
+
+    private void renderLyricHighlight(int index) {
+        highlightedLyricIndex = Math.max(0, Math.min(index, lyricLines.size() - 1));
+        StringBuilder builder = new StringBuilder();
+        for (LyricLine line : lyricLines) builder.append(line.text).append('\n');
+        SpannableString span = new SpannableString(builder.toString());
+        int start = 0;
+        for (int i = 0; i < lyricLines.size(); i++) {
+            int end = start + lyricLines.get(i).text.length();
+            if (i == highlightedLyricIndex) {
+                span.setSpan(new ForegroundColorSpan(Color.WHITE), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                span.setSpan(new RelativeSizeSpan(1.22f), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                span.setSpan(new StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            } else {
+                span.setSpan(new ForegroundColorSpan(Color.argb(150, 255, 255, 255)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            start = end + 1;
+        }
+        lyricView.setText(span);
+        if (!userLyricTouch && lyricsScroll != null) {
+            lyricsScroll.post(() -> {
+                int lineHeight = Math.max(lyricView.getLineHeight(), dp(28));
+                int targetY = Math.max(0, highlightedLyricIndex * lineHeight - lyricsScroll.getHeight() / 2);
+                autoScrollingLyrics = true;
+                lyricsScroll.smoothScrollTo(0, targetY);
+                autoScrollingLyrics = false;
+            });
+        }
+    }
+
+    private void seekByLyricTouch(float y) {
+        if (autoScrollingLyrics || mediaPlayer == null || lyricLines.isEmpty() || lyricsScroll == null) return;
+        int lineHeight = Math.max(lyricView.getLineHeight(), dp(28));
+        int index = Math.max(0, Math.min(lyricLines.size() - 1, (int) ((lyricsScroll.getScrollY() + y) / lineHeight)));
+        try {
+            mediaPlayer.seekTo((int) lyricLines.get(index).timeMs);
+            renderLyricHighlight(index);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void restoreLastSong() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        int playlistIndex = prefs.getInt(KEY_LAST_PLAYLIST, currentPlaylistIndex);
+        int songIndex = prefs.getInt(KEY_LAST_SONG, -1);
+        int position = prefs.getInt(KEY_LAST_POSITION, 0);
+        if (playlistIndex >= 0 && playlistIndex < playlists.size()) {
+            currentPlaylistIndex = playlistIndex;
+            renderCurrentPlaylist();
+            Playlist playlist = currentPlaylist();
+            if (songIndex >= 0 && songIndex < playlist.songs.size()) {
+                currentSongIndex = songIndex;
+                currentSong = playlist.songs.get(songIndex);
+                titleView.setText(currentSong.title);
+                artistView.setText(currentSong.artist + " \u00b7 " + currentSong.source);
+                lyricView.setText(currentSong.lyric);
+                statusView.setText("\u5df2\u6062\u590d\u4e0a\u6b21\u64ad\u653e\uff1a" + currentSong.title);
+                prepareLastSong(position);
+                showPlayerPage();
+                return;
+            }
+        }
+        renderEmptyPlayer();
+        showPlayerPage();
+    }
+
+    private void prepareLastSong(int position) {
+        if (currentSong == null || currentSong.uri == null || currentSong.uri.isEmpty()) {
+            if (playButton != null) playButton.setText("\u25b6");
+            return;
+        }
+        try {
+            stopPlayback();
+            mediaPlayer = new MediaPlayer();
+            mediaPlayer.setDataSource(this, Uri.parse(currentSong.uri));
+            mediaPlayer.setOnCompletionListener(player -> playAfterCompletion());
+            mediaPlayer.prepare();
+            if (position > 0) {
+                mediaPlayer.seekTo(position);
+            }
+            playButton.setText("\u25b6");
+        } catch (Exception ignored) {
+            stopPlayback();
+            playButton.setText("\u25b6");
+        }
+    }
