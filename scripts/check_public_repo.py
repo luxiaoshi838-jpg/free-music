@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,9 +24,9 @@ FORBIDDEN_TEXT = {
     "github_pat_": "GitHub token",
     "ghp_": "GitHub token",
     "applicationIdSuffix": "brand flavor",
-    "lidacaizhu": "private brand resource",
-    "jianglab": "private brand resource",
-    "niubi": "private brand resource",
+    "app/src/lidacaizhu": "private brand resource",
+    "app/src/jianglab": "private brand resource",
+    "app/src/niubi": "private brand resource",
 }
 
 
@@ -59,8 +58,12 @@ def main() -> int:
     for path in ROOT.rglob("*"):
         if not path.is_file() or ".git" in path.parts:
             continue
+        relative = path.relative_to(ROOT).as_posix()
+        if any(relative.startswith(prefix) for prefix in ("app/src/lidacaizhu/", "app/src/jianglab/", "app/src/niubi/")):
+            findings.append(f"private brand directory: {relative}")
+            continue
         if path.suffix.lower() in FORBIDDEN_SUFFIXES:
-            findings.append(f"forbidden file: {path.relative_to(ROOT)}")
+            findings.append(f"forbidden file: {relative}")
             continue
         if path.stat().st_size > 5_000_000:
             continue
@@ -70,7 +73,7 @@ def main() -> int:
             continue
         for marker, label in FORBIDDEN_TEXT.items():
             if marker in text:
-                findings.append(f"{label}: {path.relative_to(ROOT)}")
+                findings.append(f"{label}: {relative}")
     if findings:
         fail("; ".join(findings))
 
