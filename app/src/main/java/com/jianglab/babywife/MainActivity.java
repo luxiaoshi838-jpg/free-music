@@ -72,6 +72,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.Locale;
 
 public class MainActivity extends Activity {
     private static final String PREFS_NAME = "babywife_state";
@@ -348,6 +349,14 @@ public class MainActivity extends Activity {
         settingsButton.setOnClickListener(view -> toggleDrawer());
         headerBar.addView(settingsButton, new LinearLayout.LayoutParams(dp(48), dp(42)));
 
+        Button clearCacheButton = makeRoundButton("\uD83E\uDDF9", false);
+        clearCacheButton.setTextSize(17);
+        clearCacheButton.setContentDescription("\u6e05\u9664\u975e\u6b4c\u5355\u7f13\u5b58");
+        clearCacheButton.setOnClickListener(view -> confirmClearTransientCache());
+        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(42), dp(42));
+        clearParams.setMargins(dp(6), 0, 0, 0);
+        headerBar.addView(clearCacheButton, clearParams);
+
         searchStatusView = new TextView(this);
         searchStatusView.setText("\u70b9\u6b64\u641c\u7d22\u6b4c\u66f2");
         searchStatusView.setTextSize(14);
@@ -366,7 +375,7 @@ public class MainActivity extends Activity {
         currentPlaylistButton.setEllipsize(TextUtils.TruncateAt.END);
         currentPlaylistButton.setMarqueeRepeatLimit(-1);
         currentPlaylistButton.setOnClickListener(view -> showPlaylistPage());
-        headerBar.addView(currentPlaylistButton, new LinearLayout.LayoutParams(dp(112), dp(42)));
+        headerBar.addView(currentPlaylistButton, new LinearLayout.LayoutParams(dp(104), dp(42)));
         root.addView(headerBar);
 
         statusView = new TextView(this);
@@ -1012,6 +1021,10 @@ public class MainActivity extends Activity {
             ((TextView) row.getChildAt(0)).setText(song.title);
             ((TextView) row.getChildAt(1)).setText(song.artist);
             ((TextView) row.getChildAt(2)).setText(song.source);
+            int color = song.unavailable ? Color.rgb(255, 96, 96) : TEXT_MAIN;
+            for (int i = 0; i < row.getChildCount(); i++) {
+                ((TextView) row.getChildAt(i)).setTextColor(color);
+            }
             return row;
         }
 
@@ -1445,16 +1458,44 @@ public class MainActivity extends Activity {
 
     private void addSongToCurrentPlaylist(Song song) {
         Playlist playlist = isLocalSong(song) ? localPlaylist() : onlineTargetPlaylist();
-        if (containsSong(playlist, song)) {
-            toast((isLocalPlaylist(playlist) ? "本地歌单已有：" : "当前在线歌单已有：") + song.title);
+        int existingIndex = indexOfSong(playlist, song);
+        if (existingIndex >= 0) {
+            if (currentSong == song) switchPlaybackToPlaylist(playlist, existingIndex);
+            toast((isLocalPlaylist(playlist) ? "\u672c\u5730\u6b4c\u5355\u5df2\u6709\uff1a" : "\u5f53\u524d\u5728\u7ebf\u6b4c\u5355\u5df2\u6709\uff1a") + song.title);
             return;
         }
         playlist.songs.add(song);
+        int addedIndex = playlist.songs.size() - 1;
+        song.unavailable = false;
         savePlaylists();
         renderCurrentPlaylist();
+        if (currentSong == song) switchPlaybackToPlaylist(playlist, addedIndex);
         updateLyricActionVisibility(song);
         ensurePlaylistLyric(song);
-        toast("已加入 " + playlist.name + "：" + song.title);
+        toast("\u5df2\u52a0\u5165" + playlist.name + "\uff1a" + song.title);
+    }
+
+    private int indexOfSong(Playlist playlist, Song song) {
+        if (playlist == null || song == null) return -1;
+        String key = song.key();
+        for (int i = 0; i < playlist.songs.size(); i++) {
+            Song item = playlist.songs.get(i);
+            if (item == song || item.key().equals(key)) return i;
+        }
+        return -1;
+    }
+
+    private void switchPlaybackToPlaylist(Playlist playlist, int songIndex) {
+        if (playlist == null || songIndex < 0 || songIndex >= playlist.songs.size()) return;
+        int playlistIndex = playlists.indexOf(playlist);
+        if (playlistIndex < 0) return;
+        currentPlaylistIndex = playlistIndex;
+        currentSongIndex = songIndex;
+        playingSearchQueue = false;
+        searchSongIndex = -1;
+        renderCurrentPlaylist();
+        updateLyricActionVisibility(currentSong);
+        saveLastSong(0);
     }
 
     private void renderResults() {
@@ -1529,6 +1570,8 @@ public class MainActivity extends Activity {
         lyricLines.clear();
         highlightedLyricIndex = -1;
         clearPendingLyricPreview();
+        if (addCurrentButton != null) addCurrentButton.setVisibility(View.GONE);
+        if (songVersionButton != null) songVersionButton.setVisibility(View.GONE);
         if (lyricVersionButton != null) lyricVersionButton.setVisibility(View.GONE);
         if (playButton != null) playButton.setText("▶");
         resetPlaybackProgress();
@@ -1795,14 +1838,19 @@ public class MainActivity extends Activity {
     }
 
     private void updateLyricActionVisibility(Song song) {
-        boolean inPlaylist = song != null && isSongInAnyPlaylist(song);
+        boolean existsInPlaylist = song != null && isSongInAnyPlaylist(song);
+        boolean playlistContext = existsInPlaylist && !playingSearchQueue;
+        boolean fromSearchOnly = song != null && playingSearchQueue && !existsInPlaylist;
+        if (addCurrentButton != null) {
+            addCurrentButton.setVisibility(fromSearchOnly ? View.VISIBLE : View.GONE);
+        }
         if (songVersionButton != null) {
-            songVersionButton.setVisibility(inPlaylist ? View.VISIBLE : View.GONE);
+            songVersionButton.setVisibility(playlistContext ? View.VISIBLE : View.GONE);
         }
         if (lyricVersionButton != null) {
-            lyricVersionButton.setVisibility(inPlaylist ? View.VISIBLE : View.GONE);
+            lyricVersionButton.setVisibility(playlistContext ? View.VISIBLE : View.GONE);
         }
-        if (!inPlaylist && (pendingLyricSong == song || pendingSongTarget == song)) {
+        if (!playlistContext && (pendingLyricSong == song || pendingSongTarget == song)) {
             clearPendingLyricPreview();
         }
     }
@@ -1816,6 +1864,43 @@ public class MainActivity extends Activity {
             }
         }
         return false;
+    }
+
+    private void markSongUnavailable(Song song, boolean unavailable) {
+        if (song == null) return;
+        String key = song.key();
+        for (Playlist playlist : playlists) {
+            for (Song item : playlist.songs) {
+                if (item == song || item.key().equals(key)) item.unavailable = unavailable;
+            }
+        }
+        song.unavailable = unavailable;
+    }
+
+    private void confirmClearTransientCache() {
+        new AlertDialog.Builder(this)
+            .setTitle("\u6e05\u7406\u7f13\u5b58")
+            .setMessage("\u53ea\u5220\u9664\u672a\u52a0\u5165\u4efb\u4f55\u6b4c\u5355\u7684\u6b4c\u66f2\u548c\u6b4c\u8bcd\u7f13\u5b58\uff0c\u6b4c\u5355\u5185\u6b4c\u66f2\u4f1a\u4fdd\u7559\u3002")
+            .setPositiveButton("\u6e05\u7406", (dialog, which) -> clearTransientCache())
+            .setNegativeButton("\u53d6\u6d88", null)
+            .show();
+    }
+
+    private void clearTransientCache() {
+        Set<String> keepKeys = new HashSet<>();
+        for (Playlist playlist : playlists) {
+            for (Song song : playlist.songs) {
+                if (song != null && song.isNetworkCatalog()) {
+                    String cacheKey = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
+                    if (!cacheKey.isEmpty()) keepKeys.add(cacheKey);
+                }
+            }
+        }
+        new Thread(() -> {
+            int removed = NetworkMediaCache.clearExcept(this, keepKeys);
+            getSharedPreferences("lyric_version_picker_cache", MODE_PRIVATE).edit().clear().apply();
+            runOnUiThread(() -> toast("\u5df2\u6e05\u7406\u975e\u6b4c\u5355\u7f13\u5b58\uff1a" + removed + " \u4e2a\u6587\u4ef6"));
+        }).start();
     }
 
     private void bindLyricToPlaylistCopies(Song song, String lyric, String label) {
@@ -2205,8 +2290,7 @@ public class MainActivity extends Activity {
         saveLastSong(0);
         titleView.setText(song.title);
         artistView.setText(song.artist + " · " + song.source);
-        if (addCurrentButton != null) addCurrentButton.setVisibility(
-            playingSearchQueue && !isSongInAnyPlaylist(song) ? View.VISIBLE : View.GONE);
+        updateLyricActionVisibility(song);
         statusView.setText("当前选择：" + song.title);
         showSongLyrics(song);
         publishPlaybackControlState(true);
@@ -2261,6 +2345,7 @@ public class MainActivity extends Activity {
                         }
                     }
                     persistResolvedCatalogToPlaylistCopies(song, originalKey);
+                    markSongUnavailable(song, false);
                     artistView.setText(song.artist + " · " + song.source);
                     if (cached.sourceChanged) {
                         toast("原来源不可用，已切换并记住" + song.source + "版本");
@@ -2276,6 +2361,11 @@ public class MainActivity extends Activity {
                     stopPlayback();
                     playButton.setText("▶");
                     showSongLyrics(song);
+                    if (isSongInAnyPlaylist(song)) {
+                        markSongUnavailable(song, true);
+                        savePlaylists();
+                        renderCurrentPlaylist();
+                    }
                     statusView.setText("缓存失败：" + error.getMessage());
                     toast("该歌曲当前无法缓存播放");
                 });
@@ -3285,7 +3375,7 @@ public class MainActivity extends Activity {
                 columns.put("sourceLabel", i);
             } else if (key.contains("\u6b4c\u66f2id") || key.equals("id") || key.equals("songid") || key.equals("song_id")) {
                 columns.put("songId", i);
-            } else if (key.contains("\u6b4c\u8bcd") || key.equals("lyric") || key.equals("lyriclabel")) {
+            } else if (key.contains("\u6b4c\u8bcd") || key.equals("lyric") || key.equals("lyriclabel") || key.equals("lyricversion")) {
                 columns.put("lyricLabel", i);
             }
         }
@@ -3298,7 +3388,12 @@ public class MainActivity extends Activity {
 
     private String normalizeCsvHeader(String value) {
         if (value == null) return "";
-        return value.replace("\ufeff", "").trim().toLowerCase().replace(" ", "");
+        return value.replace("\ufeff", "").trim().toLowerCase(Locale.ROOT)
+            .replace(" ", "")
+            .replace("_", "")
+            .replace("-", "")
+            .replace("\uff08", "(")
+            .replace("\uff09", ")");
     }
 
     private String csvValue(List<String> row, Map<String, Integer> columns, String key, int fallback) {
@@ -3946,6 +4041,7 @@ public class MainActivity extends Activity {
         String uri;
         String catalogJson;
         String cachedUri;
+        boolean unavailable;
 
         Song(String title, String artist, String source, String lyric) {
             this(title, artist, source, lyric, "", "", "");
@@ -3964,6 +4060,7 @@ public class MainActivity extends Activity {
             this.uri = uri == null ? "" : uri;
             this.catalogJson = catalogJson == null ? "" : catalogJson;
             this.cachedUri = cachedUri == null ? "" : cachedUri;
+            this.unavailable = false;
         }
 
         static Song fromCatalog(CatalogSearch.Track track) {
@@ -3983,8 +4080,9 @@ public class MainActivity extends Activity {
         }
 
         String display() {
-            String cached = isNetworkCatalog() && cachedUri != null && !cachedUri.isEmpty() ? "  · 已缓存" : "";
-            return "歌名：" + title + "\n歌手：" + artist + "    平台：" + source + cached;
+            String cached = isNetworkCatalog() && cachedUri != null && !cachedUri.isEmpty() ? "  \u00b7 \u5df2\u7f13\u5b58" : "";
+            String bad = unavailable ? "  \u00b7 \u8d44\u6e90\u4e0d\u53ef\u7528" : "";
+            return "\u6b4c\u540d\uff1a" + title + "\n\u6b4c\u624b\uff1a" + artist + "    \u5e73\u53f0\uff1a" + source + cached + bad;
         }
 
         String key() {
@@ -4017,6 +4115,7 @@ public class MainActivity extends Activity {
                 object.put("uri", uri);
                 object.put("catalogJson", catalogJson);
                 object.put("cachedUri", cachedUri);
+                object.put("unavailable", unavailable);
             } catch (JSONException ignored) {
             }
             return object;
@@ -4033,6 +4132,7 @@ public class MainActivity extends Activity {
                 object.optString("cachedUri")
             );
             song.lyricLabel = object.optString("lyricLabel", "");
+            song.unavailable = object.optBoolean("unavailable", false);
             return song;
         }
     }

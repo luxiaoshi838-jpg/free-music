@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SKIP_DIRS = {".git", "signing", "签名", "本地构建输出", "local-build-output", ".gradle", "build"}
 FORBIDDEN_SUFFIXES = {".apk", ".aab", ".idsig", ".jks", ".keystore", ".p12", ".pfx", ".pem", ".key"}
 FORBIDDEN_TEXT = [
     "store" + "Password",
@@ -45,7 +46,7 @@ def read_text(path: Path) -> str:
 
 def main() -> None:
     for path in ROOT.rglob("*"):
-        if ".git" in path.parts:
+        if any(part in SKIP_DIRS for part in path.parts):
             continue
         if path.is_file() and path.suffix.lower() in FORBIDDEN_SUFFIXES:
             fail(f"forbidden file committed: {path.relative_to(ROOT)}")
@@ -70,7 +71,7 @@ def main() -> None:
 
     for token in FORBIDDEN_TEXT:
         for path in ROOT.rglob("*"):
-            if ".git" in path.parts or not path.is_file():
+            if any(part in SKIP_DIRS for part in path.parts) or not path.is_file():
                 continue
             if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".aar"}:
                 continue

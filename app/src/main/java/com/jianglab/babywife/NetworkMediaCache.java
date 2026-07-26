@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 import bridge.Bridge;
 
@@ -183,6 +184,35 @@ final class NetworkMediaCache {
             }
         }
         return null;
+    }
+
+    static String cacheKeyForCatalog(String catalogJson) {
+        try {
+            JSONObject catalog = canonicalCatalog(catalogJson);
+            String source = catalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
+            String id = catalog.optString("id", "").trim();
+            if (source.isEmpty() || id.isEmpty()) return "";
+            return sha256(source + "|" + id);
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    static int clearExcept(Context context, Set<String> keepKeys) {
+        if (context == null) return 0;
+        File root = new File(context.getFilesDir(), "network_music");
+        File[] files = root.listFiles();
+        if (files == null) return 0;
+        int removed = 0;
+        for (File file : files) {
+            if (file == null || !file.isFile()) continue;
+            String name = file.getName();
+            int dot = name.indexOf('.');
+            String key = dot > 0 ? name.substring(0, dot) : name;
+            if (keepKeys != null && keepKeys.contains(key)) continue;
+            if (file.delete()) removed++;
+        }
+        return removed;
     }
 
     static boolean cachedAudioExists(Context context, String uriText) {

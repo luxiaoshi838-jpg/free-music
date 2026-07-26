@@ -16,6 +16,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Collections;
+import java.util.Comparator;
 
 /**
  * Metadata-only song version picker. Search never resolves or downloads audio;
@@ -45,7 +47,7 @@ final class SongVersionPicker {
         this.title = title == null ? "" : title.trim();
         this.artist = artist == null ? "" : artist.trim();
         this.callback = callback;
-        this.session = CatalogSearch.newSession((this.title + " " + this.artist).trim(), "全部平台");
+        this.session = CatalogSearch.newSession(this.title, "全部平台");
     }
 
     static void show(Activity activity, String title, String artist, Callback callback) {
@@ -122,9 +124,16 @@ final class SongVersionPicker {
             CatalogSearch.Batch batch = session.loadNext();
             List<CatalogSearch.Track> accepted = new ArrayList<>();
             for (CatalogSearch.Track track : batch.tracks) {
-                if (track == null || track.id.isEmpty() || !CatalogSearch.sameIdentity(title, artist, track)) continue;
+                if (track == null || track.id.isEmpty()) continue;
+                if (!sameTitle(title, track.title) && !CatalogSearch.sameIdentity(title, artist, track)) continue;
                 if (emitted.add(track.key())) accepted.add(track);
             }
+            Collections.sort(accepted, new Comparator<CatalogSearch.Track>() {
+                @Override
+                public int compare(CatalogSearch.Track left, CatalogSearch.Track right) {
+                    return score(right) - score(left);
+                }
+            });
             activity.runOnUiThread(() -> {
                 rows.addAll(accepted);
                 adapter.notifyDataSetChanged();
@@ -134,6 +143,31 @@ final class SongVersionPicker {
                 updateFooter();
             });
         }).start();
+    }
+
+    private boolean sameTitle(String expected, String actual) {
+        return normalize(expected).equals(normalize(actual));
+    }
+
+    private int score(CatalogSearch.Track track) {
+        int score = 0;
+        if (sameTitle(title, track.title)) score += 1000;
+        if (CatalogSearch.sameIdentity(title, artist, track)) score += 2000;
+        String normalizedTitle = normalize(track.title);
+        String expectedTitle = normalize(title);
+        if (!expectedTitle.isEmpty() && normalizedTitle.contains(expectedTitle)) score += 300;
+        return score;
+    }
+
+    private String normalize(String value) {
+        if (value == null) return "";
+        return value.toLowerCase()
+            .replace(" ", "")
+            .replace("?", "")
+            .replace("?", "")
+            .replace("?", "(")
+            .replace("?", ")")
+            .trim();
     }
 
     private void updateFooter() {
