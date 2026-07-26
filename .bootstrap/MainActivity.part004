@@ -1,0 +1,200 @@
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setTextColor(TEXT_MAIN);
+        panel.addView(label);
+
+        playlistSpinner = new Spinner(this);
+        playlistSpinner.setVisibility(View.GONE);
+        playlistSpinnerAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new ArrayList<>());
+        playlistSpinner.setAdapter(playlistSpinnerAdapter);
+        playlistSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                if (position >= 0 && position < playlists.size() && position != currentPlaylistIndex) {
+                    currentPlaylistIndex = position;
+                    savePlaylists();
+                    renderCurrentPlaylist();
+                }
+            }
+
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> parent) {
+            }
+        });
+        panel.addView(playlistSpinner, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            1
+        ));
+
+        playlistManagerAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, new ArrayList<>()) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                View view = super.getView(position, convertView, parent);
+                TextView text = view.findViewById(android.R.id.text1);
+                if (text != null) {
+                    text.setTextColor(TEXT_MAIN);
+                    text.setTextSize(14);
+                    text.setSingleLine(true);
+                    text.setEllipsize(TextUtils.TruncateAt.END);
+                }
+                view.setBackgroundColor(position == currentPlaylistIndex ? Color.argb(74, 255, 78, 92) : Color.TRANSPARENT);
+                return view;
+            }
+        };
+        playlistManagerList = new ListView(this);
+        playlistManagerList.setAdapter(playlistManagerAdapter);
+        playlistManagerList.setBackground(rounded(Color.argb(58, 0, 0, 0), dp(14)));
+        playlistManagerList.setOnItemClickListener((parent, view, position, id) -> {
+            if (position >= 0 && position < playlists.size()) {
+                currentPlaylistIndex = position;
+                savePlaylists();
+                renderCurrentPlaylist();
+                showPlaylistPage();
+            }
+        });
+        panel.addView(playlistManagerList, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(190)
+        ));
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.addView(makeSmallButton("\u65b0\u5efa", view -> promptNewPlaylist()), new LinearLayout.LayoutParams(0, dp(40), 1));
+        actions.addView(makeSmallButton("\u6539\u540d", view -> promptRenamePlaylist()), new LinearLayout.LayoutParams(0, dp(40), 1));
+        actions.addView(makeSmallButton("\u5408\u5e76", view -> mergePlaylistsIntoCurrent()), new LinearLayout.LayoutParams(0, dp(40), 1));
+        actions.addView(makeSmallButton("\u6e05\u7a7a", view -> clearCurrentPlaylist()), new LinearLayout.LayoutParams(0, dp(40), 1));
+        panel.addView(actions);
+        return panel;
+    }
+
+    private Button makeSmallButton(String text, View.OnClickListener listener) {
+        Button button = makeButton(text, false);
+        button.setTextSize(13);
+        button.setOnClickListener(listener);
+        return button;
+    }
+
+    private Button makeButton(String text, boolean primary) {
+        Button button = new Button(this);
+        button.setText(text);
+        button.setAllCaps(false);
+        button.setTextColor(Color.WHITE);
+        button.setBackground(rounded(primary ? ACCENT : Color.argb(78, 255, 255, 255), dp(22)));
+        return button;
+    }
+
+    private Button makeRoundButton(String text, boolean primary) {
+        Button button = makeButton(text, primary);
+        button.setTextColor(Color.WHITE);
+        button.setBackground(rounded(primary ? ACCENT : Color.argb(88, 255, 255, 255), dp(999)));
+        return button;
+    }
+
+    private GradientDrawable rounded(int color, int radius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(radius);
+        return drawable;
+    }
+
+    private void toggleDrawer() {
+        if (drawerPanel == null) return;
+        drawerPanel.setVisibility(drawerPanel.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+    }
+
+    private void openPlaylistTools() {
+        showPlaylistPage();
+    }
+
+    private void toggleSearchPanel() {
+        showSearchPage();
+    }
+
+    private void showPlayerPage() {
+        if (headerBar != null) headerBar.setVisibility(View.VISIBLE);
+        if (statusView != null) statusView.setVisibility(View.VISIBLE);
+        if (playerPanel != null) playerPanel.setVisibility(View.VISIBLE);
+        if (searchPanel != null) searchPanel.setVisibility(View.GONE);
+        if (playlistPanel != null) playlistPanel.setVisibility(View.GONE);
+    }
+
+    private void showSearchPage() {
+        if (headerBar != null) headerBar.setVisibility(View.GONE);
+        if (statusView != null) statusView.setVisibility(View.GONE);
+        if (playerPanel != null) playerPanel.setVisibility(View.GONE);
+        if (searchPanel != null) searchPanel.setVisibility(View.VISIBLE);
+        if (playlistPanel != null) playlistPanel.setVisibility(View.GONE);
+        if (searchInput != null) searchInput.requestFocus();
+    }
+
+    private void showPlaylistPage() {
+        if (headerBar != null) headerBar.setVisibility(View.GONE);
+        if (statusView != null) statusView.setVisibility(View.GONE);
+        if (playerPanel != null) playerPanel.setVisibility(View.GONE);
+        if (searchPanel != null) searchPanel.setVisibility(View.GONE);
+        if (playlistPanel != null) playlistPanel.setVisibility(View.VISIBLE);
+    }
+
+    private void performSearch() {
+        String keyword = searchInput.getText().toString().trim();
+        if (keyword.isEmpty()) {
+            toast("\u8bf7\u8f93\u5165\u6b4c\u66f2\u540d");
+            return;
+        }
+        searchResults.clear();
+        appendLocalSearch(keyword);
+        sortByKeyword(searchResults, keyword);
+        renderResults();
+        searchStatusView.setText("\u641c\u7d22\uff1a" + keyword);
+        statusView.setText("\u6b63\u5728\u641c\u7d22\u5728\u7ebf\u6765\u6e90...");
+        new Thread(() -> {
+            List<Song> online = searchOnline(keyword, String.valueOf(sourceSpinner.getSelectedItem()));
+            runOnUiThread(() -> {
+                appendUnique(searchResults, online);
+                sortByKeyword(searchResults, keyword);
+                renderResults();
+                statusView.setText("\u641c\u7d22\u5b8c\u6210\uff1a" + searchResults.size() + " \u9996");
+            });
+        }).start();
+    }
+
+    private void appendLocalSearch(String keyword) {
+        for (Playlist playlist : playlists) {
+            for (Song song : playlist.songs) {
+                if (song.matches(keyword)) {
+                    searchResults.add(song);
+                }
+            }
+        }
+    }
+
+    private List<Song> searchOnline(String keyword, String source) {
+        List<Song> rows = new ArrayList<>();
+        if (source.contains("\u672c\u5730")) return rows;
+        boolean quick = source.contains("\u5feb\u901f") || source.contains("\u5168\u90e8") || source.contains("\u66f4\u591a");
+        if (source.contains("\u7f51\u6613") || quick) rows.addAll(searchNetease(keyword));
+        if (source.contains("\u9177\u72d7") || quick) rows.addAll(searchKugou(keyword));
+        if (source.contains("\u9177\u6211") || quick) rows.addAll(searchKuwo(keyword));
+        if (source.contains("\u6c7d\u6c34")) {
+            rows.add(new Song(keyword, "\u6c7d\u6c34\u76f4\u63a5\u63a5\u53e3\u5f85\u9a8c\u8bc1", "\u6c7d\u6c34", ""));
+        }
+        sortByKeyword(rows, keyword);
+        return rows;
+    }
+
+    private List<Song> searchNetease(String keyword) {
+        List<Song> rows = new ArrayList<>();
+        try {
+            String url = "https://music.163.com/api/search/get/web?s="
+                + URLEncoder.encode(keyword, "UTF-8") + "&type=1&limit=20&offset=0";
+            JSONObject payload = httpJson(url, "https://music.163.com/");
+            JSONArray songs = payload.optJSONObject("result") == null
+                ? null
+                : payload.optJSONObject("result").optJSONArray("songs");
+            if (songs == null) return rows;
+            for (int i = 0; i < songs.length(); i++) {
+                JSONObject item = songs.optJSONObject(i);
+                if (item == null) continue;
+                String title = item.optString("name", keyword);
+                String artist = artistsFromNetease(item.optJSONArray("artists"));
+                String id = item.optString("id", "");
+                String playUrl = id.isEmpty() ? "" : "https://music.163.com/song/media/outer/url?id=" + id + ".mp3";
