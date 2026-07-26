@@ -1,30 +1,35 @@
-# free-music
+# Free Music
 
-“大宝贝儿老婆”Android 音乐应用的公开源码复刻仓库。
+四品牌音乐 APK 本地部署源码。
 
-## 功能
+当前包含四个品牌版本：
 
-- 本地音频文件与文件夹导入
-- 本地歌单创建、改名、清空与合并
-- 网易云、酷狗、酷我歌曲搜索
-- 在线或本地音频播放
-- LRC 歌词读取、匹配与滚动定位
-- 自定义本地背景图片
-- 上次播放位置与歌单状态恢复
+| 品牌 | 包名 | Gradle 任务 |
+| --- | --- | --- |
+| 大宝贝儿老婆 | `com.jianglab.babywife` | `assembleBabywifeclassicDebug` |
+| 李大财主 | `com.jianglab.babywife.lidacaizhu` | `assembleLidacaizhuDebug` |
+| 姜Lab | `com.jianglab.babywife.jianglab` | `assembleJianglabDebug` |
+| 牛逼 | `com.jianglab.babywife.niubi` | `assembleNiubiDebug` |
 
-## 构建
+构建要求：
 
-公开仓库的 GitHub Actions 生成 debug APK，不使用私有正式签名。构建步骤若连续五分钟没有新增日志，会被判定为可能卡住并停止。
+- JDK 17
+- Android SDK Platform 35
+- Android Build Tools 35.0.0
+- Gradle 8.7，首次可运行 `初始化GradleWrapper.ps1` 生成 wrapper
 
-本地构建说明见 [`README_BUILD.md`](README_BUILD.md)。
+Windows 构建：
 
-## 安全说明
+```powershell
+.\构建四品牌APK.ps1
+```
 
-本仓库仅复制私有仓库当前源码快照，不包含：
+Linux / WSL 构建：
 
-- 私有 Git 历史
-- 正式 APK 签名文件与密码
-- 私有签名缓存及签名导出工作流
-- 本地配置、生成 APK 和临时构建目录
+```bash
+./build_four_apks.sh
+```
 
-详见 [`PUBLIC_REPLICA_NOTES.md`](PUBLIC_REPLICA_NOTES.md)。
+成功后 APK 输出在 `本地构建输出/`。
+
+注意：公开库不包含正式签名私钥。默认构建为 Debug APK，可以测试功能，但不能覆盖使用旧正式私钥签名的已安装版本。

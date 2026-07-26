@@ -10,7 +10,40 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026071508
-        versionName "2026.07.15.8"
+        versionCode 2026072601
+        versionName "2026.07.26.local"
     }
+
+    flavorDimensions "brand"
+    productFlavors {
+        babywifeclassic {
+            dimension "brand"
+            versionNameSuffix "-babywife-classic"
+        }
+        lidacaizhu {
+            dimension "brand"
+            applicationIdSuffix ".lidacaizhu"
+            versionNameSuffix "-lidacaizhu"
+        }
+        jianglab {
+            dimension "brand"
+            applicationIdSuffix ".jianglab"
+            versionNameSuffix "-jianglab"
+        }
+        niubi {
+            dimension "brand"
+            applicationIdSuffix ".niubi"
+            versionNameSuffix "-niubi"
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging false
+        }
+    }
+}
+
+dependencies {
+    implementation files('libs/musicbridge.aar')
 }

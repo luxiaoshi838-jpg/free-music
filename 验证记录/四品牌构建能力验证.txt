@@ -1,0 +1,20 @@
+四品牌构建能力验证
+
+来源分支：agent/full-platform-catalog-cache
+来源提交：460016c9ea94321461e601fd7619222086afb6f0
+
+历史成功构建：
+1. Build Four APK ZIP，Run 29677002447，结论 success。
+2. Build Branded APKs，Run 29677002454，结论 success。
+
+已成功生成的四个品牌及包名：
+- 大宝贝儿老婆：com.jianglab.babywife
+- 李大财主：com.jianglab.babywife.lidacaizhu
+- 姜Lab：com.jianglab.babywife.jianglab
+- 牛逼：com.jianglab.babywife.niubi
+
+本地部署包的调整：
+- 删除私有正式签名文件、密码及签名缓存依赖。
+- 保留最终 Java 源码、四品牌资源和预编译 musicbridge.aar。
+- 默认使用本机 Android debug 签名构建。
+- Windows/Linux 构建脚本加入连续五分钟无新增日志即停止的卡住检查。

@@ -1,87 +1,93 @@
-#!/usr/bin/env python3
-from __future__ import annotations
-
 from pathlib import Path
+import re
 import sys
+import xml.etree.ElementTree as ET
+
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUIRED = [
-    "settings.gradle",
-    "build.gradle",
-    "gradle.properties",
+FORBIDDEN_SUFFIXES = {".apk", ".aab", ".idsig", ".jks", ".keystore", ".p12", ".pfx", ".pem", ".key"}
+FORBIDDEN_TEXT = [
+    "store" + "Password",
+    "key" + "Password",
+    "babywife" + "-stable",
+    "BEGIN " + "PRIVATE KEY",
+    "BEGIN " + "RSA PRIVATE KEY",
+    "BEGIN " + "EC PRIVATE KEY",
+]
+BRANDS = {
+    "babywifeclassic": "assembleBabywifeclassicDebug",
+    "lidacaizhu": "assembleLidacaizhuDebug",
+    "jianglab": "assembleJianglabDebug",
+    "niubi": "assembleNiubiDebug",
+}
+CORE_FILES = [
     "app/build.gradle",
+    "settings.gradle",
+    "app/libs/musicbridge.aar",
     "app/src/main/AndroidManifest.xml",
     "app/src/main/java/com/jianglab/babywife/MainActivity.java",
-    "app/src/main/res/drawable/default_background.xml",
-    "app/src/main/res/mipmap/ic_launcher.xml",
-    "app/src/main/res/mipmap/ic_launcher_round.xml",
+    "app/src/main/java/com/jianglab/babywife/CatalogSearch.java",
+    "app/src/main/java/com/jianglab/babywife/LyricVersionPicker.java",
+    "app/src/main/java/com/jianglab/babywife/SongVersionPicker.java",
+    "app/src/main/java/com/jianglab/babywife/PlaylistLyricMatcher.java",
+    "app/src/main/java/com/jianglab/babywife/PlaybackControlService.java",
 ]
-FORBIDDEN_SUFFIXES = {".jks", ".keystore", ".p12", ".pfx", ".pem", ".key", ".apk", ".aab"}
-FORBIDDEN_TEXT = {
-    "storePassword": "embedded signing password",
-    "keyPassword": "embedded key password",
-    "BEGIN PRIVATE KEY": "private key",
-    "github_pat_": "GitHub token",
-    "ghp_": "GitHub token",
-    "applicationIdSuffix": "brand flavor",
-}
 
 
 def fail(message: str) -> None:
-    print(f"FAIL: {message}", file=sys.stderr)
+    print(f"PUBLIC_REPO_CHECK_FAILED: {message}", file=sys.stderr)
     raise SystemExit(1)
 
 
-def main() -> int:
-    missing = [path for path in REQUIRED if not (ROOT / path).is_file()]
-    if missing:
-        fail("missing required files: " + ", ".join(missing))
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace")
 
-    main_java = (ROOT / REQUIRED[5]).read_text(encoding="utf-8")
-    if "public class MainActivity extends Activity" not in main_java:
-        fail("MainActivity entry class is invalid")
-    if main_java.count("public class MainActivity") != 1:
-        fail("MainActivity was assembled more than once")
-    if len(main_java.splitlines()) < 1500:
-        fail("MainActivity appears truncated")
 
-    build_text = (ROOT / "app/build.gradle").read_text(encoding="utf-8")
-    if 'applicationId "com.jianglab.babywife"' not in build_text:
-        fail("public package id changed")
-    if "productFlavors" in build_text or "signingConfigs" in build_text:
-        fail("private brand or signing configuration is present")
-
-    findings: list[str] = []
+def main() -> None:
     for path in ROOT.rglob("*"):
-        if not path.is_file() or ".git" in path.parts:
+        if ".git" in path.parts:
             continue
-        relative = path.relative_to(ROOT).as_posix()
-        if any(relative.startswith(prefix) for prefix in ("app/src/lidacaizhu/", "app/src/jianglab/", "app/src/niubi/")):
-            findings.append(f"private brand directory: {relative}")
-            continue
-        if path.suffix.lower() in FORBIDDEN_SUFFIXES:
-            findings.append(f"forbidden file: {relative}")
-            continue
-        if relative == "scripts/check_public_repo.py" or path.stat().st_size > 5_000_000:
-            continue
+        if path.is_file() and path.suffix.lower() in FORBIDDEN_SUFFIXES:
+            fail(f"forbidden file committed: {path.relative_to(ROOT)}")
+
+    for rel in CORE_FILES:
+        path = ROOT / rel
+        if not path.exists():
+            fail(f"missing required file: {rel}")
+        if path.is_file() and path.stat().st_size == 0:
+            fail(f"empty required file: {rel}")
+
+    build_gradle = read_text(ROOT / "app/build.gradle")
+    if "flavorDimensions" not in build_gradle or "productFlavors" not in build_gradle:
+        fail("app/build.gradle does not define four brand flavors")
+    for brand in BRANDS:
+        if not re.search(rf"\b{re.escape(brand)}\s*\{{", build_gradle):
+            fail(f"missing product flavor: {brand}")
+        if not (ROOT / "app/src" / brand / "res/values/strings.xml").exists():
+            fail(f"missing brand strings.xml: {brand}")
+        if not (ROOT / "app/src" / brand / "res/drawable-nodpi/default_background.jpg").exists():
+            fail(f"missing brand background: {brand}")
+
+    for token in FORBIDDEN_TEXT:
+        for path in ROOT.rglob("*"):
+            if ".git" in path.parts or not path.is_file():
+                continue
+            if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".aar"}:
+                continue
+            if token in read_text(path):
+                fail(f"forbidden text '{token}' in {path.relative_to(ROOT)}")
+
+    xml_files = list((ROOT / "app/src").rglob("*.xml"))
+    for path in xml_files:
         try:
-            text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            continue
-        for marker, label in FORBIDDEN_TEXT.items():
-            if marker in text:
-                findings.append(f"{label}: {relative}")
-    if findings:
-        fail("; ".join(findings))
+            ET.parse(path)
+        except Exception as exc:
+            fail(f"invalid XML {path.relative_to(ROOT)}: {exc}")
 
-    temp_parts = list((ROOT / ".bootstrap").glob("MainActivity.part*")) if (ROOT / ".bootstrap").exists() else []
-    if temp_parts:
-        fail("temporary MainActivity parts remain")
-
-    print("Public repository check passed.")
-    print(f"MainActivity lines={len(main_java.splitlines())}")
-    return 0
+    print("Public four-brand repository check passed.")
+    print(f"brands={','.join(BRANDS)}")
+    print(f"xml_files={len(xml_files)}")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

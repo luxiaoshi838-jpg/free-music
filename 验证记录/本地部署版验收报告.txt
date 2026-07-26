@@ -1,0 +1,37 @@
+四品牌音乐软件源码本地部署版——验收报告
+
+一、构建能力依据
+- 来源分支：agent/full-platform-catalog-cache
+- 来源提交：460016c9ea94321461e601fd7619222086afb6f0
+- 历史成功四 APK 构建 Run：29677002447、29677002454
+- 结论：原四品牌构建链已真实成功生成四个 APK。
+
+二、本地工程检查
+- Java 源文件：8 个
+- XML 文件：16 个，全部可解析
+- musicbridge.aar：ZIP 完整，包含 classes.jar 与未预先剥离的 arm64-v8a/libgojni.so
+- 大宝贝儿老婆：32 个图片资源；默认背景 1365x2048；包名 com.jianglab.babywife
+- 李大财主：32 个图片资源；默认背景 572x1018；包名 com.jianglab.babywife.lidacaizhu
+- 姜Lab：32 个图片资源；默认背景 941x1672；包名 com.jianglab.babywife.jianglab
+- 牛逼：32 个图片资源；默认背景 900x1600；包名 com.jianglab.babywife.niubi
+
+三、源码一致性
+- MainActivity.java 与成功构建产物 SHA256 一致
+- PlaylistLyricMatcher.java 与成功构建产物 SHA256 一致
+- LyricVersionPicker.java 与成功构建产物 SHA256 一致
+- 自定义类联合 javac 解析未发现 Java 语法错误；缺失 Android SDK 时仅出现预期的 Android/org.json 类型解析错误
+- 已补入最终主程序需要的 NetworkMediaCache 四参数兼容入口
+
+四、安全检查
+- 不包含 JKS、keystore、P12、PFX、PEM、私钥、APK 或 AAB
+- 未发现正式签名密码字段、GitHub Token 或私钥头
+- 默认使用本机 Android debug 签名
+
+五、构建脚本
+- Windows：构建四品牌APK.ps1
+- Linux/WSL：build_four_apks.sh
+- 两个脚本均实施连续五分钟无新增日志即停止的防卡住检查
+- 可先运行初始化GradleWrapper.ps1或init_gradle_wrapper.sh生成Gradle 8.7 Wrapper
+
+六、限制说明
+当前运行环境没有完整 Android SDK Platform 35 与 Gradle，因此本次没有在容器内重新执行完整 assemble。构建能力由同一来源提交的两次成功四 APK Actions 构建证明；本地工程完成了源码哈希、接口、资源、AAR、XML和敏感信息检查。
