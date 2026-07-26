@@ -1,0 +1,108 @@
+        final String text;
+
+        LyricLine(long timeMs, String text) {
+            this.timeMs = timeMs;
+            this.text = text == null ? "" : text;
+        }
+    }
+
+    private static final class FolderEntry {
+        final String name;
+        final Uri uri;
+
+        FolderEntry(String name, Uri uri) {
+            this.name = name;
+            this.uri = uri;
+        }
+    }
+
+    private static final class Playlist {
+        String name;
+        final List<Song> songs = new ArrayList<>();
+
+        Playlist(String name) {
+            this.name = name == null || name.isEmpty() ? "\u672c\u5730\u6b4c\u66f2" : name;
+        }
+
+        JSONObject toJson() {
+            JSONObject object = new JSONObject();
+            JSONArray array = new JSONArray();
+            try {
+                object.put("name", name);
+                for (Song song : songs) array.put(song.toJson());
+                object.put("songs", array);
+            } catch (JSONException ignored) {
+            }
+            return object;
+        }
+
+        static Playlist fromJson(JSONObject object) {
+            Playlist playlist = new Playlist(object.optString("name", "\u672c\u5730\u6b4c\u66f2"));
+            JSONArray array = object.optJSONArray("songs");
+            if (array != null) {
+                for (int i = 0; i < array.length(); i++) {
+                    JSONObject item = array.optJSONObject(i);
+                    if (item != null) playlist.songs.add(Song.fromJson(item));
+                }
+            }
+            return playlist;
+        }
+    }
+
+    private static final class Song {
+        final String title;
+        final String artist;
+        final String source;
+        String lyric;
+        String uri;
+
+        Song(String title, String artist, String source, String lyric) {
+            this(title, artist, source, lyric, "");
+        }
+
+        Song(String title, String artist, String source, String lyric, String uri) {
+            this.title = title == null || title.isEmpty() ? "\u672a\u77e5\u6b4c\u66f2" : title;
+            this.artist = artist == null || artist.isEmpty() ? "\u672a\u77e5\u6b4c\u624b" : artist;
+            this.source = source == null || source.isEmpty() ? "\u672c\u5730" : source;
+            this.lyric = lyric == null ? "" : lyric;
+            this.uri = uri == null ? "" : uri;
+        }
+
+        String display() {
+            return "\u6b4c\u540d\uff1a" + title + "\n\u6b4c\u624b\uff1a" + artist + "    \u5e73\u53f0\uff1a" + source;
+        }
+
+        String key() {
+            if (!uri.isEmpty()) return uri.toLowerCase();
+            return (title + "|" + artist + "|" + source).toLowerCase();
+        }
+
+        boolean matches(String keyword) {
+            String key = (title + " " + artist + " " + source).toLowerCase();
+            return key.contains(keyword.toLowerCase());
+        }
+
+        JSONObject toJson() {
+            JSONObject object = new JSONObject();
+            try {
+                object.put("title", title);
+                object.put("artist", artist);
+                object.put("source", source);
+                object.put("lyric", lyric);
+                object.put("uri", uri);
+            } catch (JSONException ignored) {
+            }
+            return object;
+        }
+
+        static Song fromJson(JSONObject object) {
+            return new Song(
+                object.optString("title"),
+                object.optString("artist"),
+                object.optString("source"),
+                object.optString("lyric"),
+                object.optString("uri")
+            );
+        }
+    }
+}
