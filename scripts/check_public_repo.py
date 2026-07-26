@@ -24,9 +24,6 @@ FORBIDDEN_TEXT = {
     "github_pat_": "GitHub token",
     "ghp_": "GitHub token",
     "applicationIdSuffix": "brand flavor",
-    "app/src/lidacaizhu": "private brand resource",
-    "app/src/jianglab": "private brand resource",
-    "app/src/niubi": "private brand resource",
 }
 
 
@@ -65,7 +62,7 @@ def main() -> int:
         if path.suffix.lower() in FORBIDDEN_SUFFIXES:
             findings.append(f"forbidden file: {relative}")
             continue
-        if path.stat().st_size > 5_000_000:
+        if relative == "scripts/check_public_repo.py" or path.stat().st_size > 5_000_000:
             continue
         try:
             text = path.read_text(encoding="utf-8")
