@@ -1,1 +1,0 @@
-Scope: cache cleanup and selectable cache root, correct player action visibility and queue switching, playable replacement search, unavailable-song marking, CSV round-trip, synchronized logs, and JiangLab first-launch verification framework without a public passphrase.
