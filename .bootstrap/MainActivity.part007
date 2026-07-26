@@ -1,0 +1,200 @@
+
+    private void playSong(Song song) {
+        currentSong = song;
+        saveLastSong(0);
+        titleView.setText(song.title);
+        artistView.setText(song.artist + " \u00b7 " + song.source);
+        if (addCurrentButton != null) addCurrentButton.setVisibility(playingSearchQueue ? View.VISIBLE : View.GONE);
+        showSongLyrics(song);
+        statusView.setText("\u5f53\u524d\u64ad\u653e\uff1a" + song.title);
+        if (song.uri == null || song.uri.isEmpty()) {
+            stopPlayback();
+            playButton.setText("\u25b6");
+            resolveAndPlay(song);
+            return;
+        }
+        startLocalPlayback(song);
+    }
+
+    private void resolveAndPlay(Song song) {
+        statusView.setText("\u6b63\u5728\u89e3\u6790\u53ef\u64ad\u653e\u97f3\u9891...");
+        new Thread(() -> {
+            Song resolved = resolvePlayableSong(song);
+            runOnUiThread(() -> {
+                if (currentSong != song) return;
+                if (resolved == null || resolved.uri == null || resolved.uri.isEmpty()) {
+                    toast("\u6682\u65f6\u6ca1\u6709\u89e3\u6790\u5230\u53ef\u64ad\u653e\u97f3\u9891");
+                    return;
+                }
+                song.uri = resolved.uri;
+                if ((song.lyric == null || song.lyric.trim().isEmpty()) && resolved.lyric != null) song.lyric = resolved.lyric;
+                startLocalPlayback(song);
+            });
+        }).start();
+    }
+
+    private Song resolvePlayableSong(Song song) {
+        String keyword = song.title + " " + song.artist;
+        List<Song> candidates = new ArrayList<>();
+        candidates.addAll(searchKuwo(keyword));
+        candidates.addAll(searchNetease(keyword));
+        sortByKeyword(candidates, song.title);
+        for (Song candidate : candidates) {
+            if (candidate.uri == null || candidate.uri.isEmpty()) continue;
+            String playable = resolvePlaybackUri(candidate.uri);
+            if (!playable.isEmpty()) {
+                candidate.uri = playable;
+                if (candidate.lyric == null || candidate.lyric.isEmpty()) {
+                    String id = neteaseIdFromSong(candidate);
+                    if (!id.isEmpty()) candidate.lyric = fetchNeteaseLyric(id);
+                }
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private String resolvePlaybackUri(String uri) {
+        if (uri == null || uri.trim().isEmpty()) return "";
+        String trimmed = uri.trim();
+        if (!trimmed.contains("antiserver.kuwo.cn")) return trimmed;
+        try {
+            HttpURLConnection connection = (HttpURLConnection) new URL(trimmed).openConnection();
+            connection.setConnectTimeout(8000);
+            connection.setReadTimeout(8000);
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), "UTF-8"))) {
+                String value = reader.readLine();
+                return value == null ? "" : value.trim();
+            } finally {
+                connection.disconnect();
+            }
+        } catch (Exception ignored) {
+            return trimmed;
+        }
+    }
+
+    private void playSongFromPlaylist(int index) {
+        if (index < 0 || index >= currentPlaylist().songs.size()) return;
+        playingSearchQueue = false;
+        searchSongIndex = -1;
+        currentSongIndex = index;
+        playSong(currentPlaylist().songs.get(index));
+    }
+
+    private void playSongFromSearch(int index) {
+        if (index < 0 || index >= searchResults.size()) return;
+        playingSearchQueue = true;
+        searchSongIndex = index;
+        currentSongIndex = -1;
+        playSong(searchResults.get(index));
+    }
+
+    private void playPlaylistOffset(int offset) {
+        if (playingSearchQueue) {
+            if (searchResults.isEmpty()) {
+                toast("\u641c\u7d22\u961f\u5217\u4e3a\u7a7a");
+                return;
+            }
+            int nextIndex = searchSongIndex;
+            if (nextIndex < 0 || nextIndex >= searchResults.size()) {
+                nextIndex = 0;
+            } else {
+                nextIndex = (nextIndex + offset + searchResults.size()) % searchResults.size();
+            }
+            playSongFromSearch(nextIndex);
+            return;
+        }
+        Playlist playlist = currentPlaylist();
+        if (playlist.songs.isEmpty()) {
+            toast("\u5f53\u524d\u6b4c\u5355\u4e3a\u7a7a");
+            return;
+        }
+        int nextIndex = currentSongIndex;
+        if (nextIndex < 0 || nextIndex >= playlist.songs.size()) {
+            nextIndex = 0;
+        } else if (playMode == 2 && offset != 0) {
+            nextIndex = random.nextInt(playlist.songs.size());
+        } else {
+            nextIndex = (nextIndex + offset + playlist.songs.size()) % playlist.songs.size();
+        }
+        playSongFromPlaylist(nextIndex);
+    }
+
+    private void playAfterCompletion() {
+        if (playingSearchQueue) {
+            playPlaylistOffset(1);
+            return;
+        }
+        if (playMode == 0) {
+            startLocalPlayback(currentSong);
+        } else {
+            playPlaylistOffset(1);
+        }
+    }
+
+    private void cyclePlayMode() {
+        playMode = (playMode + 1) % 3;
+        if (modeButton != null) modeButton.setText(playModeSymbol());
+        toast(playModeText());
+    }
+
+    private String playModeText() {
+        if (playMode == 0) return "\u5355\u66f2\u5faa\u73af";
+        if (playMode == 1) return "\u987a\u5e8f\u64ad\u653e";
+        return "\u968f\u673a\u64ad\u653e";
+    }
+
+    private String playModeSymbol() {
+        if (playMode == 0) return "\u21bb";
+        if (playMode == 1) return "\u2192";
+        return "\u2928";
+    }
+
+    private void startLocalPlayback(Song song) {
+        try {
+            stopPlayback();
+            mediaPlayer = new MediaPlayer();
+            mediaPlayer.setDataSource(this, Uri.parse(song.uri));
+            mediaPlayer.setOnCompletionListener(player -> playAfterCompletion());
+            if (song.uri.startsWith("http://") || song.uri.startsWith("https://")) {
+                statusView.setText("\u6b63\u5728\u6253\u5f00\u5728\u7ebf\u97f3\u9891...");
+                mediaPlayer.setOnPreparedListener(player -> {
+                    player.start();
+                    playButton.setText("\u2161");
+                    statusView.setText("\u5f53\u524d\u64ad\u653e\uff1a" + song.title);
+                    lyricHandler.removeCallbacks(lyricTicker);
+                    lyricHandler.post(lyricTicker);
+                });
+                mediaPlayer.prepareAsync();
+            } else {
+                mediaPlayer.prepare();
+                mediaPlayer.start();
+                playButton.setText("\u2161");
+                saveLastSong(0);
+                lyricHandler.removeCallbacks(lyricTicker);
+                lyricHandler.post(lyricTicker);
+            }
+        } catch (Exception ex) {
+            stopPlayback();
+            playButton.setText("\u25b6");
+            toast("\u64ad\u653e\u5931\u8d25\uff1a" + ex.getMessage());
+        }
+    }
+
+    private void togglePlayback() {
+        if (mediaPlayer == null) {
+            if (currentSong != null) {
+                playSong(currentSong);
+            } else if (!currentPlaylist().songs.isEmpty()) {
+                playSongFromPlaylist(0);
+            } else {
+                toast("\u8bf7\u5148\u5bfc\u5165\u6216\u9009\u62e9\u6b4c\u66f2");
+            }
+            return;
+        }
+        if (mediaPlayer.isPlaying()) {
+            mediaPlayer.pause();
+            playButton.setText("\u25b6");
+            saveLastSong(mediaPlayer.getCurrentPosition());
+            lyricHandler.removeCallbacks(lyricTicker);
