@@ -273,7 +273,6 @@ final class CatalogSearch {
             String selectedTitle = selected.optString("name", "");
             String selectedArtist = selected.optString("artist", "");
             if (normalize(selectedTitle).isEmpty() || normalize(selectedArtist).isEmpty()) return matches;
-
             List<String> sources = new ArrayList<>(ALL_SOURCES);
             sources.remove(selectedSource);
             ExecutorService pool = Executors.newFixedThreadPool(4);
@@ -285,14 +284,11 @@ final class CatalogSearch {
                 for (String source : sources) {
                     Future<List<Track>> future = futures.get(source);
                     if (future == null) continue;
-                    List<Track> rows;
                     try {
-                        rows = future.get(12, TimeUnit.SECONDS);
+                        for (Track track : future.get(12, TimeUnit.SECONDS)) {
+                            if (sameIdentity(selectedTitle, selectedArtist, track)) matches.add(track);
+                        }
                     } catch (Exception ignored) {
-                        continue;
-                    }
-                    for (Track track : rows) {
-                        if (sameIdentity(selectedTitle, selectedArtist, track)) matches.add(track);
                     }
                 }
             } finally {
@@ -301,6 +297,121 @@ final class CatalogSearch {
         } catch (Exception ignored) {
         }
         return matches;
+    }
+
+    static List<Track> findPlayableAlternatives(String catalogJson) {
+        List<Track> matches = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        try {
+            JSONObject selected = new JSONObject(catalogJson == null ? "{}" : catalogJson);
+            String selectedSource = selected.optString("source", "").trim().toLowerCase(Locale.ROOT);
+            String selectedTitle = selected.optString("name", "");
+            String selectedArtist = selected.optString("artist", "");
+            if (normalize(selectedTitle).isEmpty()) return matches;
+
+            List<String> sources = new ArrayList<>(ALL_SOURCES);
+            sources.remove(selectedSource);
+            ExecutorService pool = Executors.newFixedThreadPool(4);
+            try {
+                Map<String, Future<List<Track>>> futures = new LinkedHashMap<>();
+                for (String source : sources) {
+                    futures.put(source, pool.submit(() -> {
+                        List<Track> rows = searchOneSource(source, selectedTitle + " " + selectedArtist);
+                        if (rows.size() < 4) {
+                            List<Track> titleRows = searchOneSource(source, selectedTitle);
+                            for (Track row : titleRows) {
+                                boolean duplicate = false;
+                                for (Track old : rows) {
+                                    if (old.key().equals(row.key())) {
+                                        duplicate = true;
+                                        break;
+                                    }
+                                }
+                                if (!duplicate) rows.add(row);
+                            }
+                        }
+                        return rows;
+                    }));
+                }
+                for (String source : sources) {
+                    Future<List<Track>> future = futures.get(source);
+                    if (future == null) continue;
+                    List<Track> rows;
+                    try {
+                        rows = future.get(18, TimeUnit.SECONDS);
+                    } catch (Exception ignored) {
+                        continue;
+                    }
+                    for (Track track : rows) {
+                        if (replacementScore(selectedTitle, selectedArtist, track) < 350) continue;
+                        if (seen.add(track.key())) matches.add(track);
+                    }
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+            Collections.sort(matches, (left, right) ->
+                replacementScore(selectedTitle, selectedArtist, right)
+                    - replacementScore(selectedTitle, selectedArtist, left));
+        } catch (Exception ignored) {
+        }
+        return matches;
+    }
+
+    static int replacementScore(String title, String artist, Track candidate) {
+        if (candidate == null) return 0;
+        String wantedTitle = normalizeTitle(title);
+        String actualTitle = normalizeTitle(candidate.title);
+        if (wantedTitle.isEmpty() || actualTitle.isEmpty()) return 0;
+        int score;
+        if (wantedTitle.equals(actualTitle)) {
+            score = 2200;
+        } else if (wantedTitle.contains(actualTitle) || actualTitle.contains(wantedTitle)) {
+            int shorter = Math.min(wantedTitle.length(), actualTitle.length());
+            int longer = Math.max(wantedTitle.length(), actualTitle.length());
+            score = 1150 + (longer == 0 ? 0 : shorter * 500 / longer);
+        } else {
+            double similarity = bigramSimilarity(wantedTitle, actualTitle);
+            if (similarity < 0.45d) return 0;
+            score = 350 + (int) Math.round(similarity * 700d);
+        }
+        if (sameArtistIdentity(artist, candidate.artist)) {
+            score += 1200;
+        } else {
+            String wantedArtist = normalize(artist);
+            String actualArtist = normalize(candidate.artist);
+            if (!wantedArtist.isEmpty() && !actualArtist.isEmpty()
+                && (wantedArtist.contains(actualArtist) || actualArtist.contains(wantedArtist))) {
+                score += 350;
+            }
+        }
+        return score;
+    }
+
+    private static String normalizeTitle(String value) {
+        String normalized = normalize(value);
+        return normalized
+            .replaceAll("(live|remix|伴奏|纯音乐|现场版|翻唱版|完整版|剪辑版|加速版|降速版)$", "")
+            .trim();
+    }
+
+    private static double bigramSimilarity(String left, String right) {
+        if (left.equals(right)) return 1d;
+        if (left.length() < 2 || right.length() < 2) return 0d;
+        List<String> leftPairs = new ArrayList<>();
+        for (int i = 0; i < left.length() - 1; i++) leftPairs.add(left.substring(i, i + 2));
+        List<String> rightPairs = new ArrayList<>();
+        for (int i = 0; i < right.length() - 1; i++) rightPairs.add(right.substring(i, i + 2));
+        int common = 0;
+        List<String> remaining = new ArrayList<>(rightPairs);
+        for (String pair : leftPairs) {
+            int index = remaining.indexOf(pair);
+            if (index >= 0) {
+                common++;
+                remaining.remove(index);
+            }
+        }
+        return (2d * common) / (leftPairs.size() + rightPairs.size());
     }
 
     static boolean sameIdentity(String title, String artist, Track candidate) {

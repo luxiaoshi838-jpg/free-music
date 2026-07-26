@@ -11,6 +11,16 @@ else
   exit 1
 fi
 
+
+if [ -z "${JIANG_LAB_PASSPHRASE_SHA256:-}" ] && [ -f private.properties ]; then
+  JIANG_LAB_PASSPHRASE_SHA256=$(sed -n 's/^[[:space:]]*JIANG_LAB_PASSPHRASE_SHA256[[:space:]]*=[[:space:]]*//p' private.properties | head -n 1)
+  export JIANG_LAB_PASSPHRASE_SHA256
+fi
+if ! printf '%s' "${JIANG_LAB_PASSPHRASE_SHA256:-}" | grep -Eq '^[0-9a-fA-F]{64}$'; then
+  echo "姜Lab 首次验证哈希未配置。先运行 python3 scripts/generate_jianglab_passphrase_hash.py，并把结果写入 private.properties。" >&2
+  exit 2
+fi
+
 log="四品牌构建.log"
 err="四品牌构建.log.err"
 : > "$log"

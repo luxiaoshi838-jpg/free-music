@@ -22,3 +22,15 @@
   - shared `缓存` folder for search and replacement cache;
   - clear-cache action should clean that transient folder.
 - Remove the visible “设置” title from the settings drawer while preserving layout positions.
+
+## 2026-07-26.2
+
+- Completed the cache and playback-context revision for all four brands.
+- Added selectable cache-root storage with per-playlist folders and a shared `缓存` transient folder.
+- Added transient-cache cleanup, playlist-cache promotion, and cache-folder rename support.
+- Relaxed replacement matching and required real playability verification before manual replacement.
+- Changed unavailable marking to require both automatic and exhaustive manual replacement failure.
+- Completed backward-compatible CSV import/export round trips with optional state-preserving columns.
+- Removed the visible settings title while keeping the drawer header spacing.
+- Added JiangLab-only first-launch verification with a privately injected SHA-256 digest; no real passphrase or digest is committed.
+- Added synchronized project logs, static feature checks, and a five-minute no-output build watchdog.

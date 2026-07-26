@@ -1,6 +1,23 @@
+import java.nio.charset.StandardCharsets
+
 plugins {
     id "com.android.application"
 }
+
+def privateProperties = new Properties()
+def privatePropertiesFile = rootProject.file("private.properties")
+if (privatePropertiesFile.exists()) {
+    privatePropertiesFile.withReader(StandardCharsets.UTF_8.name()) { reader ->
+        privateProperties.load(reader)
+    }
+}
+def jiangLabPassphraseHash = System.getenv("JIANG_LAB_PASSPHRASE_SHA256")
+if (jiangLabPassphraseHash == null || jiangLabPassphraseHash.trim().isEmpty()) {
+    jiangLabPassphraseHash = privateProperties.getProperty("JIANG_LAB_PASSPHRASE_SHA256", "")
+}
+def escapedJiangLabPassphraseHash = jiangLabPassphraseHash
+    .replace("\\", "\\\\")
+    .replace('"', '\\"')
 
 android {
     namespace "com.jianglab.babywife"
@@ -11,8 +28,10 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026072601
-        versionName "2026.07.26.local"
+        versionCode 2026072602
+        versionName "2026.07.26.2"
+        buildConfigField "boolean", "JIANG_LAB_GATE_ENABLED", "false"
+        buildConfigField "String", "JIANG_LAB_PASSPHRASE_SHA256", '""'
     }
 
     flavorDimensions "brand"
@@ -30,12 +49,18 @@ android {
             dimension "brand"
             applicationIdSuffix ".jianglab"
             versionNameSuffix "-jianglab"
+            buildConfigField "boolean", "JIANG_LAB_GATE_ENABLED", "true"
+            buildConfigField "String", "JIANG_LAB_PASSPHRASE_SHA256", '"' + escapedJiangLabPassphraseHash + '"'
         }
         niubi {
             dimension "brand"
             applicationIdSuffix ".niubi"
             versionNameSuffix "-niubi"
         }
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     packagingOptions {

@@ -14,6 +14,20 @@ if (Test-Path $Wrapper) {
     $GradleCommand = $Gradle.Source
 }
 
+
+$PrivateProperties = Join-Path $Root "private.properties"
+if ([string]::IsNullOrWhiteSpace($env:JIANG_LAB_PASSPHRASE_SHA256) -and (Test-Path $PrivateProperties)) {
+    $Line = Get-Content $PrivateProperties -Encoding UTF8 |
+        Where-Object { $_ -match '^\s*JIANG_LAB_PASSPHRASE_SHA256\s*=' } |
+        Select-Object -First 1
+    if ($Line) {
+        $env:JIANG_LAB_PASSPHRASE_SHA256 = ($Line -split '=', 2)[1].Trim()
+    }
+}
+if ($env:JIANG_LAB_PASSPHRASE_SHA256 -notmatch '^[0-9a-fA-F]{64}$') {
+    throw "姜Lab 首次验证哈希未配置。先运行 python scripts/generate_jianglab_passphrase_hash.py，并把结果写入 private.properties。"
+}
+
 $Log = Join-Path $Root "四品牌构建.log"
 $Output = Join-Path $Root "本地构建输出"
 New-Item -ItemType Directory -Force -Path $Output | Out-Null
