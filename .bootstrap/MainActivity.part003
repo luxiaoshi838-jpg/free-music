@@ -1,0 +1,200 @@
+        modeButton.setTextSize(12);
+        modeButton.setOnClickListener(view -> cyclePlayMode());
+        LinearLayout.LayoutParams modeParams = new LinearLayout.LayoutParams(
+            dp(42),
+            dp(42)
+        );
+        modeParams.gravity = Gravity.BOTTOM;
+        bottomBar.addView(modeButton, modeParams);
+        panel.addView(bottomBar, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+        return panel;
+    }
+
+    private View buildPlaylistPage() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(10), dp(10), dp(10), dp(10));
+        panel.setBackground(rounded(GLASS_DARK, dp(28)));
+
+        LinearLayout topRow = new LinearLayout(this);
+        topRow.setOrientation(LinearLayout.HORIZONTAL);
+        topRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        Button backButton = makeRoundButton("\u2039", false);
+        backButton.setTextSize(22);
+        backButton.setOnClickListener(view -> showPlayerPage());
+        topRow.addView(backButton, new LinearLayout.LayoutParams(dp(46), dp(46)));
+
+        TextView title = new TextView(this);
+        title.setText("\u5f53\u524d\u6b4c\u5355");
+        title.setTextColor(TEXT_MAIN);
+        title.setTextSize(20);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setGravity(Gravity.CENTER);
+        topRow.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        TextView spacer = new TextView(this);
+        topRow.addView(spacer, new LinearLayout.LayoutParams(dp(46), dp(46)));
+        panel.addView(topRow);
+
+        TextView hint = new TextView(this);
+        hint.setText("\u70b9\u51fb\u64ad\u653e\uff0c\u957f\u6309\u5220\u9664");
+        hint.setTextColor(TEXT_MUTED);
+        hint.setTextSize(12);
+        hint.setGravity(Gravity.CENTER);
+        panel.addView(hint);
+
+        playlistAdapter = new SongListAdapter(currentPlaylist().songs);
+        ListView playlistList = new ListView(this);
+        playlistList.setBackground(rounded(Color.argb(72, 0, 0, 0), dp(20)));
+        playlistList.setAdapter(playlistAdapter);
+        playlistList.setOnItemClickListener((parent, view, position, id) -> {
+            playSongFromPlaylist(position);
+            showPlayerPage();
+        });
+        playlistList.setOnItemLongClickListener((parent, view, position, id) -> {
+            Song removed = currentPlaylist().songs.remove(position);
+            savePlaylists();
+            renderCurrentPlaylist();
+            toast("\u5df2\u5220\u9664\uff1a" + removed.title);
+            return true;
+        });
+        panel.addView(playlistList, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            0,
+            1
+        ));
+        return panel;
+    }
+
+    private View buildListsPanel() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.HORIZONTAL);
+        panel.setPadding(0, dp(10), 0, 0);
+
+        LinearLayout resultsColumn = buildColumn("\u641c\u7d22\u7ed3\u679c");
+        resultAdapter = new SongListAdapter(searchResults);
+        ListView resultsList = new ListView(this);
+        resultsList.setBackground(rounded(Color.argb(72, 0, 0, 0), dp(20)));
+        resultsList.setAdapter(resultAdapter);
+        resultsList.setOnItemClickListener((parent, view, position, id) -> playSong(searchResults.get(position)));
+        resultsList.setOnItemLongClickListener((parent, view, position, id) -> {
+            addSongToCurrentPlaylist(searchResults.get(position));
+            return true;
+        });
+        resultsColumn.addView(resultsList, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            0,
+            1
+        ));
+
+        LinearLayout playlistColumn = buildColumn("\u5f53\u524d\u6b4c\u5355");
+        playlistAdapter = new SongListAdapter(currentPlaylist().songs);
+        ListView playlistList = new ListView(this);
+        playlistList.setBackground(rounded(Color.argb(72, 0, 0, 0), dp(20)));
+        playlistList.setAdapter(playlistAdapter);
+        playlistList.setOnItemClickListener((parent, view, position, id) -> playSongFromPlaylist(position));
+        playlistList.setOnItemLongClickListener((parent, view, position, id) -> {
+            Song removed = currentPlaylist().songs.remove(position);
+            savePlaylists();
+            renderCurrentPlaylist();
+            toast("\u5df2\u5220\u9664\uff1a" + removed.title);
+            return true;
+        });
+        playlistColumn.addView(playlistList, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            0,
+            1
+        ));
+
+        panel.addView(resultsColumn, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        panel.addView(playlistColumn, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        return panel;
+    }
+
+    private LinearLayout buildColumn(String title) {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setPadding(dp(4), 0, dp(4), 0);
+        TextView label = new TextView(this);
+        label.setText(title);
+        label.setTextSize(16);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setTextColor(TEXT_MAIN);
+        label.setGravity(Gravity.CENTER);
+        column.addView(label);
+        return column;
+    }
+
+    private final class SongListAdapter extends BaseAdapter {
+        private List<Song> songs;
+
+        SongListAdapter(List<Song> songs) {
+            this.songs = songs;
+        }
+
+        void setSongs(List<Song> songs) {
+            this.songs = songs;
+            notifyDataSetChanged();
+        }
+
+        @Override
+        public int getCount() {
+            return songs == null ? 0 : songs.size();
+        }
+
+        @Override
+        public Song getItem(int position) {
+            return songs.get(position);
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return position;
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            LinearLayout row = convertView instanceof LinearLayout ? (LinearLayout) convertView : null;
+            if (row == null) {
+                row = new LinearLayout(MainActivity.this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(10), dp(9), dp(10), dp(9));
+                row.addView(makeCell(0.42f, true));
+                row.addView(makeCell(0.38f, false));
+                row.addView(makeCell(0.20f, false));
+            }
+            Song song = getItem(position);
+            ((TextView) row.getChildAt(0)).setText(song.title);
+            ((TextView) row.getChildAt(1)).setText(song.artist);
+            ((TextView) row.getChildAt(2)).setText(song.source);
+            return row;
+        }
+
+        private TextView makeCell(float weight, boolean bold) {
+            TextView cell = new TextView(MainActivity.this);
+            cell.setSingleLine(true);
+            cell.setEllipsize(TextUtils.TruncateAt.END);
+            cell.setTextColor(TEXT_MAIN);
+            cell.setTextSize(14);
+            if (bold) cell.setTypeface(Typeface.DEFAULT_BOLD);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weight);
+            params.setMargins(dp(4), 0, dp(4), 0);
+            cell.setLayoutParams(params);
+            return cell;
+        }
+    }
+
+    private LinearLayout buildPlaylistManagerPanel() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(10), dp(10), dp(10), dp(10));
+        panel.setBackground(rounded(Color.argb(54, 255, 255, 255), dp(18)));
+
+        TextView label = new TextView(this);
+        label.setText("\u6b4c\u5355\u7ba1\u7406");
+        label.setTextSize(17);
