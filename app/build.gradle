@@ -1,0 +1,16 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.jianglab.babywife"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.jianglab.babywife"
+        minSdk 23
+        targetSdk 35
+        versionCode 2026071508
+        versionName "2026.07.15.8"
+    }
+}
