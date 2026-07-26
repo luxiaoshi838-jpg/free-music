@@ -27,6 +27,7 @@ final class SongVersionPicker {
     interface Callback {
         void onStatus(String message);
         void onPreview(String title, String artist, String sourceLabel, String catalogJson);
+        void onUnavailable();
     }
 
     private final Activity activity;
@@ -41,6 +42,7 @@ final class SongVersionPicker {
     private TextView status;
     private TextView footer;
     private AlertDialog dialog;
+    private boolean unavailableNotified;
 
     private SongVersionPicker(Activity activity, String title, String artist, Callback callback) {
         this.activity = activity;
@@ -77,12 +79,30 @@ final class SongVersionPicker {
         list.addFooterView(footer, null, true);
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> {
-            if (position < 0 || position >= rows.size()) return;
+            if (position < 0 || position >= rows.size() || loading) return;
             CatalogSearch.Track selected = rows.get(position);
-            if (callback != null) {
-                callback.onPreview(selected.title, selected.artist, selected.sourceLabel, selected.rawJson);
-            }
-            if (dialog != null && dialog.isShowing()) dialog.dismiss();
+            loading = true;
+            list.setEnabled(false);
+            status.setText("正在验证该版本是否可以播放…");
+            if (callback != null) callback.onStatus("正在验证替换歌曲是否可以播放…");
+            new Thread(() -> {
+                boolean playable = NetworkMediaCache.canResolveCatalog(selected.rawJson);
+                activity.runOnUiThread(() -> {
+                    loading = false;
+                    list.setEnabled(true);
+                    if (!playable) {
+                        rows.remove(selected);
+                        adapter.notifyDataSetChanged();
+                        status.setText("该版本当前不可播放，已从候选中移除；请选择其他版本");
+                        updateFooter();
+                        return;
+                    }
+                    if (callback != null) {
+                        callback.onPreview(selected.title, selected.artist, selected.sourceLabel, selected.rawJson);
+                    }
+                    if (dialog != null && dialog.isShowing()) dialog.dismiss();
+                });
+            }).start();
         });
         list.setOnScrollListener(new AbsListView.OnScrollListener() {
             private boolean nearBottom;
@@ -125,49 +145,25 @@ final class SongVersionPicker {
             List<CatalogSearch.Track> accepted = new ArrayList<>();
             for (CatalogSearch.Track track : batch.tracks) {
                 if (track == null || track.id.isEmpty()) continue;
-                if (!sameTitle(title, track.title) && !CatalogSearch.sameIdentity(title, artist, track)) continue;
+                if (CatalogSearch.replacementScore(title, artist, track) < 350) continue;
                 if (emitted.add(track.key())) accepted.add(track);
             }
             Collections.sort(accepted, new Comparator<CatalogSearch.Track>() {
                 @Override
                 public int compare(CatalogSearch.Track left, CatalogSearch.Track right) {
-                    return score(right) - score(left);
+                    return CatalogSearch.replacementScore(title, artist, right)
+                        - CatalogSearch.replacementScore(title, artist, left);
                 }
             });
             activity.runOnUiThread(() -> {
                 rows.addAll(accepted);
                 adapter.notifyDataSetChanged();
                 loading = false;
-                status.setText("已找到 " + rows.size() + " 个歌曲版本"
+                status.setText("已找到 " + rows.size() + " 个相似版本；点击后会先验证可播放性"
                     + (session.hasMore() ? "；向下滑动继续加载" : "；全部来源已搜索"));
                 updateFooter();
             });
         }).start();
-    }
-
-    private boolean sameTitle(String expected, String actual) {
-        return normalize(expected).equals(normalize(actual));
-    }
-
-    private int score(CatalogSearch.Track track) {
-        int score = 0;
-        if (sameTitle(title, track.title)) score += 1000;
-        if (CatalogSearch.sameIdentity(title, artist, track)) score += 2000;
-        String normalizedTitle = normalize(track.title);
-        String expectedTitle = normalize(title);
-        if (!expectedTitle.isEmpty() && normalizedTitle.contains(expectedTitle)) score += 300;
-        return score;
-    }
-
-    private String normalize(String value) {
-        if (value == null) return "";
-        return value.toLowerCase()
-            .replace(" ", "")
-            .replace("?", "")
-            .replace("?", "")
-            .replace("?", "(")
-            .replace("?", ")")
-            .trim();
     }
 
     private void updateFooter() {
@@ -175,6 +171,11 @@ final class SongVersionPicker {
         boolean more = session.hasMore();
         footer.setEnabled(more && !loading);
         footer.setText(more ? "继续加载更多歌曲版本" : "全部歌曲来源已搜索完成");
+        if (!more && !loading && rows.isEmpty() && !unavailableNotified) {
+            unavailableNotified = true;
+            status.setText("所有来源均未找到可播放的替换版本");
+            if (callback != null) callback.onUnavailable();
+        }
     }
 
     private int dp(int value) {

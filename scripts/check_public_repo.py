@@ -50,6 +50,8 @@ def main() -> None:
             continue
         if path.is_file() and path.suffix.lower() in FORBIDDEN_SUFFIXES:
             fail(f"forbidden file committed: {path.relative_to(ROOT)}")
+        if path.is_file() and path.name == "private.properties":
+            fail("private.properties must never be committed")
 
     for rel in CORE_FILES:
         path = ROOT / rel
@@ -68,6 +70,9 @@ def main() -> None:
             fail(f"missing brand strings.xml: {brand}")
         if not (ROOT / "app/src" / brand / "res/drawable-nodpi/default_background.jpg").exists():
             fail(f"missing brand background: {brand}")
+
+    if "JIANG_LAB_GATE_ENABLED" not in build_gradle or "JIANG_LAB_PASSPHRASE_SHA256" not in build_gradle:
+        fail("JiangLab first-launch gate injection is missing")
 
     for token in FORBIDDEN_TEXT:
         for path in ROOT.rglob("*"):

@@ -1,0 +1,3 @@
+# Copy this file to private.properties. Never commit private.properties.
+# Store only the SHA-256 hex digest of the JiangLab first-launch passphrase.
+JIANG_LAB_PASSPHRASE_SHA256=

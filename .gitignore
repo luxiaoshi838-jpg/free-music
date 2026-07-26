@@ -32,3 +32,6 @@ signing/
 *.log.err
 四品牌构建.log
 四品牌构建.log.err
+
+# Local-only brand secrets
+private.properties
