@@ -13,6 +13,7 @@
 - Relaxed manual song replacement matching so exact same-title/same-artist results rank first, while same-title cover versions can still appear.
 - Improved CSV playlist import compatibility with the current CSV export format.
 - Added mandatory logging rule: future changes must update both `PROJECT_LOG.md` and this changelog before commit.
+- Fixed local Gradle availability by adding the project Gradle wrapper, pinning Gradle 8.7 to an Aliyun mirror, adding Aliyun Maven mirrors, enabling Android's Windows non-ASCII path override for this Chinese-path workspace, selecting the installed Build Tools 37.0.0, and verifying `assembleDebug` for all four APK flavors.
 
 ## Pending
 

@@ -46,3 +46,31 @@
   - 扫把清理功能主要清理 `缓存` 子文件夹。
   - 设置页顶部“设置”两个字取消，其他设置位置保持不变。
 - 状态：尚未实现，下一步处理。
+
+### Gradle 环境修复
+
+- 用户要求：修复当前机器没有 `gradle`，导致无法本地生成 APK 的问题。
+- 进展：
+  - 外网下载 `gradle-8.7-bin.zip` 两次失败：一次 `unexpected EOF`，一次 `connection reset`。
+  - 本机存在 Gradle 8.2.1 wrapper 缓存，但默认 `C:\Users\22177\.gradle\native` 锁文件拒绝访问。
+  - 使用项目专用 `GRADLE_USER_HOME=E:\脚本\_gradle_home_free_music` 后，Gradle 8.2.1 可正常启动。
+  - 已创建本地 `local.properties` 指向 `D:\software\SDK`。
+  - 离线解析失败点：公开源码使用 Android Gradle Plugin 8.5.2，但本机未缓存该插件。
+  - 本机所谓 Android Gradle Plugin 8.1.2 缓存不完整，无法离线构建。
+  - 已将 `settings.gradle` 增加阿里云 Maven 镜像，优先用于插件和依赖解析。
+  - 继续保持 Android Gradle Plugin 8.5.2，避免为了本机环境降低项目构建版本。
+  - 改用国内镜像下载 Gradle 8.7。
+  - Gradle 8.7 已成功安装到 `D:\software\Gradle\gradle-8.7`。
+  - 生成 wrapper 时已进入 Android 插件配置阶段，说明 AGP 8.5.2 依赖解析成功。
+  - 新阻塞点：项目路径含中文，AGP 在 Windows 上拒绝构建；已按提示加入 `android.overridePathCheck=true`。
+  - 已生成项目自带 Gradle wrapper：`gradlew`、`gradlew.bat`、`gradle/wrapper/gradle-wrapper.jar`、`gradle/wrapper/gradle-wrapper.properties`。
+  - wrapper 下载源固定为 `https://mirrors.aliyun.com/macports/distfiles/gradle/gradle-8.7-bin.zip`，避免默认官方源在当前网络下反复超时。
+  - 已验证 `.\gradlew.bat --version` 可正常下载并启动 Gradle 8.7。
+  - 已验证 `.\gradlew.bat --no-daemon tasks` 可正常解析 Android 项目任务，四品牌 assemble/install 任务均可被识别。
+  - 首次真实 `assembleDebug` 验证发现本机缺少 AGP 默认寻找的 Build Tools 34.0.0。
+  - 已在 `app/build.gradle` 固定使用本机现有的 `buildToolsVersion "37.0.0"`。
+  - 已在 `gradle.properties` 增加 `android.suppressUnsupportedCompileSdk=35`，消除 AGP 8.5.2 对 compileSdk 35 的兼容提示。
+  - 已在 `gradle.properties` 增加 `android.javaCompile.suppressSourceTargetDeprecationWarning=true`，减少 JDK 21 构建 Java 8 目标时的重复噪音警告。
+  - 使用 `ANDROID_USER_HOME=E:\脚本\_android_user_home_free_music` 避开 `C:\Users\22177\.android` 拒绝访问问题后，`.\gradlew.bat --no-daemon assembleDebug` 已成功完成。
+  - 本地已生成四个 Debug APK flavor：`babywifeclassic`、`jianglab`、`lidacaizhu`、`niubi`。
+- 结论：当前机器“不存在全局 gradle”不再阻塞项目，后续应统一使用项目根目录的 `.\gradlew.bat` 构建。
