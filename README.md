@@ -1,3 +1,30 @@
 # free-music
 
-Public source replica is being initialized.
+“大宝贝儿老婆”Android 音乐应用的公开源码复刻仓库。
+
+## 功能
+
+- 本地音频文件与文件夹导入
+- 本地歌单创建、改名、清空与合并
+- 网易云、酷狗、酷我歌曲搜索
+- 在线或本地音频播放
+- LRC 歌词读取、匹配与滚动定位
+- 自定义本地背景图片
+- 上次播放位置与歌单状态恢复
+
+## 构建
+
+公开仓库的 GitHub Actions 生成 debug APK，不使用私有正式签名。构建步骤若连续五分钟没有新增日志，会被判定为可能卡住并停止。
+
+本地构建说明见 [`README_BUILD.md`](README_BUILD.md)。
+
+## 安全说明
+
+本仓库仅复制私有仓库当前源码快照，不包含：
+
+- 私有 Git 历史
+- 正式 APK 签名文件与密码
+- 私有签名缓存及签名导出工作流
+- 本地配置、生成 APK 和临时构建目录
+
+详见 [`PUBLIC_REPLICA_NOTES.md`](PUBLIC_REPLICA_NOTES.md)。
