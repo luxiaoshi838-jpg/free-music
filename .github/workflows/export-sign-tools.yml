@@ -26,10 +26,11 @@ jobs:
           cp -a "$ANDROID_HOME/build-tools/37.0.0/apksigner" exported-build-tools/
           cp -a "$ANDROID_HOME/build-tools/37.0.0/zipalign" exported-build-tools/
           cp -a "$ANDROID_HOME/build-tools/37.0.0/lib" exported-build-tools/
+          cp -a "$ANDROID_HOME/build-tools/37.0.0/lib64" exported-build-tools/
           cp -a "$ANDROID_HOME/build-tools/37.0.0/package.xml" exported-build-tools/ 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         with:
-          name: android-signing-tools-37
+          name: android-signing-tools-37-complete
           path: exported-build-tools/
           if-no-files-found: error
           retention-days: 1
