@@ -11,8 +11,13 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026072601
-        versionName "2026.07.26.local"
+        versionCode 2026072701
+        versionName "2026.07.27.cache-fix"
+        buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     flavorDimensions "brand"
@@ -30,6 +35,7 @@ android {
             dimension "brand"
             applicationIdSuffix ".jianglab"
             versionNameSuffix "-jianglab"
+            buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "true"
         }
         niubi {
             dimension "brand"

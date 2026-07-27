@@ -70,22 +70,18 @@ final class NetworkMediaCache {
         String requestedId = requestedCatalog.optString("id", "").trim();
         if (requestedSource.isEmpty() || requestedId.isEmpty()) throw new IllegalArgumentException("歌曲目录缺少来源或 ID");
 
-        File root = new File(context.getFilesDir(), "network_music");
-        if (!root.exists() && !root.mkdirs()) throw new IllegalStateException("无法创建歌曲缓存目录");
-
         String requestedKey = sha256(requestedSource + "|" + requestedId);
-        File requestedAudio = findExistingAudio(root, requestedKey);
-        File requestedLyricFile = new File(root, requestedKey + ".lrc");
-        String requestedLyric = readText(requestedLyricFile);
-        if (requestedAudio != null && requestedAudio.length() > 0) {
+        String requestedAudioUri = CacheStorage.findAudioUri(context, requestedKey);
+        String requestedLyric = CacheStorage.readLyric(context, requestedKey);
+        if (!requestedAudioUri.isEmpty() && CacheStorage.exists(context, requestedAudioUri)) {
             boolean lyricFromCache = !requestedLyric.trim().isEmpty();
             if (!lyricFromCache) {
                 status(callback, "正在按原平台读取歌词...");
                 requestedLyric = fetchLyrics(requestedCatalog.toString());
-                if (!requestedLyric.trim().isEmpty()) writeTextAtomically(requestedLyricFile, requestedLyric);
+                if (!requestedLyric.trim().isEmpty()) CacheStorage.writeLyric(context, requestedKey, requestedLyric);
             }
             status(callback, "已读取歌曲缓存");
-            return new CacheResult(Uri.fromFile(requestedAudio).toString(), requestedLyric, true, lyricFromCache,
+            return new CacheResult(requestedAudioUri, requestedLyric, true, lyricFromCache,
                 requestedCatalog.toString(), requestedSource, false);
         }
 
@@ -113,39 +109,39 @@ final class NetworkMediaCache {
         String actualId = actualCatalog.optString("id", "").trim();
         boolean sourceChanged = !requestedSource.equals(actualSource) || !requestedId.equals(actualId);
         String key = sha256(actualSource + "|" + actualId);
-        File lyricFile = new File(root, key + ".lrc");
-        String lyric = readText(lyricFile);
+        String lyric = CacheStorage.readLyric(context, key);
         boolean lyricFromCache = !lyric.trim().isEmpty();
         if (!lyricFromCache) {
             status(callback, sourceChanged ? "正在从实际平台读取匹配歌词..." : "正在按原平台读取歌词...");
             lyric = fetchLyrics(actualCatalog.toString());
-            if (!lyric.trim().isEmpty()) writeTextAtomically(lyricFile, lyric);
+            if (!lyric.trim().isEmpty()) CacheStorage.writeLyric(context, key, lyric);
         }
 
-        File existingAudio = findExistingAudio(root, key);
-        if (existingAudio != null && existingAudio.length() > 0) {
+        String existingAudioUri = CacheStorage.findAudioUri(context, key);
+        if (!existingAudioUri.isEmpty() && CacheStorage.exists(context, existingAudioUri)) {
             status(callback, sourceChanged ? "已切换并读取其他平台缓存" : "歌曲缓存已存在");
-            return new CacheResult(Uri.fromFile(existingAudio).toString(), lyric, true, lyricFromCache,
+            return new CacheResult(existingAudioUri, lyric, true, lyricFromCache,
                 actualCatalog.toString(), actualSource, sourceChanged);
         }
 
         String audioUrl = choice.audioUrl();
         String extension = sanitizeExtension(firstNonEmpty(choice.resolved.optString("ext"), extensionFromUrl(audioUrl)));
-        File output = new File(root, key + "." + extension);
-        File partial = new File(root, key + "." + extension + ".part");
+        File tempRoot = new File(context.getCacheDir(), "network_download");
+        if (!tempRoot.exists() && !tempRoot.mkdirs()) throw new IllegalStateException("无法创建下载临时目录");
+        File partial = new File(tempRoot, key + "." + extension + ".part");
         status(callback, sourceChanged
             ? "原来源不可用，正在从" + CatalogSearch.labelForSource(actualSource) + "缓存歌曲..."
             : "正在缓存歌曲...");
-        download(audioUrl, actualSource, partial, callback);
-        if (output.exists() && !output.delete()) throw new IllegalStateException("无法替换旧缓存");
-        if (!partial.renameTo(output)) {
-            copyFile(partial, output);
-            if (!partial.delete()) partial.deleteOnExit();
+        try {
+            download(audioUrl, actualSource, partial, callback);
+            if (partial.length() <= 0) throw new IllegalStateException("歌曲缓存为空");
+            String storedUri = CacheStorage.storeAudio(context, key, extension, partial);
+            status(callback, "歌曲与歌词缓存完成");
+            return new CacheResult(storedUri, lyric, false, lyricFromCache,
+                actualCatalog.toString(), actualSource, sourceChanged);
+        } finally {
+            if (partial.exists()) partial.delete();
         }
-        if (output.length() <= 0) throw new IllegalStateException("歌曲缓存为空");
-        status(callback, "歌曲与歌词缓存完成");
-        return new CacheResult(Uri.fromFile(output).toString(), lyric, false, lyricFromCache,
-            actualCatalog.toString(), actualSource, sourceChanged);
     }
 
     private static final class ResolvedChoice {
@@ -199,32 +195,11 @@ final class NetworkMediaCache {
     }
 
     static int clearExcept(Context context, Set<String> keepKeys) {
-        if (context == null) return 0;
-        File root = new File(context.getFilesDir(), "network_music");
-        File[] files = root.listFiles();
-        if (files == null) return 0;
-        int removed = 0;
-        for (File file : files) {
-            if (file == null || !file.isFile()) continue;
-            String name = file.getName();
-            int dot = name.indexOf('.');
-            String key = dot > 0 ? name.substring(0, dot) : name;
-            if (keepKeys != null && keepKeys.contains(key)) continue;
-            if (file.delete()) removed++;
-        }
-        return removed;
+        return CacheStorage.clearExcept(context, keepKeys);
     }
 
     static boolean cachedAudioExists(Context context, String uriText) {
-        if (uriText == null || uriText.trim().isEmpty()) return false;
-        try {
-            Uri uri = Uri.parse(uriText);
-            if (!"file".equalsIgnoreCase(uri.getScheme())) return false;
-            File file = new File(uri.getPath());
-            return file.exists() && file.length() > 0;
-        } catch (Exception ignored) {
-            return false;
-        }
+        return CacheStorage.exists(context, uriText);
     }
 
     private static JSONObject resolve(String catalogJson) throws Exception {
