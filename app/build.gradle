@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026072704
-        versionName "2026.07.27.light-ui-no-ffmpeg"
+        versionCode 2026072705
+        versionName "2026.07.27.light-ui-source-format"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 

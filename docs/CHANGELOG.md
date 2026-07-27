@@ -75,3 +75,12 @@
 - Lightweight builds now reject non-MP3 network audio for managed cache instead of transcoding on-device or storing a renamed non-MP3 file.
 - Local imported songs are not converted and continue to use their original local files.
 - Bumped Android version to `2026072704 / 2026.07.27.light-ui-no-ffmpeg`.
+
+### Source-format fallback and drawer-width follow-up
+
+- Corrected the lightweight audio-cache rule from MP3-only to MP3-preferred.
+- Network playlist tracks still request MP3 first; when the actual source is M4A, AAC, OGG, FLAC or WAV, the app now caches and plays the true source format instead of failing.
+- MP3 files still receive verified ID3 title, artist and album tags; non-MP3 files keep friendly names and JSON metadata.
+- Changed the settings drawer width from 60% to 70%.
+- Extended the drawer background to the top of the screen while preserving the vertical position of the playlist manager and settings actions.
+- Bumped Android version to `2026072705 / 2026.07.27.light-ui-source-format`.

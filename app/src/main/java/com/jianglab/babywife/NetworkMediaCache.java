@@ -135,10 +135,10 @@ final class NetworkMediaCache {
         }
 
         String audioUrl = choice.audioUrl();
-        String extension = sanitizeExtension(firstNonEmpty(choice.resolved.optString("ext"), extensionFromUrl(audioUrl)));
         File tempRoot = new File(context.getCacheDir(), "network_download");
         if (!tempRoot.exists() && !tempRoot.mkdirs()) throw new IllegalStateException("无法创建下载临时目录");
-        File partial = new File(tempRoot, key + "." + extension + ".part");
+        String hintedExtension = sanitizeExtension(firstNonEmpty(choice.resolved.optString("ext"), extensionFromUrl(audioUrl)));
+        File partial = new File(tempRoot, key + "." + hintedExtension + ".part");
         File mp3Partial = new File(tempRoot, key + ".mp3.ready");
         status(callback, sourceChanged
             ? "原来源不可用，正在从" + CatalogSearch.labelForSource(actualSource) + "缓存歌曲..."
@@ -146,10 +146,16 @@ final class NetworkMediaCache {
         try {
             download(audioUrl, actualSource, partial, callback);
             if (partial.length() <= 0) throw new IllegalStateException("歌曲缓存为空");
-            if (!AudioTranscoder.isMp3(partial)) status(callback, "源文件不是 MP3，正在转码为 MP3...");
-            AudioTranscoder.ensureMp3(partial, mp3Partial);
-            AudioMetadataWriter.applyAndVerify(mp3Partial, actualTitle, actualArtist, actualAlbum);
-            String storedUri = CacheStorage.storeAudio(context, key, "mp3", mp3Partial,
+            String actualExtension = detectAudioExtension(partial, hintedExtension);
+            File cacheSource = partial;
+            if ("mp3".equals(actualExtension)) {
+                AudioTranscoder.ensureMp3(partial, mp3Partial);
+                AudioMetadataWriter.applyAndVerify(mp3Partial, actualTitle, actualArtist, actualAlbum);
+                cacheSource = mp3Partial;
+            } else {
+                status(callback, "未取得 MP3，按原格式缓存 " + actualExtension.toUpperCase(Locale.ROOT));
+            }
+            String storedUri = CacheStorage.storeAudio(context, key, actualExtension, cacheSource,
                 actualTitle, actualArtist, actualAlbum, actualCatalog.toString());
             status(callback, "歌曲与歌词缓存完成");
             return new CacheResult(storedUri, lyric, false, lyricFromCache,
@@ -382,6 +388,26 @@ final class NetworkMediaCache {
             || extension.equals("ogg") || extension.equals("opus") || extension.equals("wav")
             || extension.equals("wma") || extension.equals("mp3")) return extension;
         return "mp3";
+    }
+
+    private static String detectAudioExtension(File file, String fallback) {
+        if (AudioTranscoder.isMp3(file)) return "mp3";
+        byte[] header = new byte[16];
+        try (InputStream input = new BufferedInputStream(new FileInputStream(file))) {
+            int count = input.read(header);
+            if (count >= 4) {
+                String first4 = new String(header, 0, 4, StandardCharsets.ISO_8859_1);
+                if ("fLaC".equals(first4)) return "flac";
+                if ("OggS".equals(first4)) return "ogg";
+                if ("RIFF".equals(first4) && count >= 12) return "wav";
+            }
+            if (count >= 8) {
+                String ftyp = new String(header, 4, 4, StandardCharsets.ISO_8859_1);
+                if ("ftyp".equals(ftyp)) return "m4a";
+            }
+        } catch (Exception ignored) {
+        }
+        return sanitizeExtension(fallback);
     }
 
     private static String userAgent(String source) {

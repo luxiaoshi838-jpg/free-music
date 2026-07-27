@@ -290,7 +290,6 @@ final class CacheStorage {
             throw new IllegalArgumentException("歌曲缓存文件无效");
         }
         String safeExtension = sanitizeExtension(extension);
-        if (!"mp3".equals(safeExtension)) throw new IllegalArgumentException("受管理歌曲缓存必须是 MP3");
         MetadataRecord record = metadata(key, title, artist, album, catalogJson);
         String fileName = friendlyBase(record) + "." + safeExtension;
         Uri tree = selectedTree(context);

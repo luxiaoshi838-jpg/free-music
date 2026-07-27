@@ -497,14 +497,12 @@ public class MainActivity extends Activity {
         drawerPanel = buildDrawerPanel();
         drawerPanel.setVisibility(View.GONE);
         drawerPanel.setClickable(true);
-        int drawerWidth = Math.round(getResources().getDisplayMetrics().widthPixels * 0.60f);
+        int drawerWidth = Math.round(getResources().getDisplayMetrics().widthPixels * 0.70f);
         FrameLayout.LayoutParams drawerParams = new FrameLayout.LayoutParams(
             drawerWidth,
             ViewGroup.LayoutParams.MATCH_PARENT
         );
         drawerParams.gravity = Gravity.START;
-        drawerParams.topMargin = statusBarHeight() + dp(8);
-        drawerParams.bottomMargin = dp(8);
         shellView.addView(drawerPanel, drawerParams);
         return shellView;
     }
@@ -2754,7 +2752,7 @@ public class MainActivity extends Activity {
     private LinearLayout buildDrawerPanel() {
         LinearLayout drawer = new LinearLayout(this);
         drawer.setOrientation(LinearLayout.VERTICAL);
-        drawer.setPadding(dp(14), dp(12), dp(14), dp(8));
+        drawer.setPadding(dp(14), statusBarHeight() + dp(20), dp(14), dp(16));
         drawer.setBackground(rounded(Color.argb(226, 22, 24, 34), dp(22)));
 
         LinearLayout.LayoutParams managerParams = new LinearLayout.LayoutParams(

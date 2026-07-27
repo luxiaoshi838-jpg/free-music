@@ -28,8 +28,9 @@ checks = {
         and '🧹' not in main
     ),
     'playlist manager below status bar': (
-        'drawerParams.topMargin = statusBarHeight() + dp(8)' in main
-        and 'drawerParams.bottomMargin = dp(8)' in main
+        '0.70f' in main
+        and 'statusBarHeight() + dp(20)' in main
+        and 'drawerParams.topMargin = statusBarHeight() + dp(8)' not in main
     ),
     'uninstall cleanup storage switch': (
         '卸载软件时清理缓存' in main
@@ -93,20 +94,21 @@ checks = {
     'delayed red marking': 'autoUnavailable && song.manualUnavailable' in main,
     'csv import/export': '歌名,歌手,专辑,时长秒,平台,平台代码,歌曲ID,歌词版本' in main,
     'jianglab flavor gate': 'REQUIRE_FIRST_RUN_PASSPHRASE' in gradle and 'signingCertificateCommonName' in main,
-    'mp3 source preference without bundled transcoder': (
+    'mp3 source preference with source-format fallback': (
         'format", "mp3' in network
         and 'AudioTranscoder.ensureMp3' in network
-        and '轻量版不内置转码' in transcoder
+        and '按原格式缓存' in network
+        and 'detectAudioExtension' in network
         and 'ffmpeg-kit' not in gradle.lower()
         and 'FFmpegKit' not in transcoder
         and 'libmp3lame' not in transcoder
     ),
     'verified mp3 metadata': ('AudioMetadataWriter.applyAndVerify' in network and 'MP3 歌曲信息写入校验失败' in metadata and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata),
-    'managed cache mp3 only': ('受管理歌曲缓存必须是 MP3' in cache and 'storeAudio(context, key, "mp3"' in network),
-    'settings width and status bar': ('0.60f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'drawerParams.topMargin = statusBarHeight() + dp(8)' in main),
+    'managed cache source formats': ('受管理歌曲缓存必须是 MP3' not in cache and 'storeAudio(context, key, actualExtension' in network),
+    'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026072704' in gradle,
+    'version bumped': 'versionCode 2026072705' in gradle,
     'logs synchronized': (
         'MP3 缓存统一与设置栏界面修正' in project_log
         and 'MP3 cache normalization and settings drawer follow-up' in changelog
