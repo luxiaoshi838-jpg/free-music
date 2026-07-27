@@ -53,3 +53,16 @@
 - Replaced the generated broom drawing with the user-supplied white broom artwork, converted to a transparent padded resource and centered inside the circular control.
 - Bumped the Android version to `2026072702 / 2026.07.27.cache-uninstall-import-ui`.
 
+
+### MP3 cache normalization and settings drawer follow-up
+
+- Prefer MP3/320k resolution hints and skip transcoding when the downloaded content is already a real MP3.
+- Detect actual audio content instead of trusting URL extensions; transcode non-MP3 sources to 192 kbps, 44.1 kHz stereo MP3 with FFmpegKit/libmp3lame.
+- Use `io.github.jamaismagic.ffmpeg:ffmpeg-kit-lts-full-16kb:6.1.4` to retain Android API 23 compatibility without raising the app minimum SDK.
+- Reject non-MP3 files at the managed-cache storage boundary.
+- Write and read back ID3v2.3 title, artist and album frames before accepting a cached MP3; failed verification prevents the file from being stored.
+- Reduced the settings drawer to 60% of screen width without moving the existing controls vertically.
+- Extended the drawer's black appearance through the system status-bar area while the drawer is open, restoring the original status-bar color on close.
+- Removed uninstall-behavior suffixes from the cache-folder button while keeping full behavior details in the dialog.
+- Shortened playlist-manager labels to `新建` and `导出`.
+- Bumped Android version to `2026072703 / 2026.07.27.mp3-cache-settings-ui`.

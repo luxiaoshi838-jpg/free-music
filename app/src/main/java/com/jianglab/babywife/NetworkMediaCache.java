@@ -139,24 +139,24 @@ final class NetworkMediaCache {
         File tempRoot = new File(context.getCacheDir(), "network_download");
         if (!tempRoot.exists() && !tempRoot.mkdirs()) throw new IllegalStateException("无法创建下载临时目录");
         File partial = new File(tempRoot, key + "." + extension + ".part");
+        File mp3Partial = new File(tempRoot, key + ".mp3.ready");
         status(callback, sourceChanged
             ? "原来源不可用，正在从" + CatalogSearch.labelForSource(actualSource) + "缓存歌曲..."
             : "正在缓存歌曲...");
         try {
             download(audioUrl, actualSource, partial, callback);
             if (partial.length() <= 0) throw new IllegalStateException("歌曲缓存为空");
-            try {
-                AudioMetadataWriter.apply(partial, extension, actualTitle, actualArtist, actualAlbum);
-            } catch (Exception metadataError) {
-                android.util.Log.w("BabywifeCache", "无法写入音频内嵌标签，继续保存侧边信息", metadataError);
-            }
-            String storedUri = CacheStorage.storeAudio(context, key, extension, partial,
+            if (!AudioTranscoder.isMp3(partial)) status(callback, "源文件不是 MP3，正在转码为 MP3...");
+            AudioTranscoder.ensureMp3(partial, mp3Partial);
+            AudioMetadataWriter.applyAndVerify(mp3Partial, actualTitle, actualArtist, actualAlbum);
+            String storedUri = CacheStorage.storeAudio(context, key, "mp3", mp3Partial,
                 actualTitle, actualArtist, actualAlbum, actualCatalog.toString());
             status(callback, "歌曲与歌词缓存完成");
             return new CacheResult(storedUri, lyric, false, lyricFromCache,
                 actualCatalog.toString(), actualSource, sourceChanged);
         } finally {
             if (partial.exists()) partial.delete();
+            if (mp3Partial.exists()) mp3Partial.delete();
         }
     }
 
@@ -245,11 +245,19 @@ final class NetworkMediaCache {
     }
 
     private static String catalogAlbum(JSONObject catalog) {
-        return catalog == null ? "" : firstNonEmpty(catalog.optString("album"), catalog.optString("albumName"));
+        return catalog == null ? "未知专辑" : firstNonEmpty(catalog.optString("album"), catalog.optString("albumName"), "未知专辑");
     }
 
     private static JSONObject resolve(String catalogJson) throws Exception {
-        JSONObject response = new JSONObject(Bridge.resolve(catalogJson));
+        JSONObject catalog = new JSONObject(catalogJson == null ? "{}" : catalogJson);
+        catalog.put("format", "mp3");
+        catalog.put("ext", "mp3");
+        catalog.put("quality", "320k");
+        catalog.put("br", 320000);
+        JSONObject response = new JSONObject(Bridge.resolve(catalog.toString()));
+        if (!response.optBoolean("ok", false)) {
+            response = new JSONObject(Bridge.resolve(catalogJson));
+        }
         if (!response.optBoolean("ok", false)) {
             throw new IllegalStateException(response.optString("error", "歌曲解析失败"));
         }
