@@ -38,3 +38,18 @@
 - Added copy-first cache migration when changing folders or moving back to internal storage.
 - Restricted cache migration and cleanup to recognized SHA256-named cache files so unrelated user files are never deleted.
 - Added a default-off setting controlling whether deleting songs/playlists also removes unreferenced audio and lyric cache files.
+
+### Uninstall cache, import menu and named media follow-up
+
+- Removed the delete-entry cache switch. Deleting songs, clearing a playlist, or deleting a playlist now keeps audio, lyric, and metadata files until the reference-aware broom cleanup is run.
+- Implemented a real uninstall-cleanup switch by migrating between app-private storage (Android clears it on uninstall) and a user-selected document-tree folder (persists after uninstall).
+- Documented the Android platform limitation: an app cannot reliably receive its own uninstall callback to delete an arbitrary shared folder.
+- Changed managed cache names to `title - artist [short-id].extension`, used the same title for `.lrc` files, and added one hidden JSON metadata record per track with title, artist, album, catalog data, and file mappings.
+- Added ID3v2.3 title, artist, and album frames to newly downloaded MP3 files; all formats retain friendly names and JSON metadata.
+- Added compatible normalization for existing legacy SHA256-named cache files when an actual cached playlist item is found.
+- Merged local import into one button with file/folder choices and playlist import into one button with CSV/link choices.
+- Moved the custom background button directly above the launcher-icon button.
+- Moved the playlist-management drawer below the status bar with explicit top and bottom margins.
+- Replaced the generated broom drawing with the user-supplied white broom artwork, converted to a transparent padded resource and centered inside the circular control.
+- Bumped the Android version to `2026072702 / 2026.07.27.cache-uninstall-import-ui`.
+

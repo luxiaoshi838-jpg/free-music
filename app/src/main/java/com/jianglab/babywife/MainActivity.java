@@ -96,7 +96,6 @@ public class MainActivity extends Activity {
     private static final String KEY_JIANGLAB_VERIFIED = "jianglab_verified";
     private static final String KEY_PLAY_MODE = "play_mode";
     private static final String KEY_SEARCH_SOURCE = "search_source";
-    private static final String KEY_DELETE_CACHE_WITH_ENTRY = "delete_cache_with_entry";
     private static final int REQUEST_BACKGROUND_IMAGE = 7301;
     private static final int REQUEST_AUDIO_FILES = 7302;
     private static final int REQUEST_AUDIO_FOLDER = 7303;
@@ -142,7 +141,7 @@ public class MainActivity extends Activity {
     private Button modeButton;
     private Button addCurrentButton;
     private Button cacheLocationButton;
-    private Button deleteCacheSettingButton;
+    private Button uninstallCleanupButton;
     private EditText searchInput;
     private Spinner sourceSpinner;
     private Spinner playlistSpinner;
@@ -241,6 +240,7 @@ public class MainActivity extends Activity {
         renderPlaylists();
         renderCurrentPlaylist();
         restoreLastSong();
+        normalizePlaylistCacheFilesAsync();
         publishPlaybackControlState(true);
     }
 
@@ -500,6 +500,8 @@ public class MainActivity extends Activity {
             ViewGroup.LayoutParams.MATCH_PARENT
         );
         drawerParams.gravity = Gravity.START;
+        drawerParams.topMargin = statusBarHeight() + dp(8);
+        drawerParams.bottomMargin = dp(8);
         shellView.addView(drawerPanel, drawerParams);
         return shellView;
     }
@@ -985,8 +987,7 @@ public class MainActivity extends Activity {
                 savePlaylists();
                 renderCurrentPlaylist();
                 updateLyricActionVisibility(currentSong);
-                cleanupCachesForRemovedSongs(Collections.singletonList(song));
-                toast("已从歌单删除：" + song.title);
+                toast("已从歌单删除：" + song.title + "；缓存已保留，可用扫把清理");
             })
             .show();
     }
@@ -1022,8 +1023,7 @@ public class MainActivity extends Activity {
             Song removed = currentPlaylist().songs.remove(position);
             savePlaylists();
             renderCurrentPlaylist();
-            cleanupCachesForRemovedSongs(Collections.singletonList(removed));
-            toast("\u5df2\u5220\u9664\uff1a" + removed.title);
+            toast("\u5df2\u5220\u9664\uff1a" + removed.title + "；缓存已保留，可用扫把清理");
             return true;
         });
         playlistColumn.addView(playlistList, new LinearLayout.LayoutParams(
@@ -2767,9 +2767,9 @@ public class MainActivity extends Activity {
         LinearLayout bottomActions = new LinearLayout(this);
         bottomActions.setOrientation(LinearLayout.VERTICAL);
 
-        deleteCacheSettingButton = makeButton(deleteCacheSettingText(), false);
-        deleteCacheSettingButton.setOnClickListener(view -> toggleDeleteCacheSetting());
-        bottomActions.addView(deleteCacheSettingButton, bottomSettingParams(38, 0));
+        uninstallCleanupButton = makeButton(uninstallCleanupSettingText(), false);
+        uninstallCleanupButton.setOnClickListener(view -> toggleUninstallCleanupSetting());
+        bottomActions.addView(uninstallCleanupButton, bottomSettingParams(38, 0));
 
         cacheLocationButton = makeButton(CacheStorage.description(this), false);
         cacheLocationButton.setSingleLine(true);
@@ -2777,25 +2777,17 @@ public class MainActivity extends Activity {
         cacheLocationButton.setOnClickListener(view -> showCacheLocationDialog());
         bottomActions.addView(cacheLocationButton, bottomSettingParams(38, 2));
 
+        Button importAudio = makeButton("导入本地歌曲", false);
+        importAudio.setOnClickListener(view -> showLocalAudioImportOptions());
+        bottomActions.addView(importAudio, bottomSettingParams(38, 2));
+
+        Button importPlaylist = makeButton("导入歌单", false);
+        importPlaylist.setOnClickListener(view -> showPlaylistImportOptions());
+        bottomActions.addView(importPlaylist, bottomSettingParams(38, 2));
+
         Button chooseBackground = makeButton("选择本地图片作为背景", false);
         chooseBackground.setOnClickListener(view -> chooseBackgroundImage());
         bottomActions.addView(chooseBackground, bottomSettingParams(38, 2));
-
-        Button importAudio = makeButton("导入本地歌曲到本地歌单", false);
-        importAudio.setOnClickListener(view -> chooseAudioFiles());
-        bottomActions.addView(importAudio, bottomSettingParams(38, 2));
-
-        Button importFolder = makeButton("选择文件夹导入全部歌曲", false);
-        importFolder.setOnClickListener(view -> chooseAudioFolder());
-        bottomActions.addView(importFolder, bottomSettingParams(38, 2));
-
-        Button importPlaylist = makeButton("导入网易/酷狗/汽水歌单链接", false);
-        importPlaylist.setOnClickListener(view -> promptImportPlaylistLink());
-        bottomActions.addView(importPlaylist, bottomSettingParams(38, 2));
-
-        Button importCsv = makeButton("\u5bfc\u5165CSV\u6b4c\u5355", false);
-        importCsv.setOnClickListener(view -> openPlaylistCsvImport());
-        bottomActions.addView(importCsv, bottomSettingParams(38, 2));
 
         if (getResources().getBoolean(R.bool.icon_selector_enabled)) {
             Button changeIcon = makeButton("更换桌面图标", false);
@@ -2822,9 +2814,9 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
             .setTitle("歌单缓存位置")
             .setMessage(CacheStorage.details(this)
-                + "\n\n更换位置时会先复制全部歌曲和歌词，复制成功后再删除旧位置文件。")
-            .setPositiveButton("选择总缓存文件夹", (dialog, which) -> chooseCacheFolder())
-            .setNeutralButton("迁回应用内部", (dialog, which) -> migrateCacheToInternal())
+                + "\n\n更换位置时会先复制全部受管理文件，全部成功后才切换并删除旧位置文件。")
+            .setPositiveButton("选择卸载后保留的文件夹", (dialog, which) -> chooseCacheFolder())
+            .setNeutralButton("使用卸载时清理的位置", (dialog, which) -> migrateCacheToInternal())
             .setNegativeButton("取消", null)
             .show();
     }
@@ -2847,9 +2839,10 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     refreshCachedUrisAfterMigration();
                     updateCacheLocationButton();
+                    updateUninstallCleanupButton();
                     statusView.setText("缓存位置已更新");
                     toast(result.changed
-                        ? "缓存位置已更换，已迁移 " + result.copied + " 个文件"
+                        ? "缓存位置已更换，已迁移 " + result.copied + " 个文件；卸载后会保留"
                         : "当前已经是所选缓存文件夹");
                 });
             } catch (Exception error) {
@@ -2869,10 +2862,11 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     refreshCachedUrisAfterMigration();
                     updateCacheLocationButton();
+                    updateUninstallCleanupButton();
                     statusView.setText("缓存位置已更新");
                     toast(result.changed
-                        ? "已迁回应用内部，共迁移 " + result.copied + " 个文件；卸载时会清空"
-                        : "当前已经使用应用内部缓存");
+                        ? "已迁回应用内部，共迁移 " + result.copied + " 个文件；卸载时会清理"
+                        : "当前已经使用卸载时清理的位置");
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
@@ -2885,6 +2879,21 @@ public class MainActivity extends Activity {
 
     private void updateCacheLocationButton() {
         if (cacheLocationButton != null) cacheLocationButton.setText(CacheStorage.description(this));
+    }
+
+    private void normalizePlaylistCacheFilesAsync() {
+        new Thread(() -> {
+            Set<String> seen = new HashSet<>();
+            for (Playlist playlist : playlists) {
+                for (Song song : playlist.songs) {
+                    if (song == null || !song.isNetworkCatalog()) continue;
+                    String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
+                    if (key.isEmpty() || !seen.add(key)) continue;
+                    NetworkMediaCache.normalizeCacheFiles(this, song.catalogJson);
+                }
+            }
+            runOnUiThread(this::refreshCachedUrisAfterMigration);
+        }).start();
     }
 
     private void refreshCachedUrisAfterMigration() {
@@ -2907,44 +2916,57 @@ public class MainActivity extends Activity {
         if (!uri.isEmpty()) song.uri = uri;
     }
 
-    private boolean deleteCacheWithEntryEnabled() {
-        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            .getBoolean(KEY_DELETE_CACHE_WITH_ENTRY, false);
+    private String uninstallCleanupSettingText() {
+        return "卸载软件时清理缓存："
+            + (CacheStorage.uninstallCleanupEnabled(this) ? "开启" : "关闭");
     }
 
-    private String deleteCacheSettingText() {
-        return "删除歌单/歌曲时同步清理缓存："
-            + (deleteCacheWithEntryEnabled() ? "开启" : "关闭");
-    }
-
-    private void toggleDeleteCacheSetting() {
-        boolean enabled = !deleteCacheWithEntryEnabled();
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            .edit().putBoolean(KEY_DELETE_CACHE_WITH_ENTRY, enabled).apply();
-        if (deleteCacheSettingButton != null) deleteCacheSettingButton.setText(deleteCacheSettingText());
-        toast(enabled
-            ? "已开启：仅当歌曲不再属于任何歌单时，删除其歌曲和歌词缓存"
-            : "已关闭：删除歌单或歌曲时保留缓存文件");
-    }
-
-    private void cleanupCachesForRemovedSongs(List<Song> removedSongs) {
-        if (!deleteCacheWithEntryEnabled() || removedSongs == null || removedSongs.isEmpty()) return;
-        List<String> catalogs = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (Song song : removedSongs) {
-            if (song == null || !song.isNetworkCatalog() || isSongInAnyPlaylist(song)) continue;
-            String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
-            if (!key.isEmpty() && seen.add(key)) catalogs.add(song.catalogJson);
+    private void updateUninstallCleanupButton() {
+        if (uninstallCleanupButton != null) {
+            uninstallCleanupButton.setText(uninstallCleanupSettingText());
         }
-        if (catalogs.isEmpty()) return;
-        new Thread(() -> {
-            int removedFiles = 0;
-            for (String catalog : catalogs) {
-                removedFiles += NetworkMediaCache.deleteCatalogCache(this, catalog);
-            }
-            int finalRemovedFiles = removedFiles;
-            runOnUiThread(() -> toast("已同步清理缓存文件：" + finalRemovedFiles + " 个"));
-        }).start();
+    }
+
+    private void toggleUninstallCleanupSetting() {
+        if (CacheStorage.uninstallCleanupEnabled(this)) {
+            new AlertDialog.Builder(this)
+                .setTitle("卸载软件时清理缓存")
+                .setMessage("当前为开启状态，缓存位于应用内部。关闭后需要选择一个外部总文件夹，"
+                    + "歌曲、歌词和歌曲信息会迁移过去，卸载软件后仍然保留。")
+                .setPositiveButton("选择保留文件夹", (dialog, which) -> chooseCacheFolder())
+                .setNegativeButton("取消", null)
+                .show();
+        } else {
+            new AlertDialog.Builder(this)
+                .setTitle("卸载软件时清理缓存")
+                .setMessage("开启后会先把全部缓存迁回应用内部，并删除所选外部文件夹中的对应缓存文件。"
+                    + "以后卸载软件时，Android 会一并清理这些缓存。")
+                .setPositiveButton("迁回并开启", (dialog, which) -> migrateCacheToInternal())
+                .setNegativeButton("取消", null)
+                .show();
+        }
+    }
+
+    private void showLocalAudioImportOptions() {
+        new AlertDialog.Builder(this)
+            .setTitle("导入本地歌曲")
+            .setItems(new CharSequence[] {"选择歌曲", "选择文件夹"}, (dialog, which) -> {
+                if (which == 0) chooseAudioFiles();
+                else chooseAudioFolder();
+            })
+            .setNegativeButton("取消", null)
+            .show();
+    }
+
+    private void showPlaylistImportOptions() {
+        new AlertDialog.Builder(this)
+            .setTitle("导入歌单")
+            .setItems(new CharSequence[] {"CSV 文件", "歌单链接"}, (dialog, which) -> {
+                if (which == 0) openPlaylistCsvImport();
+                else promptImportPlaylistLink();
+            })
+            .setNegativeButton("取消", null)
+            .show();
     }
 
     private void chooseBackgroundImage() {
@@ -3926,8 +3948,7 @@ public class MainActivity extends Activity {
                 }
                 savePlaylists();
                 renderCurrentPlaylist();
-                cleanupCachesForRemovedSongs(removedSongs);
-                toast("已删除在线歌单：" + selected.name);
+                toast("已删除在线歌单：" + selected.name + "；缓存已保留，可用扫把清理");
             })
             .show();
     }
@@ -3937,8 +3958,7 @@ public class MainActivity extends Activity {
         currentPlaylist().songs.clear();
         savePlaylists();
         renderCurrentPlaylist();
-        cleanupCachesForRemovedSongs(removedSongs);
-        toast("\u5df2\u6e05\u7a7a\u5f53\u524d\u6b4c\u5355");
+        toast("\u5df2\u6e05\u7a7a\u5f53\u524d\u6b4c\u5355；缓存已保留，可用扫把清理");
     }
 
     private void mergePlaylistsIntoCurrent() {

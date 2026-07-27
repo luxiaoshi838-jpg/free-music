@@ -71,6 +71,11 @@ final class NetworkMediaCache {
         if (requestedSource.isEmpty() || requestedId.isEmpty()) throw new IllegalArgumentException("歌曲目录缺少来源或 ID");
 
         String requestedKey = sha256(requestedSource + "|" + requestedId);
+        String requestedTitle = catalogTitle(requestedCatalog);
+        String requestedArtist = catalogArtist(requestedCatalog);
+        String requestedAlbum = catalogAlbum(requestedCatalog);
+        CacheStorage.ensureFriendlyNames(context, requestedKey, requestedTitle, requestedArtist,
+            requestedAlbum, requestedCatalog.toString());
         String requestedAudioUri = CacheStorage.findAudioUri(context, requestedKey);
         String requestedLyric = CacheStorage.readLyric(context, requestedKey);
         if (!requestedAudioUri.isEmpty() && CacheStorage.exists(context, requestedAudioUri)) {
@@ -78,7 +83,7 @@ final class NetworkMediaCache {
             if (!lyricFromCache) {
                 status(callback, "正在按原平台读取歌词...");
                 requestedLyric = fetchLyrics(requestedCatalog.toString());
-                if (!requestedLyric.trim().isEmpty()) CacheStorage.writeLyric(context, requestedKey, requestedLyric);
+                if (!requestedLyric.trim().isEmpty()) CacheStorage.writeLyric(context, requestedKey, requestedLyric, requestedTitle, requestedArtist, requestedAlbum, requestedCatalog.toString());
             }
             status(callback, "已读取歌曲缓存");
             return new CacheResult(requestedAudioUri, requestedLyric, true, lyricFromCache,
@@ -109,12 +114,17 @@ final class NetworkMediaCache {
         String actualId = actualCatalog.optString("id", "").trim();
         boolean sourceChanged = !requestedSource.equals(actualSource) || !requestedId.equals(actualId);
         String key = sha256(actualSource + "|" + actualId);
+        String actualTitle = catalogTitle(actualCatalog);
+        String actualArtist = catalogArtist(actualCatalog);
+        String actualAlbum = catalogAlbum(actualCatalog);
+        CacheStorage.ensureFriendlyNames(context, key, actualTitle, actualArtist,
+            actualAlbum, actualCatalog.toString());
         String lyric = CacheStorage.readLyric(context, key);
         boolean lyricFromCache = !lyric.trim().isEmpty();
         if (!lyricFromCache) {
             status(callback, sourceChanged ? "正在从实际平台读取匹配歌词..." : "正在按原平台读取歌词...");
             lyric = fetchLyrics(actualCatalog.toString());
-            if (!lyric.trim().isEmpty()) CacheStorage.writeLyric(context, key, lyric);
+            if (!lyric.trim().isEmpty()) CacheStorage.writeLyric(context, key, lyric, actualTitle, actualArtist, actualAlbum, actualCatalog.toString());
         }
 
         String existingAudioUri = CacheStorage.findAudioUri(context, key);
@@ -135,7 +145,13 @@ final class NetworkMediaCache {
         try {
             download(audioUrl, actualSource, partial, callback);
             if (partial.length() <= 0) throw new IllegalStateException("歌曲缓存为空");
-            String storedUri = CacheStorage.storeAudio(context, key, extension, partial);
+            try {
+                AudioMetadataWriter.apply(partial, extension, actualTitle, actualArtist, actualAlbum);
+            } catch (Exception metadataError) {
+                android.util.Log.w("BabywifeCache", "无法写入音频内嵌标签，继续保存侧边信息", metadataError);
+            }
+            String storedUri = CacheStorage.storeAudio(context, key, extension, partial,
+                actualTitle, actualArtist, actualAlbum, actualCatalog.toString());
             status(callback, "歌曲与歌词缓存完成");
             return new CacheResult(storedUri, lyric, false, lyricFromCache,
                 actualCatalog.toString(), actualSource, sourceChanged);
@@ -194,6 +210,17 @@ final class NetworkMediaCache {
         }
     }
 
+    static void normalizeCacheFiles(Context context, String catalogJson) {
+        try {
+            JSONObject catalog = canonicalCatalog(catalogJson);
+            String key = cacheKeyForCatalog(catalog.toString());
+            if (key.isEmpty()) return;
+            CacheStorage.ensureFriendlyNames(context, key, catalogTitle(catalog), catalogArtist(catalog),
+                catalogAlbum(catalog), catalog.toString());
+        } catch (Exception ignored) {
+        }
+    }
+
     static int clearExcept(Context context, Set<String> keepKeys) {
         return CacheStorage.clearExcept(context, keepKeys);
     }
@@ -205,6 +232,20 @@ final class NetworkMediaCache {
 
     static boolean cachedAudioExists(Context context, String uriText) {
         return CacheStorage.exists(context, uriText);
+    }
+
+    private static String catalogTitle(JSONObject catalog) {
+        if (catalog == null) return "未知歌曲";
+        return firstNonEmpty(catalog.optString("name"), catalog.optString("title"), "未知歌曲");
+    }
+
+    private static String catalogArtist(JSONObject catalog) {
+        if (catalog == null) return "未知歌手";
+        return firstNonEmpty(catalog.optString("artist"), catalog.optString("singer"), "未知歌手");
+    }
+
+    private static String catalogAlbum(JSONObject catalog) {
+        return catalog == null ? "" : firstNonEmpty(catalog.optString("album"), catalog.optString("albumName"));
     }
 
     private static JSONObject resolve(String catalogJson) throws Exception {
