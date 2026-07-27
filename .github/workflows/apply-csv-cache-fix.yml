@@ -65,6 +65,12 @@ jobs:
         run: |
           python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-debug.log -- gradle --no-daemon assembleDebug
 
+      - name: Show build failure details
+        if: failure()
+        run: |
+          echo '===== assemble-debug.log tail ====='
+          tail -n 260 build/assemble-debug.log || true
+
       - name: Verify APK package names and signatures
         shell: bash
         run: |
@@ -99,6 +105,7 @@ jobs:
           git push origin HEAD:${{ github.head_ref || github.ref_name }}
 
       - name: Upload APKs and build logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: four-brand-csv-cache-fix-debug-apks
@@ -106,5 +113,5 @@ jobs:
             verified-apks/
             build/sdkmanager.log
             build/assemble-debug.log
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
