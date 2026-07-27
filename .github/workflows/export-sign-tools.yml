@@ -3,6 +3,8 @@ name: Export Android Signing Tools
 on:
   push:
     branches: [tools/export-build-tools-37]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
