@@ -14,6 +14,7 @@
 - Improved CSV playlist import compatibility with the current CSV export format.
 - Added mandatory logging rule: future changes must update both `PROJECT_LOG.md` and this changelog before commit.
 - Fixed local Gradle availability by adding the project Gradle wrapper, pinning Gradle 8.7 to an Aliyun mirror, adding Aliyun Maven mirrors, enabling Android's Windows non-ASCII path override for this Chinese-path workspace, selecting the installed Build Tools 37.0.0, and verifying `assembleDebug` for all four APK flavors.
+- Documented the local workspace cleanup rule: APK source sync, Gradle/Android build caches, signature export worktrees, verification temp folders, and archived zip packages now belong under `E:\脚本\大宝贝儿老婆_apk` instead of the `E:\脚本` root.
 
 ## Pending
 

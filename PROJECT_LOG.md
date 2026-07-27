@@ -74,3 +74,15 @@
   - 使用 `ANDROID_USER_HOME=E:\脚本\_android_user_home_free_music` 避开 `C:\Users\22177\.android` 拒绝访问问题后，`.\gradlew.bat --no-daemon assembleDebug` 已成功完成。
   - 本地已生成四个 Debug APK flavor：`babywifeclassic`、`jianglab`、`lidacaizhu`、`niubi`。
 - 结论：当前机器“不存在全局 gradle”不再阻塞项目，后续应统一使用项目根目录的 `.\gradlew.bat` 构建。
+
+### 本地目录整理
+
+- 用户要求：所有内容必须放在相应项目文件夹内，不能把 APK 临时文件、缓存、同步源码散落在 `E:\脚本` 根目录。
+- 本地执行：
+  - 公开源码工作树已从 `E:\脚本\_临时_free_music_check` 移动到 `E:\脚本\大宝贝儿老婆_apk\源码同步\free-music-public`。
+  - Gradle 构建缓存已从 `E:\脚本\_gradle_home_free_music` 移动到 `E:\脚本\大宝贝儿老婆_apk\临时与缓存\_gradle_home_free_music`。
+  - Android 用户缓存已从 `E:\脚本\_android_user_home_free_music` 移动到 `E:\脚本\大宝贝儿老婆_apk\临时与缓存\_android_user_home_free_music`。
+  - 签名导出 worktree、四品牌源码检查目录、APK 验证目录已移动到 `E:\脚本\大宝贝儿老婆_apk\临时与缓存`。
+  - APK 项目的历史 zip 包已移动到 `E:\脚本\大宝贝儿老婆_apk\备份包`。
+  - 系统修复记录已移动到 `E:\脚本\系统维护记录`。
+- 后续规则：APK 项目源码同步、构建缓存、临时验证、签名导出、历史压缩包都必须留在 `E:\脚本\大宝贝儿老婆_apk` 内部对应子目录。
