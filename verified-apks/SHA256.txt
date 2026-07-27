@@ -1,4 +1,0 @@
-bba2d241091ddadbdf2b129e843c4a19b541e4a60b2dae820acce3ef34de7c72  verified-apks/babywifeclassic.apk
-5a5f31953ea9e35ebd1f3de130832ad55a1aea0f68d11a5aa9d1acbb4d4a6845  verified-apks/jianglab.apk
-3e33028f0696229d06b215f39f9896592fc436d4b8c18a30d1fa1d73759fc1e4  verified-apks/lidacaizhu.apk
-24783eda54e8ab43f29f764f28ca8a86a349ddea809e0db1fd51c91511fbdd69  verified-apks/niubi.apk
