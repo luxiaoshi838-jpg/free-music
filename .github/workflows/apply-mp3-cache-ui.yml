@@ -100,6 +100,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout HEAD -- .github/workflows/android-four-brand.yml
           git add -A
           git commit -m 'Normalize network cache to verified MP3 and refine settings drawer'
           git push origin HEAD:${{ github.head_ref || github.ref_name }}
