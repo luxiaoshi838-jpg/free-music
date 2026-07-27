@@ -1,0 +1,116 @@
+name: Apply MP3 Cache And Settings UI Fix
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mp3-cache-ui-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Apply verified MP3 and UI patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .mp3-patch/p*.b64 > /tmp/mp3-ui.patch.b64
+          base64 -d /tmp/mp3-ui.patch.b64 > /tmp/mp3-ui.patch.xz
+          echo '99b581191966d3a13a7010e7337d26807a768940d4a0b8219e9d0cdfefc53ebd  /tmp/mp3-ui.patch.xz' | sha256sum -c -
+          xz -dc /tmp/mp3-ui.patch.xz > /tmp/mp3-ui.patch
+          echo '10ab8f97faf24cee4fbdc02fdfc4f28a0fc51293626f3282129ec6353509c922  /tmp/mp3-ui.patch' | sha256sum -c -
+          patch -p2 < /tmp/mp3-ui.patch
+          rm -rf .mp3-patch
+
+      - name: Verify source requirements
+        run: |
+          python3 scripts/check_public_repo.py
+          python3 scripts/check_csv_mapping.py
+          python3 scripts/check_feature_requirements.py
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          mkdir -p build
+          sdkmanager 'platforms;android-35' 'build-tools;37.0.0' 2>&1 | tee build/sdkmanager.log
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build four APKs
+        run: |
+          gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-debug.log
+
+      - name: Show build failure details
+        if: failure()
+        run: |
+          echo '===== assemble-debug.log tail ====='
+          tail -n 280 build/assemble-debug.log || true
+
+      - name: Verify APK package names and signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          aapt="$ANDROID_HOME/build-tools/37.0.0/aapt"
+          apksigner="$ANDROID_HOME/build-tools/37.0.0/apksigner"
+          declare -A expected=(
+            [babywifeclassic]='com.jianglab.babywife'
+            [lidacaizhu]='com.jianglab.babywife.lidacaizhu'
+            [jianglab]='com.jianglab.babywife.jianglab'
+            [niubi]='com.jianglab.babywife.niubi'
+          )
+          mkdir -p verified-apks
+          for flavor in babywifeclassic lidacaizhu jianglab niubi; do
+            apk="app/build/outputs/apk/${flavor}/debug/app-${flavor}-debug.apk"
+            test -s "$apk"
+            package_name=$("$aapt" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            test "$package_name" = "${expected[$flavor]}"
+            "$apksigner" verify --verbose "$apk"
+            cp "$apk" "verified-apks/${flavor}.apk"
+          done
+          sha256sum verified-apks/*.apk | tee verified-apks/SHA256.txt
+
+      - name: Commit applied source to feature branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Normalize network cache to verified MP3 and refine settings drawer'
+          git push origin HEAD:${{ github.head_ref || github.ref_name }}
+
+      - name: Upload APKs and build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: four-brand-mp3-cache-settings-debug-apks
+          path: |
+            verified-apks/
+            build/sdkmanager.log
+            build/assemble-debug.log
+          if-no-files-found: warn
+          retention-days: 14
