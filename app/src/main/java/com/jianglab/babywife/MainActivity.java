@@ -158,6 +158,7 @@ public class MainActivity extends Activity {
     private String activeSearchKeyword = "";
     private FrameLayout shellView;
     private LinearLayout drawerPanel;
+    private int normalStatusBarColor;
     private View drawerDismissView;
     private LinearLayout headerBar;
     private LinearLayout searchPanel;
@@ -231,6 +232,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        normalStatusBarColor = getWindow().getStatusBarColor();
         loadPlaylists();
         loadSavedUiSettings();
         setContentView(buildContentView());
@@ -495,8 +497,9 @@ public class MainActivity extends Activity {
         drawerPanel = buildDrawerPanel();
         drawerPanel.setVisibility(View.GONE);
         drawerPanel.setClickable(true);
+        int drawerWidth = Math.round(getResources().getDisplayMetrics().widthPixels * 0.60f);
         FrameLayout.LayoutParams drawerParams = new FrameLayout.LayoutParams(
-            dp(310),
+            drawerWidth,
             ViewGroup.LayoutParams.MATCH_PARENT
         );
         drawerParams.gravity = Gravity.START;
@@ -1183,7 +1186,7 @@ public class MainActivity extends Activity {
 
         LinearLayout firstRow = new LinearLayout(this);
         firstRow.setOrientation(LinearLayout.HORIZONTAL);
-        firstRow.addView(makeSmallButton("新建在线", view -> promptNewPlaylist()),
+        firstRow.addView(makeSmallButton("新建", view -> promptNewPlaylist()),
             new LinearLayout.LayoutParams(0, dp(38), 1));
         firstRow.addView(makeSmallButton("改名", view -> promptRenamePlaylist()),
             new LinearLayout.LayoutParams(0, dp(38), 1));
@@ -1197,7 +1200,7 @@ public class MainActivity extends Activity {
             new LinearLayout.LayoutParams(0, dp(38), 1));
         secondRow.addView(makeSmallButton("清空", view -> clearCurrentPlaylist()),
             new LinearLayout.LayoutParams(0, dp(38), 1));
-        secondRow.addView(makeSmallButton("导出CSV", view -> exportCurrentPlaylistCsv()),
+        secondRow.addView(makeSmallButton("导出", view -> exportCurrentPlaylistCsv()),
             new LinearLayout.LayoutParams(0, dp(38), 1));
         panel.addView(secondRow);
         return panel;
@@ -1237,6 +1240,7 @@ public class MainActivity extends Activity {
         if (drawerPanel == null) return;
         boolean opening = drawerPanel.getVisibility() != View.VISIBLE;
         drawerPanel.setVisibility(opening ? View.VISIBLE : View.GONE);
+        getWindow().setStatusBarColor(opening ? Color.rgb(22, 24, 34) : normalStatusBarColor);
         if (drawerDismissView != null) {
             drawerDismissView.setVisibility(opening ? View.VISIBLE : View.GONE);
         }
@@ -2808,6 +2812,7 @@ public class MainActivity extends Activity {
     private void closeDrawer() {
         if (drawerPanel != null) drawerPanel.setVisibility(View.GONE);
         if (drawerDismissView != null) drawerDismissView.setVisibility(View.GONE);
+        getWindow().setStatusBarColor(normalStatusBarColor);
     }
 
     private void showCacheLocationDialog() {
@@ -2815,7 +2820,7 @@ public class MainActivity extends Activity {
             .setTitle("歌单缓存位置")
             .setMessage(CacheStorage.details(this)
                 + "\n\n更换位置时会先复制全部受管理文件，全部成功后才切换并删除旧位置文件。")
-            .setPositiveButton("选择卸载后保留的文件夹", (dialog, which) -> chooseCacheFolder())
+            .setPositiveButton("选择缓存文件夹", (dialog, which) -> chooseCacheFolder())
             .setNeutralButton("使用卸载时清理的位置", (dialog, which) -> migrateCacheToInternal())
             .setNegativeButton("取消", null)
             .show();

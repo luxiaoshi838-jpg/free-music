@@ -60,6 +60,7 @@ jobs:
           if [ -f scripts/run_with_no_output_watchdog.py ]; then
             python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-debug.log -- gradle --no-daemon assembleDebug
           else
+            set -o pipefail
             gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-debug.log
           fi
 

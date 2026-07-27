@@ -112,8 +112,8 @@ final class CacheStorage {
 
     static String description(Context context) {
         Uri tree = selectedTree(context);
-        if (tree == null) return "缓存文件夹：应用内部（卸载时清理）";
-        return "缓存文件夹：" + treeLabel(tree) + "（卸载后保留）";
+        if (tree == null) return "缓存文件夹：应用内部";
+        return "缓存文件夹：" + treeLabel(tree);
     }
 
     static String details(Context context) {
@@ -290,6 +290,7 @@ final class CacheStorage {
             throw new IllegalArgumentException("歌曲缓存文件无效");
         }
         String safeExtension = sanitizeExtension(extension);
+        if (!"mp3".equals(safeExtension)) throw new IllegalArgumentException("受管理歌曲缓存必须是 MP3");
         MetadataRecord record = metadata(key, title, artist, album, catalogJson);
         String fileName = friendlyBase(record) + "." + safeExtension;
         Uri tree = selectedTree(context);

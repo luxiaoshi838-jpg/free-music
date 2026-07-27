@@ -6,6 +6,7 @@ cache = (root / 'app/src/main/java/com/jianglab/babywife/CacheStorage.java').rea
 network = (root / 'app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java').read_text(encoding='utf-8')
 broom = (root / 'app/src/main/java/com/jianglab/babywife/BroomIconView.java').read_text(encoding='utf-8')
 metadata = (root / 'app/src/main/java/com/jianglab/babywife/AudioMetadataWriter.java').read_text(encoding='utf-8')
+transcoder = (root / 'app/src/main/java/com/jianglab/babywife/AudioTranscoder.java').read_text(encoding='utf-8')
 picker = (root / 'app/src/main/java/com/jianglab/babywife/SongVersionPicker.java').read_text(encoding='utf-8')
 catalog = (root / 'app/src/main/java/com/jianglab/babywife/CatalogSearch.java').read_text(encoding='utf-8')
 gradle = (root / 'app/build.gradle').read_text(encoding='utf-8')
@@ -92,10 +93,16 @@ checks = {
     'delayed red marking': 'autoUnavailable && song.manualUnavailable' in main,
     'csv import/export': '歌名,歌手,专辑,时长秒,平台,平台代码,歌曲ID,歌词版本' in main,
     'jianglab flavor gate': 'REQUIRE_FIRST_RUN_PASSPHRASE' in gradle and 'signingCertificateCommonName' in main,
-    'version bumped': 'versionCode 2026072702' in gradle,
+    'mp3 source preference and transcode': ('format", "mp3' in network and 'AudioTranscoder.ensureMp3' in network and 'libmp3lame' in transcoder and 'ffmpeg-kit-lts-full-16kb:6.1.4' in gradle),
+    'verified mp3 metadata': ('AudioMetadataWriter.applyAndVerify' in network and 'MP3 歌曲信息写入校验失败' in metadata and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata),
+    'managed cache mp3 only': ('受管理歌曲缓存必须是 MP3' in cache and 'storeAudio(context, key, "mp3"' in network),
+    'settings width and status bar': ('0.60f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'drawerParams.topMargin = statusBarHeight() + dp(8)' in main),
+    'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
+    'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
+    'version bumped': 'versionCode 2026072703' in gradle,
     'logs synchronized': (
-        '卸载缓存、导入入口与歌曲文件信息修正' in project_log
-        and 'Uninstall cache, import menu and named media follow-up' in changelog
+        'MP3 缓存统一与设置栏界面修正' in project_log
+        and 'MP3 cache normalization and settings drawer follow-up' in changelog
     ),
     'no literal passphrase': '姜Lab欢迎你' not in ''.join(
         [main, cache, network, broom, metadata, picker, catalog, gradle, project_log, changelog]),
