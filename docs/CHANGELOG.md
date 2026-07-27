@@ -66,3 +66,12 @@
 - Removed uninstall-behavior suffixes from the cache-folder button while keeping full behavior details in the dialog.
 - Shortened playlist-manager labels to `新建` and `导出`.
 - Bumped Android version to `2026072703 / 2026.07.27.mp3-cache-settings-ui`.
+
+### Lightweight UI-only follow-up
+
+- Removed the bundled FFmpegKit dependency after confirming it made each APK roughly 180 MB.
+- Kept the settings drawer UI changes: 60% drawer width, black status-bar continuation while open, shorter cache-folder text, and shorter playlist-manager labels.
+- Kept MP3-first resolution and ID3 verification for real MP3 downloads.
+- Lightweight builds now reject non-MP3 network audio for managed cache instead of transcoding on-device or storing a renamed non-MP3 file.
+- Local imported songs are not converted and continue to use their original local files.
+- Bumped Android version to `2026072704 / 2026.07.27.light-ui-no-ffmpeg`.

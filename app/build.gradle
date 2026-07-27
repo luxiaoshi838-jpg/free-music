@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026072703
-        versionName "2026.07.27.mp3-cache-settings-ui"
+        versionCode 2026072704
+        versionName "2026.07.27.light-ui-no-ffmpeg"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
@@ -53,5 +53,4 @@ android {
 
 dependencies {
     implementation files('libs/musicbridge.aar')
-    implementation 'io.github.jamaismagic.ffmpeg:ffmpeg-kit-lts-full-16kb:6.1.4'
 }

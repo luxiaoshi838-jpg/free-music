@@ -1,15 +1,11 @@
 package com.jianglab.babywife;
 
-import com.arthenica.ffmpegkit.FFmpegKit;
-import com.arthenica.ffmpegkit.FFmpegSession;
-import com.arthenica.ffmpegkit.ReturnCode;
-
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 
-/** Ensures every managed network-audio cache is a real MP3, not a renamed source file. */
+/** Keeps managed network-audio cache lightweight: accept only real MP3 files. */
 final class AudioTranscoder {
     private AudioTranscoder() {
     }
@@ -41,27 +37,13 @@ final class AudioTranscoder {
         }
         if (target.exists() && !target.delete()) throw new IllegalStateException("无法替换旧 MP3 临时文件");
 
-        if (isMp3(source)) {
-            copyOrMove(source, target);
-        } else {
-            FFmpegSession session = FFmpegKit.executeWithArguments(new String[] {
-                "-y", "-hide_banner", "-loglevel", "error",
-                "-i", source.getAbsolutePath(),
-                "-map", "0:a:0", "-vn", "-map_metadata", "-1",
-                "-ac", "2", "-ar", "44100",
-                "-c:a", "libmp3lame", "-b:a", "192k",
-                target.getAbsolutePath()
-            });
-            if (!ReturnCode.isSuccess(session.getReturnCode())) {
-                target.delete();
-                String details = session.getAllLogsAsString();
-                if (details == null || details.trim().isEmpty()) details = "FFmpeg 返回码 " + session.getReturnCode();
-                throw new IllegalStateException("音频转为 MP3 失败：" + compact(details));
-            }
+        if (!isMp3(source)) {
+            throw new IllegalStateException("解析到的音频不是 MP3，轻量版不内置转码");
         }
+        copyOrMove(source, target);
         if (!isMp3(target) || target.length() <= 0) {
             target.delete();
-            throw new IllegalStateException("转码结果不是真实 MP3");
+            throw new IllegalStateException("缓存结果不是真实 MP3");
         }
         return target;
     }
@@ -74,10 +56,5 @@ final class AudioTranscoder {
             int count;
             while ((count = input.read(buffer)) >= 0) if (count > 0) output.write(buffer, 0, count);
         }
-    }
-
-    private static String compact(String text) {
-        String value = text == null ? "" : text.replaceAll("\\s+", " ").trim();
-        return value.length() > 240 ? value.substring(0, 240) : value;
     }
 }
