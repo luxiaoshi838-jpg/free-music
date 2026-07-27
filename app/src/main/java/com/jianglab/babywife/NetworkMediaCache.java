@@ -198,6 +198,11 @@ final class NetworkMediaCache {
         return CacheStorage.clearExcept(context, keepKeys);
     }
 
+    static int deleteCatalogCache(Context context, String catalogJson) {
+        String key = cacheKeyForCatalog(catalogJson);
+        return key.isEmpty() ? 0 : CacheStorage.deleteKey(context, key);
+    }
+
     static boolean cachedAudioExists(Context context, String uriText) {
         return CacheStorage.exists(context, uriText);
     }

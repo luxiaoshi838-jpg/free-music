@@ -26,3 +26,15 @@
 - Kept CSV import aligned with the existing eight-column CSV export format.
 - Added JiangLab-only first-launch verification derived from the final signing certificate CN; no real passphrase or passphrase hash is stored in the public source.
 - Kept release signing keys outside the public repository.
+
+### CSV, legacy cache and cache-management follow-up
+
+- Inspected the previously supplied `apk-output.zip` instead of inferring legacy behavior.
+- Confirmed all four legacy APKs stored media under app-private `files/network_music`; those files were excluded from Android backup and are removed on uninstall.
+- Fixed CSV header mapping so `歌曲ID` can no longer overwrite the `歌名` column.
+- Replaced the colored broom emoji with a custom white line icon matching the settings control.
+- Moved the cache-folder control into the lower settings actions directly above the background-image button.
+- Added explicit legacy-default and current cache paths to the cache-location dialog.
+- Added copy-first cache migration when changing folders or moving back to internal storage.
+- Restricted cache migration and cleanup to recognized SHA256-named cache files so unrelated user files are never deleted.
+- Added a default-off setting controlling whether deleting songs/playlists also removes unreferenced audio and lyric cache files.
