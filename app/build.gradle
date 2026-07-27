@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026072701
-        versionName "2026.07.27.cache-fix"
+        versionCode 2026072702
+        versionName "2026.07.27.cache-uninstall-import-ui"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
