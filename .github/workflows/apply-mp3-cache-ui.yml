@@ -27,12 +27,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .mp3-patch/p*.b64 > /tmp/mp3-ui.patch.b64
-          base64 -d /tmp/mp3-ui.patch.b64 > /tmp/mp3-ui.patch.xz
-          echo '99b581191966d3a13a7010e7337d26807a768940d4a0b8219e9d0cdfefc53ebd  /tmp/mp3-ui.patch.xz' | sha256sum -c -
+          cat .mp3-patch/p*.bin > /tmp/mp3-ui.patch.xz
+          echo '3231ced35b3b01cd658b2141e8b0843055a8416cb8de600ff1e0ca3a594d703d  /tmp/mp3-ui.patch.xz' | sha256sum -c -
           xz -dc /tmp/mp3-ui.patch.xz > /tmp/mp3-ui.patch
-          echo '10ab8f97faf24cee4fbdc02fdfc4f28a0fc51293626f3282129ec6353509c922  /tmp/mp3-ui.patch' | sha256sum -c -
-          patch -p2 < /tmp/mp3-ui.patch
+          echo '53f09e998b317ecb37265d23a01780d715e3d1419c937d3c354aef20b77de8c3  /tmp/mp3-ui.patch' | sha256sum -c -
+          patch -p1 < /tmp/mp3-ui.patch
           rm -rf .mp3-patch
 
       - name: Verify source requirements
@@ -61,7 +60,9 @@ jobs:
           gradle-version: '8.7'
 
       - name: Build four APKs
+        shell: bash
         run: |
+          set -o pipefail
           gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-debug.log
 
       - name: Show build failure details
