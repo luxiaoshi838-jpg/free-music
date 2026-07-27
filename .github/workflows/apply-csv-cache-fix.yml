@@ -61,9 +61,13 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Build four APKs with five-minute watchdog
+      - name: Build four APKs
         run: |
-          python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-debug.log -- gradle --no-daemon assembleDebug
+          if [ -f scripts/run_with_no_output_watchdog.py ]; then
+            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-debug.log -- gradle --no-daemon assembleDebug
+          else
+            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-debug.log
+          fi
 
       - name: Show build failure details
         if: failure()
