@@ -14,12 +14,15 @@
 - Improved CSV playlist import compatibility with the current CSV export format.
 - Added mandatory logging rule: future changes must update both `PROJECT_LOG.md` and this changelog before commit.
 - Fixed local Gradle availability by adding the project Gradle wrapper, pinning Gradle 8.7 to an Aliyun mirror, adding Aliyun Maven mirrors, enabling Android's Windows non-ASCII path override for this Chinese-path workspace, selecting the installed Build Tools 37.0.0, and verifying `assembleDebug` for all four APK flavors.
-- Documented the local workspace cleanup rule: APK source sync, Gradle/Android build caches, signature export worktrees, verification temp folders, and archived zip packages now belong under `E:\脚本\大宝贝儿老婆_apk` instead of the `E:\脚本` root.
 
-## Pending
+## 2026-07-27
 
-- Add configurable playlist cache root folder:
-  - per-playlist cache subfolders;
-  - shared `缓存` folder for search and replacement cache;
-  - clear-cache action should clean that transient folder.
-- Remove the visible “设置” title from the settings drawer while preserving layout positions.
+- Added one-folder cache storage with app-private default storage and a user-selectable persistent Android document-tree folder.
+- Reused the former settings-title row as the cache-location control so the remaining settings layout stays in place.
+- Kept the broom action reference-aware: playlist cache keys are preserved while non-playlist audio and lyric cache files are removed.
+- Persisted whether the last playing item came from a playlist or search-only context and restored action-button visibility accordingly.
+- Broadened automatic and manual replacement matching with title/artist similarity scoring and real source resolution.
+- Changed unavailable highlighting so a playlist item turns red only after automatic resolution and manual replacement both fail.
+- Kept CSV import aligned with the existing eight-column CSV export format.
+- Added JiangLab-only first-launch verification derived from the final signing certificate CN; no real passphrase or passphrase hash is stored in the public source.
+- Kept release signing keys outside the public repository.

@@ -272,7 +272,9 @@ final class CatalogSearch {
             String selectedSource = selected.optString("source", "").trim().toLowerCase(Locale.ROOT);
             String selectedTitle = selected.optString("name", "");
             String selectedArtist = selected.optString("artist", "");
-            if (normalize(selectedTitle).isEmpty() || normalize(selectedArtist).isEmpty()) return matches;
+            if (normalize(selectedTitle).isEmpty()) return matches;
+            String searchKeyword = isUnknownArtist(selectedArtist)
+                ? selectedTitle : selectedTitle + " " + selectedArtist;
 
             List<String> sources = new ArrayList<>(ALL_SOURCES);
             sources.remove(selectedSource);
@@ -280,7 +282,7 @@ final class CatalogSearch {
             try {
                 Map<String, Future<List<Track>>> futures = new LinkedHashMap<>();
                 for (String source : sources) {
-                    futures.put(source, pool.submit(() -> searchOneSource(source, selectedTitle + " " + selectedArtist)));
+                    futures.put(source, pool.submit(() -> searchOneSource(source, searchKeyword)));
                 }
                 for (String source : sources) {
                     Future<List<Track>> future = futures.get(source);
@@ -292,7 +294,7 @@ final class CatalogSearch {
                         continue;
                     }
                     for (Track track : rows) {
-                        if (sameIdentity(selectedTitle, selectedArtist, track)) matches.add(track);
+                        if (replacementScore(selectedTitle, selectedArtist, track) >= 700) matches.add(track);
                     }
                 }
             } finally {
@@ -300,7 +302,78 @@ final class CatalogSearch {
             }
         } catch (Exception ignored) {
         }
+        Collections.sort(matches, (left, right) ->
+            replacementScore(selectedTitleSafe(catalogJson), selectedArtistSafe(catalogJson), right)
+                - replacementScore(selectedTitleSafe(catalogJson), selectedArtistSafe(catalogJson), left));
         return matches;
+    }
+
+    private static String selectedTitleSafe(String catalogJson) {
+        try { return new JSONObject(catalogJson == null ? "{}" : catalogJson).optString("name", ""); }
+        catch (Exception ignored) { return ""; }
+    }
+
+    private static String selectedArtistSafe(String catalogJson) {
+        try { return new JSONObject(catalogJson == null ? "{}" : catalogJson).optString("artist", ""); }
+        catch (Exception ignored) { return ""; }
+    }
+
+    static int replacementScore(String title, String artist, Track candidate) {
+        if (candidate == null) return 0;
+        String wantedTitle = normalizeTitleForReplacement(title);
+        String candidateTitle = normalizeTitleForReplacement(candidate.title);
+        if (wantedTitle.isEmpty() || candidateTitle.isEmpty()) return 0;
+        int score = 0;
+        if (wantedTitle.equals(candidateTitle)) score += 1000;
+        else if (wantedTitle.contains(candidateTitle) || candidateTitle.contains(wantedTitle)) {
+            int shortLength = Math.min(wantedTitle.length(), candidateTitle.length());
+            int longLength = Math.max(wantedTitle.length(), candidateTitle.length());
+            score += 650 + (longLength == 0 ? 0 : shortLength * 250 / longLength);
+        } else {
+            score += titleOverlapScore(wantedTitle, candidateTitle);
+        }
+        String wantedArtist = artistSignature(artist);
+        String candidateArtist = artistSignature(candidate.artist);
+        if (!wantedArtist.isEmpty() && wantedArtist.equals(candidateArtist)) score += 650;
+        else if (!wantedArtist.isEmpty() && !candidateArtist.isEmpty()
+            && (wantedArtist.contains(candidateArtist) || candidateArtist.contains(wantedArtist))) score += 300;
+        if (isUnknownArtist(artist) || isUnknownArtist(candidate.artist)) score += 80;
+        return score;
+    }
+
+    private static int titleOverlapScore(String left, String right) {
+        Set<String> leftPairs = characterPairs(left);
+        Set<String> rightPairs = characterPairs(right);
+        if (leftPairs.isEmpty() || rightPairs.isEmpty()) return 0;
+        int common = 0;
+        for (String pair : leftPairs) if (rightPairs.contains(pair)) common++;
+        int denominator = Math.max(leftPairs.size(), rightPairs.size());
+        return common * 700 / Math.max(1, denominator);
+    }
+
+    private static Set<String> characterPairs(String value) {
+        Set<String> pairs = new HashSet<>();
+        if (value == null) return pairs;
+        if (value.length() == 1) { pairs.add(value); return pairs; }
+        for (int i = 0; i + 1 < value.length(); i++) pairs.add(value.substring(i, i + 2));
+        return pairs;
+    }
+
+    private static boolean isUnknownArtist(String value) {
+        String normalized = normalize(value);
+        return normalized.isEmpty() || normalized.contains("未知歌手") || normalized.equals("unknown");
+    }
+
+    private static String normalizeTitleForReplacement(String value) {
+        if (value == null) return "";
+        return value.toLowerCase(Locale.ROOT)
+            .replaceAll("(?i)\\b(live|remaster(?:ed)?|version|edit|mix|cover|instrumental|karaoke)\\b", "")
+            .replace("现场版", "")
+            .replace("伴奏", "")
+            .replace("翻唱", "")
+            .replace("重制版", "")
+            .replaceAll("[\\s\\p{Punct}（）()《》【】\\[\\]·•]+", "")
+            .trim();
     }
 
     static boolean sameIdentity(String title, String artist, Track candidate) {
