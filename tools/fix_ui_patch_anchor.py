@@ -2,6 +2,7 @@
 from pathlib import Path
 import argparse
 
+# This helper rewrites only the ambiguous patch-script anchor before the build.
 
 def main():
     parser = argparse.ArgumentParser()
