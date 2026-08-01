@@ -2,10 +2,10 @@
 
 ## 2026-08-01
 
-- Added a one-click current-playlist cache action on the playlist page.
-- Persist failed one-click cache attempts per song with `cacheFailed`, so later one-click cache runs skip songs that already failed and continue with later tracks instead of repeatedly starting from the failed item.
-- Clear the failed-cache mark after a song caches successfully, is added fresh to a playlist, or is replaced with a confirmed song version.
-- Bumped Android version to `2026080101 / 2026.08.01.playlist-cache-skip-failed`.
+- Removed the mistakenly added current-playlist one-click cache action and its background batch-cache path.
+- Playlist add is metadata-only again: searched songs keep the playback-created cache, and adding them to a playlist does not start another cache task.
+- Removed the extra `cacheFailed` song state introduced with the rejected batch-cache flow.
+- Bumped Android version to `2026080102 / 2026.08.01.remove-playlist-cache-button`.
 
 ## 2026-07-26
 

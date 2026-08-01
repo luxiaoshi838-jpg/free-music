@@ -848,14 +848,6 @@ public class MainActivity extends Activity {
         playlistSortButton.setContentDescription("??????");
         playlistSortButton.setOnClickListener(view -> showCurrentPlaylistSortDialog());
         topRow.addView(playlistSortButton, new LinearLayout.LayoutParams(dp(58), dp(42)));
-        Button playlistCacheButton = makeButton("\u7f13\u5b58", false);
-        playlistCacheButton.setTextSize(12);
-        playlistCacheButton.setSingleLine(true);
-        playlistCacheButton.setContentDescription("\u4e00\u952e\u7f13\u5b58\u5f53\u524d\u6b4c\u5355");
-        playlistCacheButton.setOnClickListener(view -> cacheCurrentPlaylistOneClick());
-        LinearLayout.LayoutParams cacheButtonParams = new LinearLayout.LayoutParams(dp(58), dp(42));
-        cacheButtonParams.setMargins(dp(6), 0, 0, 0);
-        topRow.addView(playlistCacheButton, cacheButtonParams);
         panel.addView(topRow);
 
         playlistSearchInput = new EditText(this);
@@ -1551,7 +1543,6 @@ public class MainActivity extends Activity {
         playlist.songs.add(song);
         int addedIndex = playlist.songs.size() - 1;
         song.unavailable = false;
-        song.cacheFailed = false;
         savePlaylists();
         renderCurrentPlaylist();
         if (currentSong == song) switchPlaybackToPlaylist(playlist, addedIndex);
@@ -1824,7 +1815,6 @@ public class MainActivity extends Activity {
                     item.manualAttempt = true;
                     item.manualUnavailable = false;
                     item.unavailable = false;
-                    item.cacheFailed = false;
                 }
             }
         }
@@ -1839,7 +1829,6 @@ public class MainActivity extends Activity {
         target.manualAttempt = true;
         target.manualUnavailable = false;
         target.unavailable = false;
-        target.cacheFailed = false;
         clearPendingLyricPreview();
         savePlaylists();
         renderCurrentPlaylist();
@@ -1886,7 +1875,6 @@ public class MainActivity extends Activity {
         song.autoUnavailable = false;
         song.manualUnavailable = false;
         song.manualAttempt = false;
-        song.cacheFailed = false;
         markSongUnavailable(song, false);
         artistView.setText(song.artist + " ? " + song.source);
         if (commit.sourceChanged) {
@@ -2032,7 +2020,6 @@ public class MainActivity extends Activity {
                     item.autoUnavailable = song.autoUnavailable;
                     item.manualUnavailable = song.manualUnavailable;
                     item.manualAttempt = song.manualAttempt;
-                    item.cacheFailed = song.cacheFailed;
                 }
             }
         }
@@ -2062,80 +2049,6 @@ public class MainActivity extends Activity {
             int removed = NetworkMediaCache.clearExcept(this, keepKeys);
             getSharedPreferences("lyric_version_picker_cache", MODE_PRIVATE).edit().clear().apply();
             runOnUiThread(() -> toast("\u5df2\u6e05\u7406\u975e\u6b4c\u5355\u7f13\u5b58\uff1a" + removed + " \u4e2a\u6587\u4ef6"));
-        }).start();
-    }
-
-    private void cacheCurrentPlaylistOneClick() {
-        Playlist playlist = currentPlaylist();
-        if (playlist == null || playlist.songs.isEmpty()) {
-            toast("\u5f53\u524d\u6b4c\u5355\u4e3a\u7a7a");
-            return;
-        }
-        List<Song> targets = new ArrayList<>(playlist.songs);
-        statusView.setText("\u5f00\u59cb\u4e00\u952e\u7f13\u5b58\uff1a" + playlist.name);
-        new Thread(() -> {
-            int done = 0;
-            int skipped = 0;
-            int failed = 0;
-            for (int i = 0; i < targets.size(); i++) {
-                Song song = targets.get(i);
-                if (song == null || !song.isNetworkCatalog()) {
-                    skipped++;
-                    continue;
-                }
-                String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
-                String existingUri = key.isEmpty() ? "" : CacheStorage.findAudioUri(this, key);
-                if (!existingUri.isEmpty() && NetworkMediaCache.cachedAudioExists(this, existingUri)) {
-                    song.cachedUri = existingUri;
-                    song.uri = existingUri;
-                    song.cacheFailed = false;
-                    done++;
-                    continue;
-                }
-                if (song.cacheFailed) {
-                    skipped++;
-                    continue;
-                }
-                final int index = i + 1;
-                runOnUiThread(() -> statusView.setText("\u6b63\u5728\u7f13\u5b58 " + index + "/" + targets.size() + "\uff1a" + song.title));
-                try {
-                    NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
-                        this,
-                        song.catalogJson,
-                        true,
-                        message -> runOnUiThread(() -> statusView.setText(message))
-                    );
-                    song.cachedUri = cached.audioUri;
-                    song.uri = cached.audioUri;
-                    if (cached.catalogJson != null && !cached.catalogJson.trim().isEmpty()) song.catalogJson = cached.catalogJson;
-                    if (cached.sourceCode != null && !cached.sourceCode.trim().isEmpty()) {
-                        song.source = CatalogSearch.labelForSource(cached.sourceCode);
-                    }
-                    if ((song.lyric == null || song.lyric.trim().isEmpty())
-                        && cached.lyric != null && !cached.lyric.trim().isEmpty()) {
-                        song.lyric = cached.lyric;
-                    }
-                    song.cacheFailed = false;
-                    song.unavailable = false;
-                    song.autoUnavailable = false;
-                    song.manualUnavailable = false;
-                    done++;
-                } catch (Exception error) {
-                    song.cacheFailed = true;
-                    song.unavailable = true;
-                    failed++;
-                }
-            }
-            int finalDone = done;
-            int finalSkipped = skipped;
-            int finalFailed = failed;
-            runOnUiThread(() -> {
-                savePlaylists();
-                renderCurrentPlaylist();
-                statusView.setText("\u4e00\u952e\u7f13\u5b58\u5b8c\u6210\uff1a\u6210\u529f " + finalDone
-                    + "\uff0c\u8df3\u8fc7 " + finalSkipped + "\uff0c\u65b0\u5931\u8d25 " + finalFailed
-                    + "\u3002\u4e0b\u6b21\u4f1a\u81ea\u52a8\u8df3\u8fc7\u5df2\u5931\u8d25\u6b4c\u66f2\u3002");
-            });
         }).start();
     }
 
@@ -4477,7 +4390,6 @@ public class MainActivity extends Activity {
         boolean autoUnavailable;
         boolean manualUnavailable;
         boolean manualAttempt;
-        boolean cacheFailed;
 
         Song(String title, String artist, String source, String lyric) {
             this(title, artist, source, lyric, "", "", "");
@@ -4500,7 +4412,6 @@ public class MainActivity extends Activity {
             this.autoUnavailable = false;
             this.manualUnavailable = false;
             this.manualAttempt = false;
-            this.cacheFailed = false;
         }
 
         static Song fromCatalog(CatalogSearch.Track track) {
@@ -4558,7 +4469,6 @@ public class MainActivity extends Activity {
                 object.put("unavailable", unavailable);
                 object.put("autoUnavailable", autoUnavailable);
                 object.put("manualUnavailable", manualUnavailable);
-                object.put("cacheFailed", cacheFailed);
             } catch (JSONException ignored) {
             }
             return object;
@@ -4579,7 +4489,6 @@ public class MainActivity extends Activity {
             song.autoUnavailable = object.optBoolean("autoUnavailable", song.unavailable);
             song.manualUnavailable = object.optBoolean("manualUnavailable", song.unavailable);
             song.manualAttempt = false;
-            song.cacheFailed = object.optBoolean("cacheFailed", false);
             return song;
         }
     }

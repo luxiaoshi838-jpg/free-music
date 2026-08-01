@@ -2,6 +2,13 @@
 
 ## 2026-08-01
 
+### Remove rejected playlist one-click cache
+
+- Removed the mistakenly added current-playlist one-click cache action and its background batch-cache path.
+- Playlist add is metadata-only again: searched songs keep the playback-created cache, and adding them to a playlist does not start another cache task.
+- Removed the extra `cacheFailed` song state introduced with the rejected batch-cache flow.
+- Version bumped to `2026080102 / 2026.08.01.remove-playlist-cache-button`.
+
 ### Playlist one-click cache skip failed tracks
 
 - Added a `??` action to the current-playlist page for one-click caching the active playlist.
