@@ -1,0 +1,58 @@
+name: Export PR9 Build Artifacts
+
+on:
+  push:
+    branches:
+      - tools/export-pr9-build-artifacts
+    paths:
+      - .github/workflows/export-pr9-build-artifacts.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build-output/pr9
+          fetch-depth: 0
+
+      - name: Verify published files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s public-pr9-debug-apks.zip
+          test -s android-signing-tools-37.zip
+          sha256sum -c SHA256.txt
+          echo "$GITHUB_RUN_ID" > run-id.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add run-id.txt
+          git commit -m "Record PR9 artifact export run" || true
+          git push origin HEAD:build-output/pr9
+
+      - name: Upload current debug APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr9-current-debug-apks
+          path: public-pr9-debug-apks.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Android signing tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-signing-tools-37-current
+          path: android-signing-tools-37.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Reset helper branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push --force origin main:tools/export-pr9-build-artifacts
