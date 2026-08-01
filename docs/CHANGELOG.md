@@ -151,3 +151,14 @@
 ### Playback-priority batch build verification
 
 - Revalidated the committed foreground-priority, failed-track skip, persistent cursor and 45-second stall recovery implementation with a clean four-flavor build.
+
+
+## 2026-08-01 Manual-priority search, retained picker results and background resolve
+
+- Serialized native catalog search across processes and gave manual search precedence over automatic fallback and playlist batch caching.
+- Persisted replacement-song results and source cursor per song, with pull-down, bottom-scroll and footer loading.
+- Added keyboard Enter/Search action handling to the main search field.
+- Moved playback catalog resolution and audio caching into the independent foreground playback service so work continues while another app is visible.
+- Deferred lyric matching until playable audio is ready.
+- Removed the one-minute gate from manual search, manual replacement and clicked playback while retaining it for one-click batch caching and automatic replacement.
+- Bumped versionCode to 2026080110.
