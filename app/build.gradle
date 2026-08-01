@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080104
-        versionName "2026.08.01.real-decoder-validation"
+        versionCode 2026080105
+        versionName "2026.08.01.background-playlist-cache"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 

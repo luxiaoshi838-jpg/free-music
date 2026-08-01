@@ -5,6 +5,8 @@ main = (root / 'app/src/main/java/com/jianglab/babywife/MainActivity.java').read
 cache = (root / 'app/src/main/java/com/jianglab/babywife/CacheStorage.java').read_text(encoding='utf-8')
 network = (root / 'app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java').read_text(encoding='utf-8')
 compat = (root / 'app/src/main/java/com/jianglab/babywife/PlaybackCompatibility.java').read_text(encoding='utf-8')
+batch_service = (root / 'app/src/main/java/com/jianglab/babywife/PlaylistBatchCacheService.java').read_text(encoding='utf-8')
+manifest = (root / 'app/src/main/AndroidManifest.xml').read_text(encoding='utf-8')
 broom = (root / 'app/src/main/java/com/jianglab/babywife/BroomIconView.java').read_text(encoding='utf-8')
 metadata = (root / 'app/src/main/java/com/jianglab/babywife/AudioMetadataWriter.java').read_text(encoding='utf-8')
 transcoder = (root / 'app/src/main/java/com/jianglab/babywife/AudioTranscoder.java').read_text(encoding='utf-8')
@@ -125,12 +127,18 @@ checks = {
         and 'NetworkMediaCache.validateCatalogCache(this, song.catalogJson)' in main
         and 'return CacheStorage.exists(context, uriText);' in network
     ),
-    'playlist one-click cache and failure marking': (
+    'playlist one-click background cache and failure marking': (
         '一键缓存未缓存歌曲' in main
         and 'cacheCurrentPlaylist' in main
-        and 'uncachedSongsInCurrentPlaylist' in main
-        and 'markSongUnavailable(song, true)' in main
-        and '缓存失败的歌曲已标红' in main
+        and 'PlaylistBatchCacheService.start(this, currentPlaylistIndex)' in main
+        and 'PlaylistBatchCacheService.isRunning(this)' in main
+        and 'FOREGROUND_SERVICE_DATA_SYNC' in manifest
+        and 'android:foregroundServiceType="dataSync"' in manifest
+        and 'PowerManager.PARTIAL_WAKE_LOCK' in batch_service
+        and 'START_REDELIVER_INTENT' in batch_service
+        and 'NetworkMediaCache.cache(' in batch_service
+        and 'song.put("unavailable", true)' in batch_service
+        and 'ACTION_PROGRESS' in batch_service
     ),
     'media player error containment': (
         'attachPlaybackErrorHandler' in main
@@ -146,7 +154,7 @@ checks = {
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080104' in gradle,
+    'version bumped': 'versionCode 2026080105' in gradle,
     'logs synchronized': (
         '多格式缓存优先级与一分钟过滤' in project_log
         and 'Multi-format cache priority and one-minute filter' in changelog

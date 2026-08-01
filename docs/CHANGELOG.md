@@ -110,3 +110,10 @@
 - Added MediaPlayer error containment so decode or seek failures release the player, remove the broken cache, and mark the song for manual replacement.
 - Added a conditional one-click cache button at the bottom of the current playlist.
 - Batch caching runs sequentially without changing playback; automatic failures are shown in red for manual version selection.
+
+
+## 2026-08-01 Background playlist cache service
+
+- Moved one-click playlist caching from an Activity thread into a foreground data-sync service.
+- Batch caching now continues during background playback, lock screen use, and Activity recreation.
+- Progress and per-song results are persisted; failed songs remain marked red for manual replacement.

@@ -195,6 +195,7 @@ public class MainActivity extends Activity {
     private int highlightedLyricIndex = -1;
     private int lyricEdgeBlankLineCount = MIN_LYRIC_EDGE_BLANK_LINES;
     private boolean playbackReceiverRegistered = false;
+    private boolean batchCacheReceiverRegistered = false;
     private long lastPublishedPlaybackSecond = -1L;
     private boolean lastPublishedPlaying = false;
     private String lastPublishedSongKey = "";
@@ -222,6 +223,32 @@ public class MainActivity extends Activity {
             }
         }
     };
+    private final BroadcastReceiver playlistBatchCacheReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null || !PlaylistBatchCacheService.ACTION_PROGRESS.equals(intent.getAction())) return;
+            String identity = intent.getStringExtra(PlaylistBatchCacheService.EXTRA_IDENTITY);
+            String updatedSongJson = intent.getStringExtra(PlaylistBatchCacheService.EXTRA_UPDATED_SONG_JSON);
+            if (identity != null && !identity.trim().isEmpty()
+                && updatedSongJson != null && !updatedSongJson.trim().isEmpty()) {
+                applyBatchSongUpdate(identity, updatedSongJson);
+            }
+            playlistBatchCaching = intent.getBooleanExtra(PlaylistBatchCacheService.EXTRA_RUNNING, false);
+            String message = intent.getStringExtra(PlaylistBatchCacheService.EXTRA_MESSAGE);
+            if (statusView != null && message != null && !message.trim().isEmpty()) {
+                statusView.setText(message);
+            }
+            if (playlistAdapter != null) applyPlaylistFilter();
+            updatePlaylistCacheButton();
+            if (!playlistBatchCaching) {
+                int failed = intent.getIntExtra(PlaylistBatchCacheService.EXTRA_FAILED, 0);
+                toast(failed > 0
+                    ? "后台缓存完成，失败歌曲已标红"
+                    : "后台缓存已完成");
+            }
+        }
+    };
+
     private final Runnable lyricTicker = new Runnable() {
         @Override
         public void run() {
@@ -240,6 +267,7 @@ public class MainActivity extends Activity {
         setContentView(buildContentView());
         maybeRequireJiangLabPassphrase();
         registerPlaybackControlReceiver();
+        registerPlaylistBatchCacheReceiver();
         PlaybackControlService.ensureStarted(this);
         renderPlaylists();
         renderCurrentPlaylist();
@@ -352,6 +380,51 @@ public class MainActivity extends Activity {
             registerReceiver(playbackCommandReceiver, filter);
         }
         playbackReceiverRegistered = true;
+    }
+
+    private void registerPlaylistBatchCacheReceiver() {
+        if (batchCacheReceiverRegistered) return;
+        IntentFilter filter = new IntentFilter(PlaylistBatchCacheService.ACTION_PROGRESS);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(playlistBatchCacheReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(playlistBatchCacheReceiver, filter);
+        }
+        batchCacheReceiverRegistered = true;
+        playlistBatchCaching = PlaylistBatchCacheService.isRunning(this);
+    }
+
+    private void applyBatchSongUpdate(String identity, String updatedSongJson) {
+        try {
+            Song updated = Song.fromJson(new JSONObject(updatedSongJson));
+            for (Playlist playlist : playlists) {
+                for (Song item : playlist.songs) {
+                    if (item != null && identity.equals(item.key())) copyBatchSongFields(item, updated);
+                }
+            }
+            if (currentSong != null && identity.equals(currentSong.key())) {
+                copyBatchSongFields(currentSong, updated);
+                if (titleView != null) titleView.setText(currentSong.title);
+                if (artistView != null) artistView.setText(currentSong.artist + " · " + currentSong.source);
+            }
+            // PlaylistBatchCacheService is the single writer while the queue is running.
+            // The Activity only refreshes its in-memory view to avoid overwriting newer results.
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void copyBatchSongFields(Song target, Song source) {
+        if (target == null || source == null) return;
+        target.source = source.source;
+        target.lyric = source.lyric;
+        target.lyricLabel = source.lyricLabel;
+        target.uri = source.uri;
+        target.catalogJson = source.catalogJson;
+        target.cachedUri = source.cachedUri;
+        target.unavailable = source.unavailable;
+        target.autoUnavailable = source.autoUnavailable;
+        target.manualUnavailable = source.manualUnavailable;
+        target.manualAttempt = false;
     }
 
     private MediaPlayer createWakefulMediaPlayer() {
@@ -1664,12 +1737,15 @@ public class MainActivity extends Activity {
 
     private void updatePlaylistCacheButton() {
         if (cachePlaylistButton == null) return;
-        int count = uncachedSongsInCurrentPlaylist().size();
+        playlistBatchCaching = PlaylistBatchCacheService.isRunning(this);
         if (playlistBatchCaching) {
             cachePlaylistButton.setVisibility(View.VISIBLE);
             cachePlaylistButton.setEnabled(false);
+            String progress = PlaylistBatchCacheService.progressLabel(this);
+            cachePlaylistButton.setText(progress.isEmpty() ? "正在后台缓存歌单" : progress);
             return;
         }
+        int count = uncachedSongsInCurrentPlaylist().size();
         cachePlaylistButton.setEnabled(count > 0);
         cachePlaylistButton.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
         cachePlaylistButton.setText(count > 0
@@ -1678,98 +1754,23 @@ public class MainActivity extends Activity {
     }
 
     private void cacheCurrentPlaylist() {
-        if (playlistBatchCaching) return;
-        final Playlist targetPlaylist = currentPlaylist();
-        final int targetPlaylistIndex = currentPlaylistIndex;
-        final List<Song> pending = uncachedSongsInCurrentPlaylist();
+        if (PlaylistBatchCacheService.isRunning(this)) {
+            playlistBatchCaching = true;
+            updatePlaylistCacheButton();
+            toast("已有歌单正在后台缓存");
+            return;
+        }
+        List<Song> pending = uncachedSongsInCurrentPlaylist();
         if (pending.isEmpty()) {
             updatePlaylistCacheButton();
             return;
         }
         playlistBatchCaching = true;
-        updatePlaylistCacheButton();
-        cachePlaylistButton.setText("正在缓存 0/" + pending.size());
-        new Thread(() -> {
-            int success = 0;
-            int failed = 0;
-            for (int index = 0; index < pending.size(); index++) {
-                Song song = pending.get(index);
-                final int progress = index + 1;
-                runOnUiThread(() -> {
-                    if (cachePlaylistButton != null) {
-                        cachePlaylistButton.setText("正在缓存 " + progress + "/" + pending.size()
-                            + "：" + song.title);
-                    }
-                });
-                try {
-                    String originalKey = song.key();
-                    NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
-                        this,
-                        song.catalogJson,
-                        true,
-                        message -> runOnUiThread(() -> {
-                            if (statusView != null && currentPlaylistIndex == targetPlaylistIndex) {
-                                statusView.setText("批量缓存 " + progress + "/" + pending.size()
-                                    + "：" + song.title + " · " + message);
-                            }
-                        })
-                    );
-                    song.cachedUri = cached.audioUri;
-                    song.uri = cached.audioUri;
-                    if (cached.catalogJson != null && !cached.catalogJson.trim().isEmpty()) {
-                        song.catalogJson = cached.catalogJson;
-                    }
-                    if (cached.sourceCode != null && !cached.sourceCode.trim().isEmpty()) {
-                        song.source = CatalogSearch.labelForSource(cached.sourceCode);
-                    }
-                    if ((song.lyric == null || song.lyric.trim().isEmpty())
-                        && cached.lyric != null && !cached.lyric.trim().isEmpty()) {
-                        song.lyric = cached.lyric;
-                        song.lyricLabel = song.title + " · " + song.artist + " · " + song.source;
-                    }
-                    persistResolvedCatalogToPlaylistCopies(song, originalKey);
-                    song.autoUnavailable = false;
-                    song.manualUnavailable = false;
-                    song.manualAttempt = false;
-                    markSongUnavailable(song, false);
-                    success++;
-                } catch (Exception error) {
-                    song.cachedUri = "";
-                    song.uri = "";
-                    song.autoUnavailable = true;
-                    song.manualAttempt = false;
-                    markSongUnavailable(song, true);
-                    failed++;
-                }
-                savePlaylists();
-                runOnUiThread(() -> {
-                    if (currentPlaylistIndex == targetPlaylistIndex) {
-                        applyPlaylistFilter();
-                        updatePlaylistCacheButton();
-                    }
-                });
-            }
-            final int completedSuccess = success;
-            final int completedFailed = failed;
-            runOnUiThread(() -> {
-                playlistBatchCaching = false;
-                savePlaylists();
-                if (currentPlaylistIndex == targetPlaylistIndex && currentPlaylist() == targetPlaylist) {
-                    renderCurrentPlaylist();
-                } else {
-                    updatePlaylistCacheButton();
-                }
-                if (statusView != null) {
-                    statusView.setText("一键缓存完成：成功 " + completedSuccess
-                        + " 首，失败 " + completedFailed + " 首");
-                }
-                if (completedFailed > 0) {
-                    toast("缓存失败的歌曲已标红，请点击歌曲后手动替换版本");
-                } else {
-                    toast("当前歌单未缓存歌曲已全部缓存完成");
-                }
-            });
-        }).start();
+        cachePlaylistButton.setVisibility(View.VISIBLE);
+        cachePlaylistButton.setEnabled(false);
+        cachePlaylistButton.setText("正在启动后台缓存：共 " + pending.size() + " 首");
+        statusView.setText("歌单缓存已转入后台，离开软件或锁屏后仍会继续");
+        PlaylistBatchCacheService.start(this, currentPlaylistIndex);
     }
 
     private void renderEmptyPlayer() {
@@ -4422,6 +4423,13 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
             }
             playbackReceiverRegistered = false;
+        }
+        if (batchCacheReceiverRegistered) {
+            try {
+                unregisterReceiver(playlistBatchCacheReceiver);
+            } catch (Exception ignored) {
+            }
+            batchCacheReceiverRegistered = false;
         }
         stopService(new Intent(this, PlaybackControlService.class));
         super.onDestroy();
