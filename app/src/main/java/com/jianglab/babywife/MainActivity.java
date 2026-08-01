@@ -76,6 +76,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 
@@ -196,6 +197,9 @@ public class MainActivity extends Activity {
     private int lyricEdgeBlankLineCount = MIN_LYRIC_EDGE_BLANK_LINES;
     private boolean playbackReceiverRegistered = false;
     private boolean batchCacheReceiverRegistered = false;
+    private final AtomicBoolean batchCacheSyncRunning = new AtomicBoolean(false);
+    private volatile boolean batchCacheSyncAgain = false;
+    private volatile PlaylistBatchCacheService.TaskState cachedBatchTaskState;
     private long lastPublishedPlaybackSecond = -1L;
     private boolean lastPublishedPlaying = false;
     private String lastPublishedSongKey = "";
@@ -227,22 +231,13 @@ public class MainActivity extends Activity {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (intent == null || !PlaylistBatchCacheService.ACTION_PROGRESS.equals(intent.getAction())) return;
-            consumePendingBatchCacheResults();
-            PlaylistBatchCacheService.TaskState state = PlaylistBatchCacheService.readState(MainActivity.this);
-            playlistBatchCaching = state.isRunningFresh();
             String message = intent.getStringExtra(PlaylistBatchCacheService.EXTRA_MESSAGE);
             if (statusView != null && message != null && !message.trim().isEmpty()) {
                 statusView.setText(message);
             }
-            if (playlistAdapter != null) applyPlaylistFilter();
-            updatePlaylistCacheButton();
-            if (state.isCompleted()) {
-                toast(state.failed > 0
-                    ? "后台缓存完成，失败歌曲已标红"
-                    : "后台缓存已完成");
-            } else if (state.isError()) {
-                toast("后台缓存已停止，可点击按钮重启");
-            }
+            // Never scan files, parse JSON, rewrite playlists or redraw lists inside
+            // BroadcastReceiver.onReceive(). Coalesce all of that work off the UI thread.
+            requestBatchCacheSync(true);
         }
     };
 
@@ -265,7 +260,7 @@ public class MainActivity extends Activity {
         maybeRequireJiangLabPassphrase();
         registerPlaybackControlReceiver();
         registerPlaylistBatchCacheReceiver();
-        consumePendingBatchCacheResults();
+        requestBatchCacheSync(true);
         PlaybackControlService.ensureStarted(this);
         renderPlaylists();
         renderCurrentPlaylist();
@@ -278,8 +273,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        consumePendingBatchCacheResults();
         updatePlaylistCacheButton();
+        requestBatchCacheSync(true);
     }
 
     private void maybeRequireJiangLabPassphrase() {
@@ -396,20 +391,77 @@ public class MainActivity extends Activity {
             registerReceiver(playlistBatchCacheReceiver, filter);
         }
         batchCacheReceiverRegistered = true;
-        playlistBatchCaching = PlaylistBatchCacheService.readState(this).isRunningFresh();
+        requestBatchCacheSync(false);
     }
 
-    private void consumePendingBatchCacheResults() {
-        List<PlaylistBatchCacheService.ResultRecord> records =
-            PlaylistBatchCacheService.readPendingResults(this);
-        if (records.isEmpty()) return;
-        for (PlaylistBatchCacheService.ResultRecord record : records) {
-            applyBatchSongUpdate(record.identity, record.updatedSongJson);
+    private void requestBatchCacheSync(boolean includeResults) {
+        if (!batchCacheSyncRunning.compareAndSet(false, true)) {
+            if (includeResults) batchCacheSyncAgain = true;
+            return;
         }
-        savePlaylists();
-        PlaylistBatchCacheService.markResultsConsumed(this, records);
-        if (playlistAdapter != null) applyPlaylistFilter();
-        renderResults();
+        final Context appContext = getApplicationContext();
+        new Thread(() -> {
+            PlaylistBatchCacheService.TaskState state =
+                PlaylistBatchCacheService.readState(appContext);
+            List<PlaylistBatchCacheService.ResultRecord> records = includeResults
+                ? PlaylistBatchCacheService.readPendingResults(appContext)
+                : Collections.emptyList();
+            Map<String, Song> updates = new HashMap<>();
+            for (PlaylistBatchCacheService.ResultRecord record : records) {
+                if (record == null || record.identity == null || record.identity.trim().isEmpty()) continue;
+                try {
+                    updates.put(record.identity, Song.fromJson(new JSONObject(record.updatedSongJson)));
+                } catch (Exception ignored) {
+                }
+            }
+            runOnUiThread(() -> {
+                cachedBatchTaskState = state;
+                boolean changed = applyBatchSongUpdates(updates);
+                if (changed) {
+                    savePlaylists();
+                    if (playlistAdapter != null) applyPlaylistFilter();
+                    if (resultAdapter != null) resultAdapter.notifyDataSetChanged();
+                }
+                updatePlaylistCacheButton();
+                if (!records.isEmpty()) {
+                    new Thread(() -> PlaylistBatchCacheService.markResultsConsumed(
+                        appContext, records), "PlaylistBatchResultCleanup").start();
+                }
+                batchCacheSyncRunning.set(false);
+                if (batchCacheSyncAgain) {
+                    batchCacheSyncAgain = false;
+                    requestBatchCacheSync(true);
+                }
+            });
+        }, "PlaylistBatchUiSync").start();
+    }
+
+    private boolean applyBatchSongUpdates(Map<String, Song> updates) {
+        if (updates == null || updates.isEmpty()) return false;
+        boolean changed = false;
+        for (Playlist playlist : playlists) {
+            for (Song item : playlist.songs) {
+                if (item == null) continue;
+                Song updated = updates.get(item.key());
+                if (updated == null) continue;
+                copyBatchSongFields(item, updated);
+                changed = true;
+            }
+        }
+        for (Song item : searchResults) {
+            if (item == null) continue;
+            Song updated = updates.get(item.key());
+            if (updated != null) copyBatchSongFields(item, updated);
+        }
+        if (currentSong != null) {
+            Song updated = updates.get(currentSong.key());
+            if (updated != null) {
+                copyBatchSongFields(currentSong, updated);
+                if (titleView != null) titleView.setText(currentSong.title);
+                if (artistView != null) artistView.setText(currentSong.artist + " · " + currentSong.source);
+            }
+        }
+        return changed;
     }
 
     private void applyBatchSongUpdate(String identity, String updatedSongJson) {
@@ -1373,13 +1425,13 @@ public class MainActivity extends Activity {
     }
 
     private void showPlaylistPage() {
-        consumePendingBatchCacheResults();
         if (headerBar != null) headerBar.setVisibility(View.GONE);
         if (statusView != null) statusView.setVisibility(View.GONE);
         if (playerPanel != null) playerPanel.setVisibility(View.GONE);
         if (searchPanel != null) searchPanel.setVisibility(View.GONE);
         if (playlistPanel != null) playlistPanel.setVisibility(View.VISIBLE);
         updatePlaylistCacheButton();
+        requestBatchCacheSync(true);
     }
 
     private void performSearch() {
@@ -1750,7 +1802,7 @@ public class MainActivity extends Activity {
         List<Song> uncached = new ArrayList<>();
         for (Song song : currentPlaylist().songs) {
             if (song == null || !song.isNetworkCatalog()) continue;
-            if (!NetworkMediaCache.cachedAudioExists(this, song.cachedUri)) uncached.add(song);
+            if (song.cachedUri == null || song.cachedUri.trim().isEmpty()) uncached.add(song);
         }
         return uncached;
     }
@@ -1783,7 +1835,13 @@ public class MainActivity extends Activity {
             return;
         }
 
-        PlaylistBatchCacheService.TaskState state = PlaylistBatchCacheService.readState(this);
+        PlaylistBatchCacheService.TaskState state = cachedBatchTaskState;
+        if (state == null) {
+            cachePlaylistButton.setEnabled(true);
+            cachePlaylistButton.setText("一键缓存未缓存歌曲（" + count + "首）");
+            requestBatchCacheSync(false);
+            return;
+        }
         boolean samePlaylist = state.belongsTo(currentPlaylistIndex);
         cachePlaylistButton.setVisibility(View.VISIBLE);
         if (samePlaylist && state.isRunningFresh()) {
@@ -1813,19 +1871,24 @@ public class MainActivity extends Activity {
     }
 
     private void cacheCurrentPlaylist() {
-        consumePendingBatchCacheResults();
         List<Song> pending = uncachedSongsInCurrentPlaylist();
         if (pending.isEmpty()) {
             updatePlaylistCacheButton();
             return;
         }
-        PlaylistBatchCacheService.TaskState state = PlaylistBatchCacheService.readState(this);
+        PlaylistBatchCacheService.TaskState state = cachedBatchTaskState;
+        if (state == null) {
+            requestBatchCacheSync(false);
+            cachePlaylistButton.setText("正在读取缓存任务状态...");
+            cachePlaylistButton.postDelayed(() -> requestBatchCacheSync(false), 350L);
+            return;
+        }
         boolean samePlaylist = state.belongsTo(currentPlaylistIndex);
         if (samePlaylist && state.isRunningFresh()) {
             cachePlaylistButton.setEnabled(false);
             cachePlaylistButton.setText("正在暂停一键缓存...");
             PlaylistBatchCacheService.pause(this);
-            cachePlaylistButton.postDelayed(this::updatePlaylistCacheButton, 800L);
+            cachePlaylistButton.postDelayed(() -> requestBatchCacheSync(false), 500L);
             return;
         }
         if (state.isRunningFresh() && !samePlaylist) {
@@ -1849,7 +1912,7 @@ public class MainActivity extends Activity {
         } catch (Exception error) {
             toast("启动缓存任务失败：" + error.getMessage());
         }
-        cachePlaylistButton.postDelayed(this::updatePlaylistCacheButton, 900L);
+        cachePlaylistButton.postDelayed(() -> requestBatchCacheSync(false), 600L);
     }
 
     private void renderEmptyPlayer() {
@@ -2619,13 +2682,17 @@ public class MainActivity extends Activity {
             clearPendingLyricPreview();
         }
         currentSong = song;
+        // Push the new track identity before lyric parsing, list rendering or any
+        // cache work. PlaybackControlService runs in its own process.
+        publishPlaybackControlState(true);
         saveLastSong(0);
         titleView.setText(song.title);
         artistView.setText(song.artist + " · " + song.source);
         updateLyricActionVisibility(song);
         statusView.setText("当前选择：" + song.title);
-        showSongLyrics(song);
-        publishPlaybackControlState(true);
+        lyricHandler.post(() -> {
+            if (currentSong == song) showSongLyrics(song);
+        });
 
         if (song.isNetworkCatalog()) {
             stopPlayback();

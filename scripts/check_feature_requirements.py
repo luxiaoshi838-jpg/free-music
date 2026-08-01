@@ -147,6 +147,18 @@ checks = {
         and 'FileChannel' in cache_lock
         and 'tryLock' in cache_lock
     ),
+    'nonblocking batch result merge and isolated notification': (
+        'requestBatchCacheSync(true)' in main
+        and 'PlaylistBatchUiSync' in main
+        and 'batchCacheSyncRunning.compareAndSet(false, true)' in main
+        and 'readPendingResults(appContext)' in main
+        and 'consumePendingBatchCacheResults' not in main
+        and 'song.cachedUri == null || song.cachedUri.trim().isEmpty()' in main
+        and 'publishPlaybackControlState(true);\n        saveLastSong(0);' in main
+        and 'android:process=":playback_control"' in manifest
+        and 'lastBroadcastMs' in batch_service
+        and 'now - lastBroadcastMs >= 1200L' in batch_service
+    ),
     'media player error containment': (
         'attachPlaybackErrorHandler' in main
         and 'handlePlaybackFailure' in main
@@ -161,7 +173,7 @@ checks = {
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080106' in gradle,
+    'version bumped': 'versionCode 2026080107' in gradle,
     'logs synchronized': (
         '多格式缓存优先级与一分钟过滤' in project_log
         and 'Multi-format cache priority and one-minute filter' in changelog

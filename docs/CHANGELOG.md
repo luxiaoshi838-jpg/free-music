@@ -126,3 +126,13 @@
 - Persisted task state and result journals with atomic files, while keeping playlist preferences single-writer.
 - Added per-track cross-process cache locks and unique partial downloads.
 - Hide the cache button when the current playlist has no uncached online tracks.
+
+
+## 2026-08-01 Responsive UI and playback notification
+
+- Moved batch result file scanning and parsing off the Android main thread.
+- Coalesced cache progress refreshes and stopped redrawing lists for every callback.
+- Made playlist/search navigation render immediately before asynchronous cache refresh.
+- Removed per-song storage probes from the cache button UI path.
+- Moved playback notification handling into a dedicated process and published track changes before lyric rendering.
+- Throttled batch progress broadcasts and notification updates.

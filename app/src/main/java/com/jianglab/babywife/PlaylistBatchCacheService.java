@@ -83,6 +83,8 @@ public final class PlaylistBatchCacheService extends Service {
     private String currentTitle = "";
     private String currentMessage = "";
     private long lastProgressMs;
+    private long lastBroadcastMs;
+    private long lastNotificationMs;
 
     static final class TaskState {
         final String status;
@@ -499,8 +501,16 @@ public final class PlaylistBatchCacheService extends Service {
         TaskState state = new TaskState(status, generation, playlistIndex, done, total,
             success, failed, currentTitle, message, now, lastProgressMs);
         writeState(this, state);
-        if (broadcast) broadcastProgress(state, identity, updatedSongJson);
-        if (STATUS_RUNNING.equals(status) || STATUS_STARTING.equals(status)) {
+        boolean terminal = STATUS_PAUSED.equals(status) || STATUS_COMPLETED.equals(status)
+            || STATUS_ERROR.equals(status);
+        boolean hasResult = identity != null && !identity.trim().isEmpty();
+        if (broadcast && (terminal || hasResult || now - lastBroadcastMs >= 1200L)) {
+            lastBroadcastMs = now;
+            broadcastProgress(state, identity, updatedSongJson);
+        }
+        if ((STATUS_RUNNING.equals(status) || STATUS_STARTING.equals(status))
+            && (hasResult || now - lastNotificationMs >= 1000L)) {
+            lastNotificationMs = now;
             updateNotification(done, total, message);
         }
     }
