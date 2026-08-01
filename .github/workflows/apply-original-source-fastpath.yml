@@ -34,6 +34,7 @@ jobs:
           set -euo pipefail
           git show tools/fix-pr9-original-fastpath:tools/apply_original_source_fastpath_20260801.py > /tmp/apply_fastpath.py
           git checkout fix/multiformat-cache-priority-60s
+          mkdir -p tools
           cp /tmp/apply_fastpath.py tools/apply_original_source_fastpath_20260801.py
           python3 -m py_compile tools/apply_original_source_fastpath_20260801.py
           python3 tools/apply_original_source_fastpath_20260801.py | tee original-source-fastpath-contract.log
