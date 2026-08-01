@@ -1,3 +1,4 @@
+# Trigger: main-thread I/O removal and playback-notification isolation
 name: Apply responsive UI and playback notification fix
 
 on:
