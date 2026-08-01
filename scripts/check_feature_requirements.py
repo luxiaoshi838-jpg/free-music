@@ -60,19 +60,23 @@ checks = {
         background_button_pos >= 0 and change_icon_pos >= 0 and background_button_pos < change_icon_pos
         and main[background_button_pos:change_icon_pos].count('makeButton(') == 1
     ),
-    'friendly cache filenames': (
-        'friendlyBase' in cache
-        and '" - " + record.artist' in cache
+    'paired title-artist audio and LRC filenames': (
+        'String base = record.title + " - " + record.artist;' in cache
+        and 'uniqueInternalPairBase' in cache
+        and 'uniqueDocumentPairBase' in cache
+        and 'base + ".lrc"' in cache
+        and 'application/octet-stream' in cache
+        and 'lower.endsWith(".lrc") || lower.endsWith(".txt")' in cache
+        and '" [" + shortKey' not in cache
         and 'record.audioFile' in cache
         and 'record.lyricFile' in cache
-        and 'META_PREFIX = ".babywife_"' in cache
     ),
-    'song metadata records': (
+    'playlist and cache index metadata only': (
         'object.put("title", title)' in cache
         and 'object.put("artist", artist)' in cache
         and 'object.put("album", album)' in cache
-        and 'AudioMetadataWriter.apply' in network
-        and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata
+        and 'AudioMetadataWriter.apply' not in network
+        and '不向音频文件写入歌名' in network
     ),
     'copy-first cache migration': (
         'copyFilesToTree' in cache
@@ -94,24 +98,29 @@ checks = {
     'delayed red marking': 'autoUnavailable && song.manualUnavailable' in main,
     'csv import/export': '歌名,歌手,专辑,时长秒,平台,平台代码,歌曲ID,歌词版本' in main,
     'jianglab flavor gate': 'REQUIRE_FIRST_RUN_PASSPHRASE' in gradle and 'signingCertificateCommonName' in main,
-    'mp3 source preference with source-format fallback': (
-        'format", "mp3' in network
-        and 'AudioTranscoder.ensureMp3' in network
-        and '按原格式缓存' in network
-        and 'detectAudioExtension' in network
-        and 'ffmpeg-kit' not in gradle.lower()
-        and 'FFmpegKit' not in transcoder
-        and 'libmp3lame' not in transcoder
+    'multi-format priority and one-minute validation': (
+        'MIN_AUTOMATIC_DURATION_MS = 60_000L' in network
+        and 'choiceFormatRank' in network
+        and 'if ("mp3".equals(extension)) return 0;' in network
+        and 'if ("flac".equals(extension)) return 1;' in network
+        and 'isAcceptableCachedAudio' in network
+        and 'mediaDurationMs' in network
+        and 'AudioTranscoder.ensureMp3' not in network
+        and 'AudioMetadataWriter.applyAndVerify' not in network
     ),
-    'verified mp3 metadata': ('AudioMetadataWriter.applyAndVerify' in network and 'MP3 歌曲信息写入校验失败' in metadata and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata),
-    'managed cache source formats': ('受管理歌曲缓存必须是 MP3' not in cache and 'storeAudio(context, key, actualExtension' in network),
+    'audio file tags untouched': ('AudioMetadataWriter.apply' not in network and '不向音频文件写入歌名' in network),
+    'managed cache accepts source formats': (
+        '受管理歌曲缓存必须是 MP3' not in cache
+        and 'storeAudio(context, key, actualExtension' in network
+        and 'return "application/octet-stream";' in cache
+    ),
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026072705' in gradle,
+    'version bumped': 'versionCode 2026080101' in gradle,
     'logs synchronized': (
-        'MP3 缓存统一与设置栏界面修正' in project_log
-        and 'MP3 cache normalization and settings drawer follow-up' in changelog
+        '多格式缓存优先级与一分钟过滤' in project_log
+        and 'Multi-format cache priority and one-minute filter' in changelog
     ),
     'no literal passphrase': '姜Lab欢迎你' not in ''.join(
         [main, cache, network, broom, metadata, picker, catalog, gradle, project_log, changelog]),

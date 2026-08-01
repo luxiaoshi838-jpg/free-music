@@ -84,3 +84,13 @@
 - Changed the settings drawer width from 60% to 70%.
 - Extended the drawer background to the top of the screen while preserving the vertical position of the playlist manager and settings actions.
 - Bumped Android version to `2026072705 / 2026.07.27.light-ui-source-format`.
+
+## 2026-08-01 Multi-format cache priority and one-minute filter
+
+- Rebased exclusively on the latest public `main` commit `404ff797`; no private fallback-repository patch was reused.
+- Automatic candidates are ordered as MP3, FLAC, then other source formats without an extension whitelist.
+- Known catalog durations below 60 seconds are skipped, and downloaded files must also report at least 60 seconds through Android media parsing.
+- Text/HTML/JSON responses, empty files, unsupported files, and short files are rejected before playlist source persistence.
+- Audio bytes remain untouched: title, artist, album, and ID3-style tags are not written into cached songs. Playlist data remains authoritative.
+- Cache filenames use `title - artist.original-extension`; only real same-name collisions receive `(2)`, `(3)`, and so on. Cache migration remains supported, and unknown extensions use `.audio` rather than a false `.mp3` suffix.
+- Audio and lyric files now share the exact same basename: `title - artist.audio-extension` and `title - artist.lrc`. Legacy `.txt` lyric files are read only for migration compatibility and are normalized to `.lrc`.
