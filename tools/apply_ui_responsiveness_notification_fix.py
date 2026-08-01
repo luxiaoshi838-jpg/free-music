@@ -14,6 +14,17 @@ def main():
     implementation = patch_root / 'tools/apply_manual_search_background_playback_fix.py'
     subprocess.run([sys.executable, str(implementation), '--root', str(target)], check=True)
 
+    # Directory search is routed through SearchPriorityCoordinator, but exact
+    # lyric retrieval still calls Bridge.lyrics and therefore keeps this import.
+    matcher_path = target / 'app/src/main/java/com/jianglab/babywife/PlaylistLyricMatcher.java'
+    matcher = matcher_path.read_text(encoding='utf-8')
+    if 'import bridge.Bridge;' not in matcher:
+        anchor = 'import java.util.Set;\n\n'
+        if anchor not in matcher:
+            raise RuntimeError('PlaylistLyricMatcher import anchor missing')
+        matcher = matcher.replace(anchor, anchor + 'import bridge.Bridge;\n\n', 1)
+        matcher_path.write_text(matcher, encoding='utf-8')
+
     subprocess.run(['git', '-C', str(target), 'config', 'user.name',
                     'github-actions[bot]'], check=True)
     subprocess.run(['git', '-C', str(target), 'config', 'user.email',
