@@ -102,3 +102,11 @@
 - MP3 is still requested first within the original source; its source format is used when MP3 is unavailable.
 - Cross-platform matching runs only after an original-source resolve, download, readability, or 60-second validation failure.
 - Alternatives are resolved and validated one at a time, returning the first valid result, with at most four attempts.
+
+## 2026-08-01 Playback compatibility and playlist batch cache
+
+- Kept support for valid M4A files while validating the audio track, device decoder, readable samples, and mid-file seeking before accepting a cache.
+- Invalid existing caches are removed and resolved again instead of being accepted by duration metadata alone.
+- Added MediaPlayer error containment so decode or seek failures release the player, remove the broken cache, and mark the song for manual replacement.
+- Added a conditional one-click cache button at the bottom of the current playlist.
+- Batch caching runs sequentially without changing playback; automatic failures are shown in red for manual version selection.

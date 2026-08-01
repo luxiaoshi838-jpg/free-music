@@ -96,6 +96,12 @@ final class NetworkMediaCache {
             return new CacheResult(requestedAudioUri, requestedLyric, true, lyricFromCache,
                 requestedCatalog.toString(), requestedSource, false);
         }
+        if (!requestedAudioUri.isEmpty() && CacheStorage.exists(context, requestedAudioUri)) {
+            status(callback, "旧缓存无法稳定播放，正在重新匹配...");
+            CacheStorage.deleteKey(context, requestedKey);
+            requestedAudioUri = "";
+            requestedLyric = "";
+        }
 
         Exception primaryError = null;
         status(callback, "正在使用歌单原来源解析歌曲...");
@@ -219,6 +225,12 @@ final class NetworkMediaCache {
             return new CacheResult(existingAudioUri, lyric, true, lyricFromCache,
                 actualCatalog.toString(), actualSource, sourceChanged);
         }
+        if (!existingAudioUri.isEmpty() && CacheStorage.exists(context, existingAudioUri)) {
+            status(callback, "已有缓存无法稳定播放，正在重新下载...");
+            CacheStorage.deleteKey(context, key);
+            lyric = "";
+            lyricFromCache = false;
+        }
 
         File tempRoot = new File(context.getCacheDir(), "network_download");
         if (!tempRoot.exists() && !tempRoot.mkdirs()) throw new IllegalStateException("无法创建下载临时目录");
@@ -237,6 +249,9 @@ final class NetworkMediaCache {
             if (actualDuration < MIN_AUTOMATIC_DURATION_MS) {
                 if (actualDuration <= 0L) throw new IllegalStateException("设备无法识别候选音频或确认时长");
                 throw new IllegalStateException("候选音频只有" + Math.max(1L, actualDuration / 1000L) + "秒");
+            }
+            if (!PlaybackCompatibility.isPlayable(partial)) {
+                throw new IllegalStateException("当前设备无法稳定解码或拖动该音频格式");
             }
 
             // 不向音频文件写入歌名、歌手、专辑或其他标签；歌曲信息由歌单保存。
@@ -304,23 +319,11 @@ final class NetworkMediaCache {
     }
 
     private static boolean isAcceptableCachedAudio(Context context, String uriText) {
-        if (context == null || uriText == null || uriText.trim().isEmpty()
-            || !CacheStorage.exists(context, uriText)) return false;
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            Uri uri = Uri.parse(uriText);
-            if ("file".equalsIgnoreCase(uri.getScheme())) {
-                retriever.setDataSource(new File(uri.getPath()).getAbsolutePath());
-            } else {
-                retriever.setDataSource(context, uri);
-            }
-            String raw = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
-            return raw != null && Long.parseLong(raw) >= MIN_AUTOMATIC_DURATION_MS;
-        } catch (Exception ignored) {
-            return false;
-        } finally {
-            try { retriever.release(); } catch (Exception ignored) { }
-        }
+        return context != null
+            && uriText != null
+            && !uriText.trim().isEmpty()
+            && CacheStorage.exists(context, uriText)
+            && PlaybackCompatibility.isPlayable(context, uriText);
     }
 
     private static long mediaDurationMs(File file) {
@@ -379,7 +382,7 @@ final class NetworkMediaCache {
     }
 
     static boolean cachedAudioExists(Context context, String uriText) {
-        return CacheStorage.exists(context, uriText);
+        return isAcceptableCachedAudio(context, uriText);
     }
 
     private static String catalogTitle(JSONObject catalog) {

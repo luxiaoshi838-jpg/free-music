@@ -4,6 +4,7 @@ root = Path(__file__).resolve().parents[1]
 main = (root / 'app/src/main/java/com/jianglab/babywife/MainActivity.java').read_text(encoding='utf-8')
 cache = (root / 'app/src/main/java/com/jianglab/babywife/CacheStorage.java').read_text(encoding='utf-8')
 network = (root / 'app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java').read_text(encoding='utf-8')
+compat = (root / 'app/src/main/java/com/jianglab/babywife/PlaybackCompatibility.java').read_text(encoding='utf-8')
 broom = (root / 'app/src/main/java/com/jianglab/babywife/BroomIconView.java').read_text(encoding='utf-8')
 metadata = (root / 'app/src/main/java/com/jianglab/babywife/AudioMetadataWriter.java').read_text(encoding='utf-8')
 transcoder = (root / 'app/src/main/java/com/jianglab/babywife/AudioTranscoder.java').read_text(encoding='utf-8')
@@ -111,6 +112,25 @@ checks = {
         and 'AudioTranscoder.ensureMp3' not in network
         and 'AudioMetadataWriter.applyAndVerify' not in network
     ),
+    'device playback compatibility validation': (
+        'MediaExtractor' in compat
+        and 'MediaCodecList' in compat
+        and 'seekTo' in compat
+        and 'PlaybackCompatibility.isPlayable(partial)' in network
+        and 'return isAcceptableCachedAudio(context, uriText);' in network
+    ),
+    'playlist one-click cache and failure marking': (
+        '一键缓存未缓存歌曲' in main
+        and 'cacheCurrentPlaylist' in main
+        and 'uncachedSongsInCurrentPlaylist' in main
+        and 'markSongUnavailable(song, true)' in main
+        and '缓存失败的歌曲已标红' in main
+    ),
+    'media player error containment': (
+        'attachPlaybackErrorHandler' in main
+        and 'handlePlaybackFailure' in main
+        and 'setOnErrorListener' in main
+    ),
     'audio file tags untouched': ('AudioMetadataWriter.apply' not in network and '不向音频文件写入歌名' in network),
     'managed cache accepts source formats': (
         '受管理歌曲缓存必须是 MP3' not in cache
@@ -120,7 +140,7 @@ checks = {
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080102' in gradle,
+    'version bumped': 'versionCode 2026080103' in gradle,
     'logs synchronized': (
         '多格式缓存优先级与一分钟过滤' in project_log
         and 'Multi-format cache priority and one-minute filter' in changelog
