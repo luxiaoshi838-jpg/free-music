@@ -14,8 +14,8 @@ project_log = (root / 'PROJECT_LOG.md').read_text(encoding='utf-8')
 changelog = (root / 'docs/CHANGELOG.md').read_text(encoding='utf-8')
 icon = root / 'app/src/main/res/drawable-nodpi/broom_clean_icon.webp'
 
-song_id_pos = main.find('key.contains("歌曲id")')
-title_pos = main.find('key.equals("歌名")')
+song_id_pos = main.find('key.contains("??id")')
+title_pos = main.find('key.equals("??")')
 background_button_pos = main.find('Button chooseBackground = makeButton')
 change_icon_pos = main.find('Button changeIcon = makeButton')
 
@@ -25,7 +25,7 @@ checks = {
         and 'R.drawable.broom_clean_icon' in broom
         and '0.82f' in broom
         and 'BroomIconView clearCacheButton' in main
-        and '🧹' not in main
+        and '??' not in main
     ),
     'playlist manager below status bar': (
         '0.70f' in main
@@ -33,28 +33,28 @@ checks = {
         and 'drawerParams.topMargin = statusBarHeight() + dp(8)' not in main
     ),
     'uninstall cleanup storage switch': (
-        '卸载软件时清理缓存' in main
+        '?????????' in main
         and 'CacheStorage.uninstallCleanupEnabled(this)' in main
-        and '选择保留文件夹' in main
-        and '迁回并开启' in main
+        and '???????' in main
+        and '?????' in main
         and 'KEY_DELETE_CACHE_WITH_ENTRY' not in main
     ),
     'deleting entries keeps cache': (
         'cleanupCachesForRemovedSongs' not in main
-        and '删除歌单/歌曲时同步清理缓存' not in main
-        and '缓存已保留，可用扫把清理' in main
+        and '????/?????????' not in main
+        and '????????????' in main
     ),
     'merged local import entry': (
-        'makeButton("导入本地歌曲"' in main
+        'makeButton("??????"' in main
         and 'showLocalAudioImportOptions' in main
-        and '"选择歌曲", "选择文件夹"' in main
-        and 'makeButton("选择文件夹导入全部歌曲"' not in main
+        and '"????", "?????"' in main
+        and 'makeButton("???????????"' not in main
     ),
     'merged playlist import entry': (
-        'makeButton("导入歌单"' in main
+        'makeButton("????"' in main
         and 'showPlaylistImportOptions' in main
-        and '"CSV 文件", "歌单链接"' in main
-        and 'makeButton("导入网易/酷狗/汽水歌单链接"' not in main
+        and '"CSV ??", "????"' in main
+        and 'makeButton("????/??/??????"' not in main
     ),
     'background directly before icon control': (
         background_button_pos >= 0 and change_icon_pos >= 0 and background_button_pos < change_icon_pos
@@ -78,42 +78,49 @@ checks = {
         'copyFilesToTree' in cache
         and 'copyDocumentsToTree' in cache
         and 'copyDocumentsToInternal' in cache
-        and '旧文件未删除' in main
+        and '??????' in main
     ),
     'broom clears only non-playlist cache': (
         'confirmClearTransientCache' in main
         and 'NetworkMediaCache.clearExcept(this, keepKeys)' in main
-        and ('只删除未加入任何歌单' in main or '\\u53ea\\u5220\\u9664\\u672a\\u52a0\\u5165\\u4efb\\u4f55\\u6b4c\\u5355' in main)
+        and ('??????????' in main or '\\u53ea\\u5220\\u9664\\u672a\\u52a0\\u5165\\u4efb\\u4f55\\u6b4c\\u5355' in main)
     ),
     'csv song id cannot overwrite title': (
         song_id_pos >= 0 and title_pos >= 0 and song_id_pos < title_pos
-        and 'key.contains("歌曲")' not in main
+        and 'key.contains("??")' not in main
     ),
     'search/playlist context': 'KEY_LAST_CONTEXT' in main and 'switchPlaybackToPlaylist' in main,
     'replacement scoring': 'replacementScore' in catalog and 'onUnavailable()' in picker,
     'delayed red marking': 'autoUnavailable && song.manualUnavailable' in main,
-    'csv import/export': '歌名,歌手,专辑,时长秒,平台,平台代码,歌曲ID,歌词版本' in main,
+    'csv import/export': '??,??,??,???,??,????,??ID,????' in main,
     'jianglab flavor gate': 'REQUIRE_FIRST_RUN_PASSPHRASE' in gradle and 'signingCertificateCommonName' in main,
     'mp3 source preference with source-format fallback': (
         'format", "mp3' in network
         and 'AudioTranscoder.ensureMp3' in network
-        and '按原格式缓存' in network
+        and '??????' in network
         and 'detectAudioExtension' in network
         and 'ffmpeg-kit' not in gradle.lower()
         and 'FFmpegKit' not in transcoder
         and 'libmp3lame' not in transcoder
     ),
-    'verified mp3 metadata': ('AudioMetadataWriter.applyAndVerify' in network and 'MP3 歌曲信息写入校验失败' in metadata and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata),
-    'managed cache source formats': ('受管理歌曲缓存必须是 MP3' not in cache and 'storeAudio(context, key, actualExtension' in network),
+    'verified mp3 metadata': ('AudioMetadataWriter.applyAndVerify' in network and 'MP3 ??????????' in metadata and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata),
+    'managed cache source formats': ('?????????? MP3' not in cache and 'storeAudio(context, key, actualExtension' in network),
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
-    'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
-    'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026072705' in gradle,
+    'deferred flag commit after playback starts': (
+        'playbackRequestSerial' in main
+        and 'PendingPlaybackCommit' in main
+        and 'commitResolvedPlayback(song, commit, playToken)' in main
+        and 'setOnErrorListener' in main
+        and '???????' in main
+    ),
+    'short manager labels': ('makeSmallButton("??"' in main and 'makeSmallButton("??"' in main and '????"' not in main and '??CSV"' not in main),
+    'short cache folder label': ('???????' not in cache[cache.find('static String description'):cache.find('static String details')]),
+    'version bumped': 'versionCode 2026072901' in gradle,
     'logs synchronized': (
-        'MP3 缓存统一与设置栏界面修正' in project_log
+        'MP3 ????????????' in project_log
         and 'MP3 cache normalization and settings drawer follow-up' in changelog
     ),
-    'no literal passphrase': '姜Lab欢迎你' not in ''.join(
+    'no literal passphrase': '?Lab???' not in ''.join(
         [main, cache, network, broom, metadata, picker, catalog, gradle, project_log, changelog]),
 }
 failed = [name for name, ok in checks.items() if not ok]
