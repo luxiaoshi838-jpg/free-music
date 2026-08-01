@@ -1,22 +1,22 @@
-name: Validate real decoder compatibility build
+name: Apply playback compatibility and playlist batch cache fix
 
 on:
   push:
     branches:
       - tools/fix-pr9-playback-batch-cache
     paths:
+      - tools/apply_playback_batch_followup.py
       - .github/workflows/apply-playback-batch-fix.yml
-      - tools/real-decoder-validation-trigger.txt
 
 permissions:
   contents: write
 
 concurrency:
-  group: real-decoder-validation
+  group: playback-batch-cache-fix
   cancel-in-progress: true
 
 jobs:
-  validate-build:
+  apply-build-push:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout feature branch
@@ -26,11 +26,11 @@ jobs:
           path: repo
           fetch-depth: 0
 
-      - name: Checkout validation branch
+      - name: Checkout patch branch
         uses: actions/checkout@v4
         with:
           ref: tools/fix-pr9-playback-batch-cache
-          path: validation
+          path: patch
           fetch-depth: 0
 
       - name: Set up JDK 17
@@ -44,6 +44,10 @@ jobs:
 
       - name: Install Android packages
         run: yes | sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+
+      - name: Apply source patch
+        id: patch_sources
+        run: python patch/tools/apply_playback_batch_followup.py --root repo
 
       - name: Run feature checks
         id: feature_checks
@@ -64,21 +68,38 @@ jobs:
           find app/build/outputs/apk -type f -name '*.apk' -print
           test "$(find app/build/outputs/apk -type f -name '*.apk' | wc -l)" -ge 4
 
+      - name: Commit and push feature branch
+        id: push_feature
+        working-directory: repo
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/com/jianglab/babywife/MainActivity.java \
+            app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java \
+            scripts/check_feature_requirements.py
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Validate real MediaCodec audio output'
+            git push origin HEAD:fix/multiformat-cache-priority-60s
+          fi
+
       - name: Upload four debug APKs
         id: upload_apks
         uses: actions/upload-artifact@v4
         with:
-          name: real-decoder-validation-debug-apks-${{ github.run_id }}
+          name: real-mediacodec-validation-apks-${{ github.run_id }}
           path: repo/app/build/outputs/apk/*/debug/*.apk
           if-no-files-found: error
 
       - name: Record run results
         if: always()
-        working-directory: validation
+        working-directory: patch
         env:
+          PATCH_OUTCOME: ${{ steps.patch_sources.outcome }}
           CHECK_OUTCOME: ${{ steps.feature_checks.outcome }}
           BUILD_OUTCOME: ${{ steps.build_apks.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify_apks.outcome }}
+          PUSH_OUTCOME: ${{ steps.push_feature.outcome }}
           UPLOAD_OUTCOME: ${{ steps.upload_apks.outcome }}
         run: |
           git config user.name 'github-actions[bot]'
@@ -86,11 +107,13 @@ jobs:
           mkdir -p tools
           {
             echo "run_id=${GITHUB_RUN_ID}"
-            echo "artifact_name=real-decoder-validation-debug-apks-${GITHUB_RUN_ID}"
+            echo "artifact_name=real-mediacodec-validation-apks-${GITHUB_RUN_ID}"
             echo "feature_commit=$(git -C ../repo rev-parse HEAD 2>/dev/null || true)"
+            echo "patch=${PATCH_OUTCOME}"
             echo "checks=${CHECK_OUTCOME}"
             echo "build=${BUILD_OUTCOME}"
             echo "verify=${VERIFY_OUTCOME}"
+            echo "push=${PUSH_OUTCOME}"
             echo "upload=${UPLOAD_OUTCOME}"
           } > tools/latest_real_decoder_run.txt
           git add tools/latest_real_decoder_run.txt
