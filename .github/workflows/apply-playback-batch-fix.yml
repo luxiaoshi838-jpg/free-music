@@ -6,6 +6,7 @@ on:
       - tools/fix-pr9-playback-batch-cache
     paths:
       - tools/apply_playback_batch_fix.py
+      - tools/apply_playback_batch_followup.py
       - .github/workflows/apply-playback-batch-fix.yml
 
 permissions:
@@ -31,7 +32,7 @@ jobs:
         with:
           ref: tools/fix-pr9-playback-batch-cache
           path: patch
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -45,8 +46,10 @@ jobs:
       - name: Install Android packages
         run: yes | sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
 
-      - name: Apply source patch
-        run: python patch/tools/apply_playback_batch_fix.py --root repo
+      - name: Apply source patches
+        run: |
+          python patch/tools/apply_playback_batch_fix.py --root repo
+          python patch/tools/apply_playback_batch_followup.py --root repo
 
       - name: Run feature checks
         working-directory: repo
@@ -75,12 +78,29 @@ jobs:
             app/src/main/java/com/jianglab/babywife/PlaybackCompatibility.java \
             scripts/check_feature_requirements.py PROJECT_LOG.md docs/CHANGELOG.md
           git diff --cached --check
-          git commit -m 'Validate playback formats and add playlist batch cache'
-          git push origin HEAD:fix/multiformat-cache-priority-60s
+          if ! git diff --cached --quiet; then
+            git commit -m 'Move playback validation off playlist UI thread'
+            git push origin HEAD:fix/multiformat-cache-priority-60s
+          fi
 
       - name: Upload four debug APKs
         uses: actions/upload-artifact@v4
         with:
-          name: playback-compatible-batch-cache-debug-apks
+          name: playback-compatible-batch-cache-debug-apks-${{ github.run_id }}
           path: repo/app/build/outputs/apk/*/debug/*.apk
           if-no-files-found: error
+
+      - name: Record successful run
+        working-directory: patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          mkdir -p tools
+          {
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "artifact_name=playback-compatible-batch-cache-debug-apks-${GITHUB_RUN_ID}"
+            echo "feature_commit=$(git -C ../repo rev-parse HEAD)"
+          } > tools/latest_playback_batch_run.txt
+          git add tools/latest_playback_batch_run.txt
+          git commit -m "Record playback build run ${GITHUB_RUN_ID}"
+          git push origin HEAD:tools/fix-pr9-playback-batch-cache
