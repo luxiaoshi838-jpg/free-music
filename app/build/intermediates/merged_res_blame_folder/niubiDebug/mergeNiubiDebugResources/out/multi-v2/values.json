@@ -1,0 +1,79 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.jianglab.babywife.app-mergeNiubiDebugResources-2:/values/values.xml",
+            "map": [
+                {
+                    "source": "/home/runner/work/free-music/free-music/app/src/niubi/res/values/strings.xml",
+                    "from": {
+                        "startLines": "1",
+                        "startColumns": "4",
+                        "startOffsets": "16",
+                        "endColumns": "39",
+                        "endOffsets": "51"
+                    },
+                    "to": {
+                        "startLines": "5",
+                        "startColumns": "4",
+                        "startOffsets": "214",
+                        "endColumns": "39",
+                        "endOffsets": "249"
+                    }
+                },
+                {
+                    "source": "/home/runner/work/free-music/free-music/app/src/niubi/res/values/brand_config.xml",
+                    "from": {
+                        "startLines": "1,2",
+                        "startColumns": "4,4",
+                        "startOffsets": "16,71",
+                        "endColumns": "54,51",
+                        "endOffsets": "66,118"
+                    },
+                    "to": {
+                        "startLines": "2,3",
+                        "startColumns": "4,4",
+                        "startOffsets": "55,110",
+                        "endColumns": "54,51",
+                        "endOffsets": "105,157"
+                    }
+                },
+                {
+                    "source": "/home/runner/work/free-music/free-music/app/src/main/res/values/styles.xml",
+                    "from": {
+                        "startLines": "1",
+                        "startColumns": "4",
+                        "startOffsets": "16",
+                        "endLines": "7",
+                        "endColumns": "12",
+                        "endOffsets": "406"
+                    },
+                    "to": {
+                        "startLines": "6",
+                        "startColumns": "4",
+                        "startOffsets": "254",
+                        "endLines": "12",
+                        "endColumns": "12",
+                        "endOffsets": "644"
+                    }
+                },
+                {
+                    "source": "/home/runner/work/free-music/free-music/app/src/main/res/values/colors.xml",
+                    "from": {
+                        "startLines": "1",
+                        "startColumns": "4",
+                        "startOffsets": "16",
+                        "endColumns": "51",
+                        "endOffsets": "63"
+                    },
+                    "to": {
+                        "startLines": "4",
+                        "startColumns": "4",
+                        "startOffsets": "162",
+                        "endColumns": "51",
+                        "endOffsets": "209"
+                    }
+                }
+            ]
+        }
+    ]
+}

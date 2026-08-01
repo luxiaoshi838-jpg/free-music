@@ -1,0 +1,125 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:2:1-59:12
+INJECTED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:2:1-59:12
+INJECTED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:2:1-59:12
+INJECTED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:2:1-59:12
+MERGED from [musicbridge.aar] /home/runner/.gradle/caches/transforms-4/6f791646a8dbd8615665efcc0862d6d5/transformed/musicbridge/AndroidManifest.xml:1:1-2:50
+	package
+		INJECTED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml
+	android:versionName
+		INJECTED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml
+	android:versionCode
+		INJECTED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml
+	xmlns:android
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:2:11-69
+uses-permission#android.permission.INTERNET
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:3:5-67
+	android:name
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:3:22-64
+uses-permission#android.permission.ACCESS_NETWORK_STATE
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:4:5-79
+	android:name
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:4:22-76
+uses-permission#android.permission.WAKE_LOCK
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:5:5-68
+	android:name
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:5:22-65
+uses-permission#android.permission.FOREGROUND_SERVICE
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:6:5-77
+	android:name
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:6:22-74
+uses-permission#android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:7:5-92
+	android:name
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:7:22-89
+application
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:9:5-58:19
+	android:extractNativeLibs
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:13:9-42
+	android:label
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:18:9-41
+	android:hardwareAccelerated
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:19:9-43
+	android:fullBackupContent
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:12:9-54
+	android:roundIcon
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:17:9-54
+	android:icon
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:16:9-43
+	android:allowBackup
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:10:9-35
+	android:theme
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:20:9-40
+	android:networkSecurityConfig
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:15:9-69
+	android:dataExtractionRules
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:11:9-65
+	android:usesCleartextTraffic
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:14:9-44
+service#com.jianglab.babywife.PlaybackControlService
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:22:9-25:61
+	android:exported
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:24:13-37
+	android:foregroundServiceType
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:25:13-58
+	android:name
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:23:13-51
+activity#com.jianglab.babywife.MainActivity
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:27:9-31:52
+	android:screenOrientation
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:31:13-49
+	android:exported
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:30:13-36
+	android:configChanges
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:29:13-83
+	android:name
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:28:13-41
+activity-alias#com.jianglab.babywife.LauncherClassic
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:33:9-44:26
+	android:enabled
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:35:13-35
+	android:label
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:38:13-45
+	android:exported
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:36:13-36
+	android:targetActivity
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:39:13-51
+	android:icon
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:37:13-55
+	android:name
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:34:13-44
+intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:40:13-43:29
+action#android.intent.action.MAIN
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:41:17-69
+	android:name
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:41:25-66
+category#android.intent.category.LAUNCHER
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:42:17-77
+	android:name
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:42:27-74
+activity-alias#com.jianglab.babywife.LauncherNew
+ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:46:9-57:26
+	android:enabled
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:48:13-36
+	android:label
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:51:13-45
+	android:exported
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:49:13-36
+	android:targetActivity
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:52:13-51
+	android:icon
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:50:13-51
+	android:name
+		ADDED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml:47:13-40
+uses-sdk
+INJECTED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml
+INJECTED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml
+MERGED from [musicbridge.aar] /home/runner/.gradle/caches/transforms-4/6f791646a8dbd8615665efcc0862d6d5/transformed/musicbridge/AndroidManifest.xml:2:1-39
+MERGED from [musicbridge.aar] /home/runner/.gradle/caches/transforms-4/6f791646a8dbd8615665efcc0862d6d5/transformed/musicbridge/AndroidManifest.xml:2:1-39
+	android:targetSdkVersion
+		INJECTED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /home/runner/work/free-music/free-music/app/src/main/AndroidManifest.xml

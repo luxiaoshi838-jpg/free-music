@@ -1,0 +1,20 @@
+{
+  "version": 3,
+  "artifactType": {
+    "type": "PROCESSED_RES",
+    "kind": "Directory"
+  },
+  "applicationId": "com.jianglab.babywife.jianglab",
+  "variantName": "jianglabDebug",
+  "elements": [
+    {
+      "type": "SINGLE",
+      "filters": [],
+      "attributes": [],
+      "versionCode": 2026080101,
+      "versionName": "2026.08.01.multiformat-60s-jianglab",
+      "outputFile": "resources-jianglabDebug.ap_"
+    }
+  ],
+  "elementType": "File"
+}

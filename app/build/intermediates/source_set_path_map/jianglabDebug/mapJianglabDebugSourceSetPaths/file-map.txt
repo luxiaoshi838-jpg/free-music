@@ -1,0 +1,9 @@
+com.jianglab.babywife.app-jianglab-0 /home/runner/work/free-music/free-music/app/build/generated/res/pngs/jianglab/debug
+com.jianglab.babywife.app-jianglab-1 /home/runner/work/free-music/free-music/app/build/generated/res/resValues/jianglab/debug
+com.jianglab.babywife.app-packageJianglabDebugResources-2 /home/runner/work/free-music/free-music/app/build/intermediates/incremental/jianglabDebug/packageJianglabDebugResources/merged.dir
+com.jianglab.babywife.app-packageJianglabDebugResources-3 /home/runner/work/free-music/free-music/app/build/intermediates/incremental/jianglabDebug/packageJianglabDebugResources/stripped.dir
+com.jianglab.babywife.app-jianglabDebug-4 /home/runner/work/free-music/free-music/app/build/intermediates/merged_res/jianglabDebug/mergeJianglabDebugResources
+com.jianglab.babywife.app-debug-5 /home/runner/work/free-music/free-music/app/src/debug/res
+com.jianglab.babywife.app-jianglab-6 /home/runner/work/free-music/free-music/app/src/jianglab/res
+com.jianglab.babywife.app-jianglabDebug-7 /home/runner/work/free-music/free-music/app/src/jianglabDebug/res
+com.jianglab.babywife.app-main-8 /home/runner/work/free-music/free-music/app/src/main/res

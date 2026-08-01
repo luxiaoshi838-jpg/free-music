@@ -1,0 +1,10 @@
+#Sat Aug 01 02:22:51 UTC 2026
+base.2=/home/runner/work/free-music/free-music/app/build/intermediates/dex/lidacaizhuDebug/mergeProjectDexLidacaizhuDebug/5/classes.dex
+path.2=5/classes.dex
+base.1=/home/runner/work/free-music/free-music/app/build/intermediates/dex/lidacaizhuDebug/mergeProjectDexLidacaizhuDebug/0/classes.dex
+path.1=0/classes.dex
+base.0=/home/runner/work/free-music/free-music/app/build/intermediates/dex/lidacaizhuDebug/mergeExtDexLidacaizhuDebug/classes.dex
+renamed.2=classes3.dex
+renamed.1=classes2.dex
+renamed.0=classes.dex
+path.0=classes.dex

@@ -1,0 +1,9 @@
+com.jianglab.babywife.app-lidacaizhu-0 /home/runner/work/free-music/free-music/app/build/generated/res/pngs/lidacaizhu/debug
+com.jianglab.babywife.app-lidacaizhu-1 /home/runner/work/free-music/free-music/app/build/generated/res/resValues/lidacaizhu/debug
+com.jianglab.babywife.app-packageLidacaizhuDebugResources-2 /home/runner/work/free-music/free-music/app/build/intermediates/incremental/lidacaizhuDebug/packageLidacaizhuDebugResources/merged.dir
+com.jianglab.babywife.app-packageLidacaizhuDebugResources-3 /home/runner/work/free-music/free-music/app/build/intermediates/incremental/lidacaizhuDebug/packageLidacaizhuDebugResources/stripped.dir
+com.jianglab.babywife.app-lidacaizhuDebug-4 /home/runner/work/free-music/free-music/app/build/intermediates/merged_res/lidacaizhuDebug/mergeLidacaizhuDebugResources
+com.jianglab.babywife.app-debug-5 /home/runner/work/free-music/free-music/app/src/debug/res
+com.jianglab.babywife.app-lidacaizhu-6 /home/runner/work/free-music/free-music/app/src/lidacaizhu/res
+com.jianglab.babywife.app-lidacaizhuDebug-7 /home/runner/work/free-music/free-music/app/src/lidacaizhuDebug/res
+com.jianglab.babywife.app-main-8 /home/runner/work/free-music/free-music/app/src/main/res

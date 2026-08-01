@@ -1,0 +1,146 @@
+[
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xhdpi_ic_launcher.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xxhdpi_ic_launcher.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xxxhdpi_ic_launcher_new_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xxxhdpi/ic_launcher_new_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-mdpi_ic_launcher_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-mdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-mdpi_ic_launcher_new.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-mdpi/ic_launcher_new.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xhdpi_ic_launcher_classic.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xhdpi/ic_launcher_classic.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-hdpi_ic_launcher_classic.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-hdpi/ic_launcher_classic.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-mdpi_ic_launcher.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-mdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/xml_network_security_config.xml.flat",
+        "source": "com.jianglab.babywife.app-main-8:/xml/network_security_config.xml"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xhdpi_ic_launcher_classic_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xhdpi/ic_launcher_classic_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xhdpi_ic_launcher_new.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xhdpi/ic_launcher_new.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-hdpi_ic_launcher_classic_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-hdpi/ic_launcher_classic_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xxhdpi_ic_launcher_classic.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xxhdpi/ic_launcher_classic.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-mdpi_ic_launcher_classic.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-mdpi/ic_launcher_classic.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xxhdpi_ic_launcher_new_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xxhdpi/ic_launcher_new_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-hdpi_ic_launcher.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-hdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xhdpi_ic_launcher_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/xml_data_extraction_rules.xml.flat",
+        "source": "com.jianglab.babywife.app-main-8:/xml/data_extraction_rules.xml"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/drawable-nodpi_default_background_legacy.jpg.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/drawable-nodpi/default_background_legacy.jpg"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/drawable-nodpi_default_background.jpg.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/drawable-nodpi/default_background.jpg"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xxhdpi_ic_launcher_new.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xxhdpi/ic_launcher_new.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xxxhdpi_ic_launcher_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xxxhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-mdpi_ic_launcher_new_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-mdpi/ic_launcher_new_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xxhdpi_ic_launcher_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xxhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-hdpi_ic_launcher_new_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-hdpi/ic_launcher_new_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xxxhdpi_ic_launcher_classic.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xxxhdpi/ic_launcher_classic.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/xml_backup_rules.xml.flat",
+        "source": "com.jianglab.babywife.app-main-8:/xml/backup_rules.xml"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xhdpi_ic_launcher_new_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xhdpi/ic_launcher_new_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-hdpi_ic_launcher_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-hdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/drawable-nodpi_broom_clean_icon.webp.flat",
+        "source": "com.jianglab.babywife.app-main-8:/drawable-nodpi/broom_clean_icon.webp"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-hdpi_ic_launcher_new.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-hdpi/ic_launcher_new.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xxxhdpi_ic_launcher_new.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xxxhdpi/ic_launcher_new.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xxxhdpi_ic_launcher.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xxxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-mdpi_ic_launcher_classic_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-mdpi/ic_launcher_classic_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xxxhdpi_ic_launcher_classic_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xxxhdpi/ic_launcher_classic_round.png"
+    },
+    {
+        "merged": "com.jianglab.babywife.app-lidacaizhuDebug-4:/mipmap-xxhdpi_ic_launcher_classic_round.png.flat",
+        "source": "com.jianglab.babywife.app-lidacaizhu-6:/mipmap-xxhdpi/ic_launcher_classic_round.png"
+    }
+]

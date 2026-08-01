@@ -1,0 +1,17 @@
+com.jianglab.babywife.lidacaizhu:xml/data_extraction_rules = 0x7f070001
+com.jianglab.babywife.lidacaizhu:xml/backup_rules = 0x7f070000
+com.jianglab.babywife.lidacaizhu:string/app_name = 0x7f050000
+com.jianglab.babywife.lidacaizhu:style/AppTheme = 0x7f060000
+com.jianglab.babywife.lidacaizhu:mipmap/ic_launcher_round = 0x7f040005
+com.jianglab.babywife.lidacaizhu:mipmap/ic_launcher_new_round = 0x7f040004
+com.jianglab.babywife.lidacaizhu:mipmap/ic_launcher_new = 0x7f040003
+com.jianglab.babywife.lidacaizhu:xml/network_security_config = 0x7f070002
+com.jianglab.babywife.lidacaizhu:mipmap/ic_launcher = 0x7f040000
+com.jianglab.babywife.lidacaizhu:drawable/default_background_legacy = 0x7f030002
+com.jianglab.babywife.lidacaizhu:drawable/default_background = 0x7f030001
+com.jianglab.babywife.lidacaizhu:drawable/broom_clean_icon = 0x7f030000
+com.jianglab.babywife.lidacaizhu:mipmap/ic_launcher_classic_round = 0x7f040002
+com.jianglab.babywife.lidacaizhu:bool/icon_selector_enabled = 0x7f010001
+com.jianglab.babywife.lidacaizhu:mipmap/ic_launcher_classic = 0x7f040001
+com.jianglab.babywife.lidacaizhu:bool/dual_background_selector = 0x7f010000
+com.jianglab.babywife.lidacaizhu:color/splash_background = 0x7f020000
