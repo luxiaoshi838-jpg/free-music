@@ -14,6 +14,15 @@ def main():
     implementation = patch_root / 'tools/apply_private_simple_playback_fix.py'
     subprocess.run([sys.executable, str(implementation), '--root', str(target)], check=True)
 
+    # Exact-identity results use a new namespace so fuzzy v2 rows are not reused.
+    checks_path = target / 'scripts/check_feature_requirements.py'
+    checks = checks_path.read_text(encoding='utf-8')
+    checks = checks.replace(
+        "and 'song_version_directory_v2' in picker",
+        "and 'song_version_directory_v3_exact_identity' in picker",
+    )
+    checks_path.write_text(checks, encoding='utf-8')
+
     subprocess.run(['git', '-C', str(target), 'config', 'user.name',
                     'github-actions[bot]'], check=True)
     subprocess.run(['git', '-C', str(target), 'config', 'user.email',
