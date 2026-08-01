@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080105
-        versionName "2026.08.01.background-playlist-cache"
+        versionCode 2026080106
+        versionName "2026.08.01.resumable-isolated-cache"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 

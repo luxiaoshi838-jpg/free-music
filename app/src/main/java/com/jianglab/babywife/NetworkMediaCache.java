@@ -204,6 +204,7 @@ final class NetworkMediaCache {
         if (actualSource.isEmpty() || actualId.isEmpty()) return null;
         boolean sourceChanged = !requestedSource.equals(actualSource) || !requestedId.equals(actualId);
         String key = sha256(actualSource + "|" + actualId);
+        try (CacheKeyLock cacheKeyLock = CacheKeyLock.acquire(context, key)) {
         String actualTitle = catalogTitle(actualCatalog);
         String actualArtist = catalogArtist(actualCatalog);
         String actualAlbum = catalogAlbum(actualCatalog);
@@ -235,7 +236,8 @@ final class NetworkMediaCache {
         File tempRoot = new File(context.getCacheDir(), "network_download");
         if (!tempRoot.exists() && !tempRoot.mkdirs()) throw new IllegalStateException("无法创建下载临时目录");
         String hintedExtension = choiceExtension(choice);
-        File partial = new File(tempRoot, key + "." + hintedExtension + ".part");
+        File partial = new File(tempRoot, key + "." + hintedExtension + "."
+            + android.os.Process.myPid() + "." + Thread.currentThread().getId() + ".part");
         if (partial.exists()) partial.delete();
         status(callback, sourceChanged
             ? "正在从" + CatalogSearch.labelForSource(actualSource) + "缓存候选音频..."
@@ -269,6 +271,7 @@ final class NetworkMediaCache {
                 actualCatalog.toString(), actualSource, sourceChanged);
         } finally {
             if (partial.exists()) partial.delete();
+        }
         }
     }
 
@@ -467,6 +470,7 @@ final class NetworkMediaCache {
 
             long written = 0L;
             int lastPercent = -1;
+            long lastStatusAt = System.currentTimeMillis();
             try (InputStream input = new BufferedInputStream(connection.getInputStream());
                  BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(partial))) {
                 byte[] buffer = new byte[64 * 1024];
@@ -477,12 +481,17 @@ final class NetworkMediaCache {
                     written += count;
                     if (written > MAX_AUDIO_BYTES) throw new IllegalStateException("歌曲文件超过缓存上限");
                     output.write(buffer, 0, count);
+                    long now = System.currentTimeMillis();
                     if (total > 0) {
                         int percent = (int) Math.min(100, written * 100 / total);
-                        if (percent >= lastPercent + 10) {
+                        if (percent >= lastPercent + 5 || now - lastStatusAt >= 5000L) {
                             lastPercent = percent;
+                            lastStatusAt = now;
                             status(callback, "正在缓存歌曲：" + percent + "%");
                         }
+                    } else if (now - lastStatusAt >= 5000L) {
+                        lastStatusAt = now;
+                        status(callback, "正在缓存歌曲：" + Math.max(1L, written / 1024L / 1024L) + "MB");
                     }
                 }
             }

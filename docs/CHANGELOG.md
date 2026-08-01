@@ -117,3 +117,12 @@
 - Moved one-click playlist caching from an Activity thread into a foreground data-sync service.
 - Batch caching now continues during background playback, lock screen use, and Activity recreation.
 - Progress and per-song results are persisted; failed songs remain marked red for manual replacement.
+
+
+## 2026-08-01 Resumable isolated playlist cache
+
+- Moved playlist batch caching into a dedicated process so search and playback remain responsive.
+- Added start/pause/resume/stale-task restart behavior to the same playlist cache button.
+- Persisted task state and result journals with atomic files, while keeping playlist preferences single-writer.
+- Added per-track cross-process cache locks and unique partial downloads.
+- Hide the cache button when the current playlist has no uncached online tracks.
