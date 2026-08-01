@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: playback-batch-cache-fix
+  cancel-in-progress: true
+
 jobs:
   apply-build-push:
     runs-on: ubuntu-latest
