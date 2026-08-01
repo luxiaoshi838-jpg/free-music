@@ -28,6 +28,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply patch to PR branch
+        id: apply
         shell: bash
         run: |
           set -euo pipefail
@@ -47,23 +48,28 @@ jobs:
           ! grep -Fq 'choices.sort' app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java
 
       - name: Set up JDK 17
+        id: jdk
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Android SDK
+        id: android
         uses: android-actions/setup-android@v3
 
       - name: Install Android packages
+        id: sdk
         run: sdkmanager "platforms;android-35" "build-tools;37.0.0"
 
       - name: Set up Gradle 8.7
+        id: gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
       - name: Compile four brands
+        id: build
         shell: bash
         run: |
           set -euo pipefail
@@ -87,14 +93,28 @@ jobs:
           git push origin HEAD:fix/multiformat-cache-priority-60s
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
 
-      - name: Record successful target commit
+      - name: Record workflow result
+        if: always()
         shell: bash
         run: |
-          set -euo pipefail
-          target_sha='${{ steps.publish.outputs.target_sha }}'
+          set +e
+          git reset --hard
           git checkout tools/fix-pr9-original-fastpath
           mkdir -p status
-          printf 'success\ntarget_sha=%s\nrun_id=%s\n' "$target_sha" "$GITHUB_RUN_ID" > status/original-source-fastpath.txt
+          cat > status/original-source-fastpath.txt <<EOF
+          job_status=${{ job.status }}
+          apply=${{ steps.apply.outcome }}
+          jdk=${{ steps.jdk.outcome }}
+          android=${{ steps.android.outcome }}
+          sdk=${{ steps.sdk.outcome }}
+          gradle=${{ steps.gradle.outcome }}
+          build=${{ steps.build.outcome }}
+          publish=${{ steps.publish.outcome }}
+          target_sha=${{ steps.publish.outputs.target_sha }}
+          run_id=$GITHUB_RUN_ID
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add status/original-source-fastpath.txt
-          git commit -m "Record original-source fast-path build result" || true
+          git commit -m "Record original-source fast-path workflow result" || true
           git push origin HEAD:tools/fix-pr9-original-fastpath
