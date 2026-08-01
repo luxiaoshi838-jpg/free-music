@@ -1,0 +1,9 @@
+run_id=30710312423
+artifact_name=private-simple-playback-apks-30710312423
+feature_commit=3b45d27da036e2ea76a41869a221244de62d1692
+patch=success
+checks=failure
+build=skipped
+verify=skipped
+push=skipped
+upload=skipped
