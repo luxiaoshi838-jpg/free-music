@@ -2528,8 +2528,7 @@ public class MainActivity extends Activity {
             updatePlaybackProgress();
             playButton.setText("▶");
         } catch (Exception ignored) {
-            stopPlayback();
-            playButton.setText("▶");
+            handlePlaybackFailure(currentSong, "上次缓存无法稳定恢复");
         }
     }
 
@@ -2818,9 +2817,7 @@ public class MainActivity extends Activity {
                 publishPlaybackControlState(true);
             }
         } catch (Exception ex) {
-            stopPlayback();
-            playButton.setText("▶");
-            toast("播放失败：" + ex.getMessage());
+            handlePlaybackFailure(song, "播放失败：" + ex.getMessage());
         }
     }
 
@@ -3059,6 +3056,7 @@ public class MainActivity extends Activity {
                     String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
                     if (key.isEmpty() || !seen.add(key)) continue;
                     NetworkMediaCache.normalizeCacheFiles(this, song.catalogJson);
+                    NetworkMediaCache.validateCatalogCache(this, song.catalogJson);
                 }
             }
             runOnUiThread(this::refreshCachedUrisAfterMigration);

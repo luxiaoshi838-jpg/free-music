@@ -117,7 +117,9 @@ checks = {
         and 'MediaCodecList' in compat
         and 'seekTo' in compat
         and 'PlaybackCompatibility.isPlayable(partial)' in network
-        and 'return isAcceptableCachedAudio(context, uriText);' in network
+        and 'validateCatalogCache' in network
+        and 'NetworkMediaCache.validateCatalogCache(this, song.catalogJson)' in main
+        and 'return CacheStorage.exists(context, uriText);' in network
     ),
     'playlist one-click cache and failure marking': (
         '一键缓存未缓存歌曲' in main

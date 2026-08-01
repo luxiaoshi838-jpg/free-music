@@ -382,7 +382,17 @@ final class NetworkMediaCache {
     }
 
     static boolean cachedAudioExists(Context context, String uriText) {
-        return isAcceptableCachedAudio(context, uriText);
+        return CacheStorage.exists(context, uriText);
+    }
+
+    static boolean validateCatalogCache(Context context, String catalogJson) {
+        String key = cacheKeyForCatalog(catalogJson);
+        if (key.isEmpty()) return false;
+        String uri = CacheStorage.findAudioUri(context, key);
+        if (uri.isEmpty()) return false;
+        if (isAcceptableCachedAudio(context, uri)) return true;
+        CacheStorage.deleteKey(context, key);
+        return false;
     }
 
     private static String catalogTitle(JSONObject catalog) {
