@@ -12,6 +12,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: apply-original-source-fastpath
+  cancel-in-progress: true
+
 jobs:
   patch-build-push:
     runs-on: ubuntu-latest
@@ -66,6 +70,7 @@ jobs:
           gradle --no-daemon assembleDebug
 
       - name: Commit source correction to PR branch
+        id: publish
         shell: bash
         run: |
           set -euo pipefail
@@ -78,4 +83,18 @@ jobs:
             PROJECT_LOG.md \
             docs/CHANGELOG.md
           git commit -m "Use original song source before cross-platform matching"
+          target_sha=$(git rev-parse HEAD)
           git push origin HEAD:fix/multiformat-cache-priority-60s
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Record successful target commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_sha='${{ steps.publish.outputs.target_sha }}'
+          git checkout tools/fix-pr9-original-fastpath
+          mkdir -p status
+          printf 'success\ntarget_sha=%s\nrun_id=%s\n' "$target_sha" "$GITHUB_RUN_ID" > status/original-source-fastpath.txt
+          git add status/original-source-fastpath.txt
+          git commit -m "Record original-source fast-path build result" || true
+          git push origin HEAD:tools/fix-pr9-original-fastpath
