@@ -1,23 +1,23 @@
-name: Apply Original Source Fast Path
+name: Validate Actual MediaCodec Decode
 
 on:
   push:
     branches:
       - tools/fix-pr9-original-fastpath
     paths:
-      - tools/apply_original_source_fastpath_20260801.py
       - .github/workflows/apply-original-source-fastpath.yml
+      - tools/real-decoder-build-trigger.txt
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: apply-original-source-fastpath
+  group: validate-real-decoder-output
   cancel-in-progress: true
 
 jobs:
-  patch-build-push:
+  validate-build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -27,26 +27,19 @@ jobs:
           ref: tools/fix-pr9-original-fastpath
           fetch-depth: 0
 
-      - name: Apply patch to PR branch
-        id: apply
+      - name: Checkout current feature source
+        id: source
         shell: bash
         run: |
           set -euo pipefail
-          git show tools/fix-pr9-original-fastpath:tools/apply_original_source_fastpath_20260801.py > /tmp/apply_fastpath.py
           git checkout fix/multiformat-cache-priority-60s
-          mkdir -p tools
-          cp /tmp/apply_fastpath.py tools/apply_original_source_fastpath_20260801.py
-          python3 -m py_compile tools/apply_original_source_fastpath_20260801.py
-          python3 tools/apply_original_source_fastpath_20260801.py | tee original-source-fastpath-contract.log
-          rm -f tools/apply_original_source_fastpath_20260801.py
+          echo "target_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           python3 scripts/check_public_repo.py
           python3 scripts/check_feature_requirements.py
+          grep -F 'MediaCodec.createByCodecName' app/src/main/java/com/jianglab/babywife/PlaybackCompatibility.java
+          grep -F 'outputInfo.size > 0' app/src/main/java/com/jianglab/babywife/PlaybackCompatibility.java
+          grep -F 'versionCode 2026080104' app/build.gradle
           git diff --check
-          grep -F '正在使用歌单原来源解析歌曲' app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java
-          grep -F '原来源不可用，才开始查找其他平台版本' app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java
-          grep -F 'MAX_FALLBACK_ATTEMPTS = 4' app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java
-          ! grep -Fq 'findAutomaticChoices' app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java
-          ! grep -Fq 'choices.sort' app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java
 
       - name: Set up JDK 17
         id: jdk
@@ -75,47 +68,41 @@ jobs:
         run: |
           set -euo pipefail
           gradle --no-daemon assembleDebug
+          find app/build/outputs/apk -type f -name '*.apk' -print
+          test "$(find app/build/outputs/apk -type f -name '*.apk' | wc -l)" -ge 4
 
-      - name: Commit source correction to PR branch
-        id: publish
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java \
-            scripts/check_feature_requirements.py \
-            app/build.gradle \
-            PROJECT_LOG.md \
-            docs/CHANGELOG.md
-          git commit -m "Use original song source before cross-platform matching"
-          target_sha=$(git rev-parse HEAD)
-          git push origin HEAD:fix/multiformat-cache-priority-60s
-          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+      - name: Upload four debug APKs
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-mediacodec-validation-apks-${{ github.run_id }}
+          path: app/build/outputs/apk/*/debug/*.apk
+          if-no-files-found: error
 
       - name: Record workflow result
         if: always()
         shell: bash
         run: |
           set +e
+          target_sha=$(git rev-parse HEAD 2>/dev/null)
           git reset --hard
           git checkout tools/fix-pr9-original-fastpath
           mkdir -p status
-          cat > status/original-source-fastpath.txt <<EOF
+          cat > status/real-mediacodec-validation.txt <<EOF
           job_status=${{ job.status }}
-          apply=${{ steps.apply.outcome }}
+          source=${{ steps.source.outcome }}
           jdk=${{ steps.jdk.outcome }}
           android=${{ steps.android.outcome }}
           sdk=${{ steps.sdk.outcome }}
           gradle=${{ steps.gradle.outcome }}
           build=${{ steps.build.outcome }}
-          publish=${{ steps.publish.outcome }}
-          target_sha=${{ steps.publish.outputs.target_sha }}
+          upload=${{ steps.upload.outcome }}
+          target_sha=$target_sha
+          artifact_name=real-mediacodec-validation-apks-$GITHUB_RUN_ID
           run_id=$GITHUB_RUN_ID
           EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add status/original-source-fastpath.txt
-          git commit -m "Record original-source fast-path workflow result" || true
+          git add status/real-mediacodec-validation.txt
+          git commit -m "Record real MediaCodec validation result" || true
           git push origin HEAD:tools/fix-pr9-original-fastpath
