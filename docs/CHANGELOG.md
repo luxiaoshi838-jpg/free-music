@@ -146,3 +146,8 @@
 - Persisted the processed cursor across isolated cache-process restarts.
 - Added a 45-second no-progress watchdog that skips the stalled track, restarts the isolated worker and continues with the next track.
 - Bumped the upgradeable build to versionCode 2026080109.
+
+
+### Playback-priority batch build verification
+
+- Revalidated the committed foreground-priority, failed-track skip, persistent cursor and 45-second stall recovery implementation with a clean four-flavor build.
