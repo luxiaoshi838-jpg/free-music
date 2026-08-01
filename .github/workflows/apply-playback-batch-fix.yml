@@ -47,27 +47,32 @@ jobs:
         run: yes | sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
 
       - name: Apply source patches
+        id: patch_sources
         run: |
           python patch/tools/apply_playback_batch_fix.py --root repo
           python patch/tools/apply_playback_batch_followup.py --root repo
 
       - name: Run feature checks
+        id: feature_checks
         working-directory: repo
         run: python scripts/check_feature_requirements.py
 
       - name: Build all four debug brands
+        id: build_apks
         working-directory: repo
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon :app:assembleDebug
 
       - name: Verify four APK outputs
+        id: verify_apks
         working-directory: repo
         run: |
           find app/build/outputs/apk -type f -name '*.apk' -print
           test "$(find app/build/outputs/apk -type f -name '*.apk' | wc -l)" -ge 4
 
       - name: Commit and push feature branch
+        id: push_feature
         working-directory: repo
         run: |
           git config user.name 'github-actions[bot]'
@@ -84,14 +89,23 @@ jobs:
           fi
 
       - name: Upload four debug APKs
+        id: upload_apks
         uses: actions/upload-artifact@v4
         with:
           name: playback-compatible-batch-cache-debug-apks-${{ github.run_id }}
           path: repo/app/build/outputs/apk/*/debug/*.apk
           if-no-files-found: error
 
-      - name: Record successful run
+      - name: Record run results
+        if: always()
         working-directory: patch
+        env:
+          PATCH_OUTCOME: ${{ steps.patch_sources.outcome }}
+          CHECK_OUTCOME: ${{ steps.feature_checks.outcome }}
+          BUILD_OUTCOME: ${{ steps.build_apks.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify_apks.outcome }}
+          PUSH_OUTCOME: ${{ steps.push_feature.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload_apks.outcome }}
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -99,8 +113,14 @@ jobs:
           {
             echo "run_id=${GITHUB_RUN_ID}"
             echo "artifact_name=playback-compatible-batch-cache-debug-apks-${GITHUB_RUN_ID}"
-            echo "feature_commit=$(git -C ../repo rev-parse HEAD)"
+            echo "feature_commit=$(git -C ../repo rev-parse HEAD 2>/dev/null || true)"
+            echo "patch=${PATCH_OUTCOME}"
+            echo "checks=${CHECK_OUTCOME}"
+            echo "build=${BUILD_OUTCOME}"
+            echo "verify=${VERIFY_OUTCOME}"
+            echo "push=${PUSH_OUTCOME}"
+            echo "upload=${UPLOAD_OUTCOME}"
           } > tools/latest_playback_batch_run.txt
           git add tools/latest_playback_batch_run.txt
-          git commit -m "Record playback build run ${GITHUB_RUN_ID}"
+          git commit -m "Record playback build run ${GITHUB_RUN_ID}" || true
           git push origin HEAD:tools/fix-pr9-playback-batch-cache
