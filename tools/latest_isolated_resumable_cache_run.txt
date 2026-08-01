@@ -9,3 +9,4 @@ push=success
 upload=success
 signed_bundle_sha256=51e9f60f389f913f50db23cf2b63bf16b19b642df66691dc3cb9e5bddf55accb
 signed_babywife_sha256=3d55ad87652eabc647e6b75e6ad313fb0f4b0ce68bf3a09a77ed17d79e2eee13
+pr_status=draft_unmerged
