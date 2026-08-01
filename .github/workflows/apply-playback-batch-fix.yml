@@ -6,6 +6,7 @@ on:
       - tools/fix-pr9-playback-batch-cache
     paths:
       - tools/apply_ui_responsiveness_notification_fix.py
+      - tools/fix_ui_patch_anchor.py
       - .github/workflows/apply-playback-batch-fix.yml
 
 permissions:
@@ -47,7 +48,9 @@ jobs:
 
       - name: Apply UI and notification fix
         id: patch_sources
-        run: python patch/tools/apply_ui_responsiveness_notification_fix.py --root repo
+        run: |
+          python patch/tools/fix_ui_patch_anchor.py --script patch/tools/apply_ui_responsiveness_notification_fix.py
+          python patch/tools/apply_ui_responsiveness_notification_fix.py --root repo
 
       - name: Run public-repo and feature checks
         id: feature_checks
