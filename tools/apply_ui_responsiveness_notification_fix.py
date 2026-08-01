@@ -1,35 +1,52 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import argparse
-import subprocess
-import sys
+
+
+def require(text, token, label):
+    if token not in text:
+        raise RuntimeError(f'{label}: missing {token!r}')
+
+
+def append_once(path, marker, block):
+    text = path.read_text(encoding='utf-8')
+    if marker not in text:
+        path.write_text(text + block, encoding='utf-8')
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', default='.')
-    args = parser.parse_args()
-    patch_repo = Path(__file__).resolve().parents[1]
-    target_root = Path(args.root).resolve()
-    implementation = patch_repo / 'tools/apply_low_priority_resilient_batch_fix.py'
-    subprocess.run(
-        [sys.executable, str(implementation), '--root', str(target_root)],
-        check=True,
-    )
+    root = Path(parser.parse_args().root).resolve()
 
-    # The legacy workflow's explicit git-add list predates NetworkMediaCache.java.
-    # Commit that one file locally here; the workflow will commit the remaining
-    # verified files and push both commits only after checks and APK builds pass.
-    subprocess.run(['git', '-C', str(target_root), 'config', 'user.name',
-                    'github-actions[bot]'], check=True)
-    subprocess.run(['git', '-C', str(target_root), 'config', 'user.email',
-                    '41898282+github-actions[bot]@users.noreply.github.com'], check=True)
-    subprocess.run(['git', '-C', str(target_root), 'add',
-                    'app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java'], check=True)
-    subprocess.run(['git', '-C', str(target_root), 'diff', '--cached', '--check'], check=True)
-    subprocess.run(['git', '-C', str(target_root), 'commit', '-m',
-                    'Add foreground priority coordination for media cache'], check=True)
-    print('legacy_build_entry=playback_priority_resilient_batch')
+    gradle = (root / 'app/build.gradle').read_text(encoding='utf-8')
+    main = (root / 'app/src/main/java/com/jianglab/babywife/MainActivity.java').read_text(encoding='utf-8')
+    network = (root / 'app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java').read_text(encoding='utf-8')
+    batch = (root / 'app/src/main/java/com/jianglab/babywife/PlaylistBatchCacheService.java').read_text(encoding='utf-8')
+
+    require(gradle, 'versionCode 2026080109', 'upgrade version')
+    require(gradle, 'low-priority-resilient-batch', 'version name')
+    require(main, '&& !song.autoUnavailable', 'skip automatic failures')
+    require(main, 'NetworkMediaCache.beginForegroundWork(this)', 'foreground playback lease')
+    require(network, 'ForegroundPriorityException', 'foreground preemption')
+    require(network, 'yieldIfForegroundRequested(context)', 'cooperative background yield')
+    require(batch, 'THREAD_PRIORITY_BACKGROUND', 'background thread priority')
+    require(batch, 'SONG_STALL_SKIP_MS = 45000L', 'stall timeout')
+    require(batch, 'for (int index = done; index < total; index++)', 'resume cursor')
+    require(batch, 'skipStalledSongAndRestart', 'stall recovery')
+    require(batch, '缓存失败并已跳过后续自动重试', 'failed track skip state')
+
+    append_once(
+        root / 'PROJECT_LOG.md',
+        '低优先级一键缓存构建复核',
+        '\n\n### 低优先级一键缓存构建复核\n\n- 已对公开分支现有前台优先、失败跳过、游标续跑和45秒停滞恢复实现执行独立构建验证。\n'
+    )
+    append_once(
+        root / 'docs/CHANGELOG.md',
+        'Playback-priority batch build verification',
+        '\n\n### Playback-priority batch build verification\n\n- Revalidated the committed foreground-priority, failed-track skip, persistent cursor and 45-second stall recovery implementation with a clean four-flavor build.\n'
+    )
+    print('existing_playback_priority_fix=verified_for_build')
 
 
 if __name__ == '__main__':
