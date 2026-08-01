@@ -112,10 +112,14 @@ checks = {
         and 'AudioTranscoder.ensureMp3' not in network
         and 'AudioMetadataWriter.applyAndVerify' not in network
     ),
-    'device playback compatibility validation': (
+    'real decoder playback validation': (
         'MediaExtractor' in compat
         and 'MediaCodecList' in compat
-        and 'seekTo' in compat
+        and 'MediaCodec.createByCodecName' in compat
+        and 'dequeueOutputBuffer' in compat
+        and 'outputInfo.size > 0' in compat
+        and 'decodeProbe(extractor, audioFormat, decoderName, 0L)' in compat
+        and 'decodeProbe(extractor, audioFormat, decoderName, seekTargetUs)' in compat
         and 'PlaybackCompatibility.isPlayable(partial)' in network
         and 'validateCatalogCache' in network
         and 'NetworkMediaCache.validateCatalogCache(this, song.catalogJson)' in main
@@ -142,7 +146,7 @@ checks = {
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080103' in gradle,
+    'version bumped': 'versionCode 2026080104' in gradle,
     'logs synchronized': (
         '多格式缓存优先级与一分钟过滤' in project_log
         and 'Multi-format cache priority and one-minute filter' in changelog
