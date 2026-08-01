@@ -159,6 +159,17 @@ checks = {
         and 'lastBroadcastMs' in batch_service
         and 'now - lastBroadcastMs >= 1200L' in batch_service
     ),
+    'foreground playback priority and resilient batch progression': (
+        'beginForegroundWork(this)' in main
+        and '&& !song.autoUnavailable' in main
+        and 'ForegroundPriorityException' in network
+        and 'yieldIfForegroundRequested(context)' in network
+        and 'THREAD_PRIORITY_BACKGROUND' in batch_service
+        and 'SONG_STALL_SKIP_MS = 45000L' in batch_service
+        and 'for (int index = done; index < total; index++)' in batch_service
+        and 'skipStalledSongAndRestart' in batch_service
+        and '缓存失败并已跳过后续自动重试' in batch_service
+    ),
     'media player error containment': (
         'attachPlaybackErrorHandler' in main
         and 'handlePlaybackFailure' in main
@@ -173,7 +184,7 @@ checks = {
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080107' in gradle,
+    'version bumped': 'versionCode 2026080109' in gradle,
     'logs synchronized': (
         '多格式缓存优先级与一分钟过滤' in project_log
         and 'Multi-format cache priority and one-minute filter' in changelog

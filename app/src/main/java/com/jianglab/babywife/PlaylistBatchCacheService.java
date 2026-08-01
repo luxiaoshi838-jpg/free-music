@@ -67,6 +67,7 @@ public final class PlaylistBatchCacheService extends Service {
     private static final long HEARTBEAT_INTERVAL_MS = 5000L;
     private static final long HEARTBEAT_STALE_MS = 25000L;
     private static final long PROGRESS_STALE_MS = 90000L;
+    private static final long SONG_STALL_SKIP_MS = 45000L;
 
     private NotificationManager notificationManager;
     private final Handler heartbeatHandler = new Handler(Looper.getMainLooper());
@@ -85,6 +86,10 @@ public final class PlaylistBatchCacheService extends Service {
     private long lastProgressMs;
     private long lastBroadcastMs;
     private long lastNotificationMs;
+    private volatile int currentRequestIndex = -1;
+    private volatile String currentSongIdentity = "";
+    private volatile String currentSongJson = "";
+    private volatile boolean stallRecoveryRunning;
 
     static final class TaskState {
         final String status;
@@ -313,16 +318,30 @@ public final class PlaylistBatchCacheService extends Service {
             playlistIndex = request.optInt("playlistIndex", 0);
             JSONArray songs = request.optJSONArray("songs");
             total = songs == null ? 0 : songs.length();
-            done = 0;
-            success = 0;
-            failed = 0;
+            TaskState previous = readState(this);
+            boolean resumeSameGeneration = previous.generation == generation
+                && previous.playlistIndex == playlistIndex;
+            done = resumeSameGeneration ? Math.min(total, Math.max(0, previous.done)) : 0;
+            success = resumeSameGeneration ? Math.max(0, previous.success) : 0;
+            failed = resumeSameGeneration ? Math.max(0, previous.failed) : 0;
             currentTitle = "";
-            currentMessage = total == 0 ? "没有需要缓存的歌曲" : "开始后台缓存";
+            currentRequestIndex = -1;
+            currentSongIdentity = "";
+            currentSongJson = "";
+            stallRecoveryRunning = false;
+            currentMessage = total == 0 ? "没有需要缓存的歌曲"
+                : (done > 0 ? "继续后台缓存 " + done + "/" + total : "开始后台缓存");
             lastProgressMs = System.currentTimeMillis();
             stopRequested = false;
             workerRunning = true;
             startHeartbeat();
-            workerThread = new Thread(() -> runBatch(request), "PlaylistBatchCacheWorker");
+            workerThread = new Thread(() -> {
+                try {
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                } catch (Exception ignored) {
+                }
+                runBatch(request);
+            }, "PlaylistBatchCacheWorker");
             workerThread.start();
         } catch (Exception error) {
             TaskState state = readState(this);
@@ -341,11 +360,19 @@ public final class PlaylistBatchCacheService extends Service {
             JSONArray songs = request.optJSONArray("songs");
             total = songs == null ? 0 : songs.length();
             report(STATUS_RUNNING, currentMessage, true, true, "", "");
-            for (int index = 0; index < total; index++) {
+            for (int index = done; index < total; index++) {
                 checkStopped();
                 JSONObject row = songs.optJSONObject(index);
-                if (row == null) continue;
+                if (row == null) {
+                    done = index + 1;
+                    report(STATUS_RUNNING, "跳过无效缓存任务 " + done + "/" + total,
+                        true, true, "", "");
+                    continue;
+                }
                 BatchSong song = new BatchSong(row);
+                currentRequestIndex = index;
+                currentSongIdentity = song.identity;
+                currentSongJson = song.songJson;
                 currentTitle = song.title;
                 currentMessage = "正在缓存 " + (index + 1) + "/" + total + "：" + song.title;
                 report(STATUS_RUNNING, currentMessage, true, true, "", "");
@@ -365,20 +392,35 @@ public final class PlaylistBatchCacheService extends Service {
                     String updated = updateSongJson(song.songJson, cached, false);
                     writeResult(index, song.identity, updated);
                     success++;
-                    done++;
+                    done = index + 1;
                     currentMessage = "已缓存 " + done + "/" + total + "：" + song.title;
                     report(STATUS_RUNNING, currentMessage, true, true, song.identity, updated);
+                    currentRequestIndex = -1;
+                    currentSongIdentity = "";
+                    currentSongJson = "";
+                } catch (NetworkMediaCache.ForegroundPriorityException foregroundPriority) {
+                    currentMessage = "前台播放优先，后台缓存已让路，稍后继续：" + song.title;
+                    report(STATUS_RUNNING, currentMessage, true, true, "", "");
+                    NetworkMediaCache.awaitForegroundIdle(this);
+                    index--;
                 } catch (InterruptedException interrupted) {
                     throw interrupted;
                 } catch (Exception error) {
                     String updated = updateSongJson(song.songJson, null, true);
                     writeResult(index, song.identity, updated);
                     failed++;
-                    done++;
-                    currentMessage = "缓存失败并已标红 " + done + "/" + total + "：" + song.title;
+                    done = index + 1;
+                    currentMessage = "缓存失败并已跳过后续自动重试 " + done + "/" + total
+                        + "：" + song.title;
                     report(STATUS_RUNNING, currentMessage, true, true, song.identity, updated);
+                    currentRequestIndex = -1;
+                    currentSongIdentity = "";
+                    currentSongJson = "";
                 }
             }
+            currentRequestIndex = -1;
+            currentSongIdentity = "";
+            currentSongJson = "";
             currentTitle = "";
             currentMessage = "一键缓存完成：成功 " + success + " 首，失败 " + failed + " 首";
             report(STATUS_COMPLETED, currentMessage, true, true, "", "");
@@ -543,10 +585,45 @@ public final class PlaylistBatchCacheService extends Service {
         @Override
         public void run() {
             if (!workerRunning || stopRequested) return;
-            report(STATUS_RUNNING, currentMessage, false, false, "", "");
+            long now = System.currentTimeMillis();
+            if (NetworkMediaCache.foregroundWorkActive(PlaylistBatchCacheService.this)) {
+                currentMessage = "前台播放、读取缓存或找新缓存优先，后台任务已让路";
+                report(STATUS_RUNNING, currentMessage, true, true, "", "");
+            } else if (currentRequestIndex >= 0
+                && now - lastProgressMs >= SONG_STALL_SKIP_MS) {
+                skipStalledSongAndRestart();
+                return;
+            } else {
+                report(STATUS_RUNNING, currentMessage, false, false, "", "");
+            }
             heartbeatHandler.postDelayed(this, HEARTBEAT_INTERVAL_MS);
         }
     };
+
+    private synchronized void skipStalledSongAndRestart() {
+        if (stallRecoveryRunning || currentRequestIndex < 0 || stopRequested) return;
+        stallRecoveryRunning = true;
+        int stalledIndex = currentRequestIndex;
+        String identity = currentSongIdentity;
+        String title = currentTitle;
+        try {
+            String updated = updateSongJson(currentSongJson, null, true);
+            writeResult(stalledIndex, identity, updated);
+            failed++;
+            done = Math.max(done, stalledIndex + 1);
+            currentMessage = "该歌曲缓存超过45秒无进展，已跳过并继续下一首：" + title;
+            report(STATUS_RUNNING, currentMessage, true, true, identity, updated);
+        } catch (Exception error) {
+            done = Math.max(done, stalledIndex + 1);
+            currentMessage = "该歌曲缓存超时，已跳过：" + title;
+            report(STATUS_RUNNING, currentMessage, true, true, "", "");
+        }
+        currentRequestIndex = -1;
+        currentSongIdentity = "";
+        currentSongJson = "";
+        scheduleRestart(generation);
+        terminateProcess();
+    }
 
     private void checkStopped() throws InterruptedException {
         if (stopRequested || Thread.currentThread().isInterrupted()) {

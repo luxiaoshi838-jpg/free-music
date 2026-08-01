@@ -19,6 +19,7 @@ import java.security.MessageDigest;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import bridge.Bridge;
 
@@ -29,12 +30,143 @@ final class NetworkMediaCache {
     private static final long MAX_AUDIO_BYTES = 512L * 1024L * 1024L;
     private static final long MIN_AUTOMATIC_DURATION_MS = 60_000L;
     private static final int MAX_FALLBACK_ATTEMPTS = 4;
+    private static final String PRIORITY_FOLDER = "network_cache_priority";
+    private static final String FOREGROUND_LEASE_NAME = "foreground.lease";
+    private static final long FOREGROUND_LEASE_VALID_MS = 8000L;
+    private static final long FOREGROUND_LEASE_REFRESH_MS = 1500L;
+    private static final AtomicInteger FOREGROUND_LEASE_COUNT = new AtomicInteger(0);
+    private static final Object FOREGROUND_LEASE_GUARD = new Object();
+    private static volatile boolean foregroundLeaseRefresherRunning;
 
     private NetworkMediaCache() {
     }
 
     interface StatusCallback {
         void onStatus(String message);
+    }
+
+    static final class ForegroundPriorityException extends InterruptedException {
+        ForegroundPriorityException() {
+            super("前台播放优先，后台缓存稍后继续");
+        }
+    }
+
+    static final class ForegroundLease implements AutoCloseable {
+        private final Context appContext;
+        private boolean closed;
+
+        ForegroundLease(Context context) {
+            appContext = context.getApplicationContext();
+        }
+
+        @Override
+        public void close() {
+            synchronized (FOREGROUND_LEASE_GUARD) {
+                if (closed) return;
+                closed = true;
+                int remaining = FOREGROUND_LEASE_COUNT.decrementAndGet();
+                if (remaining <= 0) {
+                    FOREGROUND_LEASE_COUNT.set(0);
+                    File lease = foregroundLeaseFile(appContext);
+                    if (lease.isFile() && !lease.delete()) lease.deleteOnExit();
+                }
+            }
+        }
+    }
+
+    static ForegroundLease beginForegroundWork(Context context) {
+        if (context == null) throw new IllegalArgumentException("context is required");
+        Context app = context.getApplicationContext();
+        synchronized (FOREGROUND_LEASE_GUARD) {
+            FOREGROUND_LEASE_COUNT.incrementAndGet();
+            touchForegroundLease(app);
+            startForegroundLeaseRefresher(app);
+        }
+        return new ForegroundLease(app);
+    }
+
+    static boolean foregroundWorkActive(Context context) {
+        if (context == null) return false;
+        File lease = foregroundLeaseFile(context.getApplicationContext());
+        if (!lease.isFile()) return false;
+        long age = System.currentTimeMillis() - lease.lastModified();
+        if (age >= 0L && age <= FOREGROUND_LEASE_VALID_MS) return true;
+        if (!lease.delete()) lease.deleteOnExit();
+        return false;
+    }
+
+    static void awaitForegroundIdle(Context context) throws InterruptedException {
+        while (foregroundWorkActive(context)) {
+            checkInterrupted();
+            Thread.sleep(200L);
+        }
+    }
+
+    private static void awaitBackgroundTurn(Context context) throws InterruptedException {
+        if (!isBatchCacheThread()) return;
+        try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+        } catch (Exception ignored) {
+        }
+        awaitForegroundIdle(context);
+    }
+
+    private static void yieldIfForegroundRequested(Context context)
+        throws ForegroundPriorityException, InterruptedException {
+        checkInterrupted();
+        if (isBatchCacheThread() && foregroundWorkActive(context)) {
+            throw new ForegroundPriorityException();
+        }
+    }
+
+    private static boolean isBatchCacheThread() {
+        String name = Thread.currentThread().getName();
+        return name != null && name.startsWith("PlaylistBatchCache");
+    }
+
+    private static File foregroundLeaseFile(Context context) {
+        File root = new File(context.getFilesDir(), PRIORITY_FOLDER);
+        if (!root.exists()) root.mkdirs();
+        return new File(root, FOREGROUND_LEASE_NAME);
+    }
+
+    private static void touchForegroundLease(Context context) {
+        try {
+            File lease = foregroundLeaseFile(context);
+            try (FileOutputStream output = new FileOutputStream(lease, false)) {
+                output.write(String.valueOf(System.currentTimeMillis())
+                    .getBytes(StandardCharsets.UTF_8));
+                output.flush();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void startForegroundLeaseRefresher(Context context) {
+        if (foregroundLeaseRefresherRunning) return;
+        foregroundLeaseRefresherRunning = true;
+        Thread refresher = new Thread(() -> {
+            try {
+                while (true) {
+                    synchronized (FOREGROUND_LEASE_GUARD) {
+                        if (FOREGROUND_LEASE_COUNT.get() <= 0) break;
+                        touchForegroundLease(context);
+                    }
+                    Thread.sleep(FOREGROUND_LEASE_REFRESH_MS);
+                }
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            } finally {
+                synchronized (FOREGROUND_LEASE_GUARD) {
+                    foregroundLeaseRefresherRunning = false;
+                    if (FOREGROUND_LEASE_COUNT.get() > 0) {
+                        startForegroundLeaseRefresher(context);
+                    }
+                }
+            }
+        }, "ForegroundCachePriorityLease");
+        refresher.setDaemon(true);
+        refresher.start();
     }
 
     static final class CacheResult {
@@ -69,6 +201,7 @@ final class NetworkMediaCache {
     static CacheResult cache(Context context, String catalogJson, StatusCallback callback) throws Exception {
         checkInterrupted();
         if (context == null) throw new IllegalArgumentException("context is required");
+        awaitBackgroundTurn(context);
         JSONObject requestedCatalog = canonicalCatalog(catalogJson);
         String requestedSource = requestedCatalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
         String requestedId = requestedCatalog.optString("id", "").trim();
@@ -86,6 +219,7 @@ final class NetworkMediaCache {
             boolean lyricFromCache = !requestedLyric.trim().isEmpty();
             if (!lyricFromCache) {
                 status(callback, "正在按原平台读取歌词...");
+                yieldIfForegroundRequested(context);
                 requestedLyric = fetchLyrics(requestedCatalog.toString());
                 if (!requestedLyric.trim().isEmpty()) {
                     CacheStorage.writeLyric(context, requestedKey, requestedLyric, requestedTitle,
@@ -110,6 +244,7 @@ final class NetworkMediaCache {
             if (duration > 0L && duration < MIN_AUTOMATIC_DURATION_MS) {
                 throw new IllegalStateException("原来源歌曲时长不足1分钟");
             }
+            awaitBackgroundTurn(context);
             ResolvedChoice original = new ResolvedChoice(requestedCatalog,
                 resolve(requestedCatalog.toString()));
             CacheResult result = cacheChoice(context, requestedCatalog, original, callback);
@@ -157,6 +292,7 @@ final class NetworkMediaCache {
 
         for (CatalogSearch.Track alternative : alternatives) {
             checkInterrupted();
+            awaitBackgroundTurn(context);
             if (attempted >= MAX_FALLBACK_ATTEMPTS) break;
             try {
                 JSONObject catalog = canonicalCatalog(alternative.rawJson);
@@ -190,6 +326,7 @@ final class NetworkMediaCache {
     private static CacheResult cacheChoice(Context context, JSONObject requestedCatalog,
                                            ResolvedChoice choice, StatusCallback callback) throws Exception {
         checkInterrupted();
+        awaitBackgroundTurn(context);
         if (choice == null || choice.audioUrl().isEmpty()) return null;
         JSONObject actualCatalog = canonicalCatalog(choice.catalog.toString());
         long catalogDuration = catalogDurationMs(actualCatalog);
@@ -205,6 +342,7 @@ final class NetworkMediaCache {
         boolean sourceChanged = !requestedSource.equals(actualSource) || !requestedId.equals(actualId);
         String key = sha256(actualSource + "|" + actualId);
         try (CacheKeyLock cacheKeyLock = CacheKeyLock.acquire(context, key)) {
+        yieldIfForegroundRequested(context);
         String actualTitle = catalogTitle(actualCatalog);
         String actualArtist = catalogArtist(actualCatalog);
         String actualAlbum = catalogAlbum(actualCatalog);
@@ -216,6 +354,7 @@ final class NetworkMediaCache {
         String existingAudioUri = CacheStorage.findAudioUri(context, key);
         if (!existingAudioUri.isEmpty() && isAcceptableCachedAudio(context, existingAudioUri)) {
             if (!lyricFromCache) {
+                yieldIfForegroundRequested(context);
                 lyric = fetchLyrics(actualCatalog.toString());
                 if (!lyric.trim().isEmpty()) {
                     CacheStorage.writeLyric(context, key, lyric, actualTitle, actualArtist,
@@ -243,7 +382,7 @@ final class NetworkMediaCache {
             ? "正在从" + CatalogSearch.labelForSource(actualSource) + "缓存候选音频..."
             : "正在缓存候选音频...");
         try {
-            download(choice.audioUrl(), actualSource, partial, callback);
+            download(context, choice.audioUrl(), actualSource, partial, callback);
             checkInterrupted();
             if (partial.length() <= 0L) throw new IllegalStateException("歌曲缓存为空");
             String actualExtension = detectAudioExtension(partial, hintedExtension);
@@ -252,6 +391,7 @@ final class NetworkMediaCache {
                 if (actualDuration <= 0L) throw new IllegalStateException("设备无法识别候选音频或确认时长");
                 throw new IllegalStateException("候选音频只有" + Math.max(1L, actualDuration / 1000L) + "秒");
             }
+            yieldIfForegroundRequested(context);
             if (!PlaybackCompatibility.isPlayable(partial)) {
                 throw new IllegalStateException("当前设备无法稳定解码或拖动该音频格式");
             }
@@ -260,6 +400,7 @@ final class NetworkMediaCache {
             String storedUri = CacheStorage.storeAudio(context, key, actualExtension, partial,
                 actualTitle, actualArtist, actualAlbum, actualCatalog.toString());
             if (!lyricFromCache) {
+                yieldIfForegroundRequested(context);
                 lyric = fetchLyrics(actualCatalog.toString());
                 if (!lyric.trim().isEmpty()) {
                     CacheStorage.writeLyric(context, key, lyric, actualTitle, actualArtist,
@@ -443,8 +584,10 @@ final class NetworkMediaCache {
         }
     }
 
-    private static void download(String urlText, String source, File partial, StatusCallback callback) throws Exception {
+    private static void download(Context context, String urlText, String source,
+                                 File partial, StatusCallback callback) throws Exception {
         checkInterrupted();
+        yieldIfForegroundRequested(context);
         HttpURLConnection connection = (HttpURLConnection) new URL(urlText).openConnection();
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
@@ -477,6 +620,7 @@ final class NetworkMediaCache {
                 int count;
                 while ((count = input.read(buffer)) >= 0) {
                     checkInterrupted();
+                    yieldIfForegroundRequested(context);
                     if (count == 0) continue;
                     written += count;
                     if (written > MAX_AUDIO_BYTES) throw new IllegalStateException("歌曲文件超过缓存上限");

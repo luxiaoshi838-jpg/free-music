@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080107
-        versionName "2026.08.01.responsive-ui-notification"
+        versionCode 2026080109
+        versionName "2026.08.01.low-priority-resilient-batch"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 

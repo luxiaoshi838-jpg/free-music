@@ -1802,7 +1802,10 @@ public class MainActivity extends Activity {
         List<Song> uncached = new ArrayList<>();
         for (Song song : currentPlaylist().songs) {
             if (song == null || !song.isNetworkCatalog()) continue;
-            if (song.cachedUri == null || song.cachedUri.trim().isEmpty()) uncached.add(song);
+            // Automatic batch failures stay available for manual replacement/playback,
+            // but are not retried by every later one-click cache task.
+            if ((song.cachedUri == null || song.cachedUri.trim().isEmpty())
+                && !song.autoUnavailable) uncached.add(song);
         }
         return uncached;
     }
@@ -1901,7 +1904,7 @@ public class MainActivity extends Activity {
         cachePlaylistButton.setText(state.isStale()
             ? "正在重启后台缓存..." : "正在启动后台缓存...");
         if (statusView != null) {
-            statusView.setText("缓存任务使用独立进程，搜索和正常播放可同时进行");
+            statusView.setText("后台缓存已降为低优先级；前台播放、读缓存和找新缓存会优先");
         }
         try {
             if (state.isStale()) {
@@ -2714,7 +2717,8 @@ public class MainActivity extends Activity {
         String originalKey = song.key();
         statusView.setText("正在缓存歌曲并匹配歌词...");
         new Thread(() -> {
-            try {
+            try (NetworkMediaCache.ForegroundLease foregroundLease =
+                     NetworkMediaCache.beginForegroundWork(this)) {
                 NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
                     this,
                     song.catalogJson,
@@ -2801,7 +2805,11 @@ public class MainActivity extends Activity {
     private void resolveAndPlay(Song song) {
         statusView.setText("\u6b63\u5728\u89e3\u6790\u53ef\u64ad\u653e\u97f3\u9891...");
         new Thread(() -> {
-            Song resolved = resolvePlayableSong(song);
+            Song resolved;
+            try (NetworkMediaCache.ForegroundLease foregroundLease =
+                     NetworkMediaCache.beginForegroundWork(this)) {
+                resolved = resolvePlayableSong(song);
+            }
             runOnUiThread(() -> {
                 if (currentSong != song) return;
                 if (resolved == null || resolved.uri == null || resolved.uri.isEmpty()) {

@@ -136,3 +136,13 @@
 - Removed per-song storage probes from the cache button UI path.
 - Moved playback notification handling into a dedicated process and published track changes before lyric rendering.
 - Throttled batch progress broadcasts and notification updates.
+
+
+## 2026-08-01 Foreground-priority resilient batch cache
+
+- Added a foreground cache/resolve lease so playback work preempts playlist batch caching.
+- Lowered the batch worker thread priority and cooperatively releases per-song cache locks when foreground playback needs resources.
+- Excluded prior automatic failures from future one-click cache requests while retaining manual replacement.
+- Persisted the processed cursor across isolated cache-process restarts.
+- Added a 45-second no-progress watchdog that skips the stalled track, restarts the isolated worker and continues with the next track.
+- Bumped the upgradeable build to versionCode 2026080109.
