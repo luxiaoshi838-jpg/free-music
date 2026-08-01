@@ -4,6 +4,10 @@ root = Path(__file__).resolve().parents[1]
 main = (root / 'app/src/main/java/com/jianglab/babywife/MainActivity.java').read_text(encoding='utf-8')
 cache = (root / 'app/src/main/java/com/jianglab/babywife/CacheStorage.java').read_text(encoding='utf-8')
 network = (root / 'app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java').read_text(encoding='utf-8')
+compat = (root / 'app/src/main/java/com/jianglab/babywife/PlaybackCompatibility.java').read_text(encoding='utf-8')
+batch_service = (root / 'app/src/main/java/com/jianglab/babywife/PlaylistBatchCacheService.java').read_text(encoding='utf-8')
+cache_lock = (root / 'app/src/main/java/com/jianglab/babywife/CacheKeyLock.java').read_text(encoding='utf-8')
+manifest = (root / 'app/src/main/AndroidManifest.xml').read_text(encoding='utf-8')
 broom = (root / 'app/src/main/java/com/jianglab/babywife/BroomIconView.java').read_text(encoding='utf-8')
 metadata = (root / 'app/src/main/java/com/jianglab/babywife/AudioMetadataWriter.java').read_text(encoding='utf-8')
 transcoder = (root / 'app/src/main/java/com/jianglab/babywife/AudioTranscoder.java').read_text(encoding='utf-8')
@@ -60,19 +64,23 @@ checks = {
         background_button_pos >= 0 and change_icon_pos >= 0 and background_button_pos < change_icon_pos
         and main[background_button_pos:change_icon_pos].count('makeButton(') == 1
     ),
-    'friendly cache filenames': (
-        'friendlyBase' in cache
-        and '" - " + record.artist' in cache
+    'paired title-artist audio and LRC filenames': (
+        'String base = record.title + " - " + record.artist;' in cache
+        and 'uniqueInternalPairBase' in cache
+        and 'uniqueDocumentPairBase' in cache
+        and 'base + ".lrc"' in cache
+        and 'application/octet-stream' in cache
+        and 'lower.endsWith(".lrc") || lower.endsWith(".txt")' in cache
+        and '" [" + shortKey' not in cache
         and 'record.audioFile' in cache
         and 'record.lyricFile' in cache
-        and 'META_PREFIX = ".babywife_"' in cache
     ),
-    'song metadata records': (
+    'playlist and cache index metadata only': (
         'object.put("title", title)' in cache
         and 'object.put("artist", artist)' in cache
         and 'object.put("album", album)' in cache
-        and 'AudioMetadataWriter.apply' in network
-        and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata
+        and 'AudioMetadataWriter.apply' not in network
+        and '不向音频文件写入歌名' in network
     ),
     'copy-first cache migration': (
         'copyFilesToTree' in cache
@@ -94,24 +102,81 @@ checks = {
     'delayed red marking': 'autoUnavailable && song.manualUnavailable' in main,
     'csv import/export': '歌名,歌手,专辑,时长秒,平台,平台代码,歌曲ID,歌词版本' in main,
     'jianglab flavor gate': 'REQUIRE_FIRST_RUN_PASSPHRASE' in gradle and 'signingCertificateCommonName' in main,
-    'mp3 source preference with source-format fallback': (
-        'format", "mp3' in network
-        and 'AudioTranscoder.ensureMp3' in network
-        and '按原格式缓存' in network
-        and 'detectAudioExtension' in network
-        and 'ffmpeg-kit' not in gradle.lower()
-        and 'FFmpegKit' not in transcoder
-        and 'libmp3lame' not in transcoder
+    'original-source fast path and one-minute validation': (
+        'MIN_AUTOMATIC_DURATION_MS = 60_000L' in network
+        and 'MAX_FALLBACK_ATTEMPTS = 4' in network
+        and '正在使用歌单原来源解析歌曲' in network
+        and '原来源不可用，才开始查找其他平台版本' in network
+        and 'cacheFirstUsableAlternative' in network
+        and 'findAutomaticChoices' not in network
+        and 'choices.sort' not in network
+        and 'isAcceptableCachedAudio' in network
+        and 'mediaDurationMs' in network
+        and 'AudioTranscoder.ensureMp3' not in network
+        and 'AudioMetadataWriter.applyAndVerify' not in network
     ),
-    'verified mp3 metadata': ('AudioMetadataWriter.applyAndVerify' in network and 'MP3 歌曲信息写入校验失败' in metadata and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata),
-    'managed cache source formats': ('受管理歌曲缓存必须是 MP3' not in cache and 'storeAudio(context, key, actualExtension' in network),
+    'real decoder playback validation': (
+        'MediaExtractor' in compat
+        and 'MediaCodecList' in compat
+        and 'MediaCodec.createByCodecName' in compat
+        and 'dequeueOutputBuffer' in compat
+        and 'outputInfo.size > 0' in compat
+        and 'decodeProbe(extractor, audioFormat, decoderName, 0L)' in compat
+        and 'decodeProbe(extractor, audioFormat, decoderName, seekTargetUs)' in compat
+        and 'PlaybackCompatibility.isPlayable(partial)' in network
+        and 'validateCatalogCache' in network
+        and 'NetworkMediaCache.validateCatalogCache(this, song.catalogJson)' in main
+        and 'return CacheStorage.exists(context, uriText);' in network
+    ),
+    'isolated resumable playlist cache state machine': (
+        '暂停一键缓存' in main
+        and '任务已停滞，点击重启' in main
+        and 'cachePlaylistButton.setVisibility(View.GONE)' in main
+        and 'PlaylistBatchCacheService.pause(this)' in main
+        and 'PlaylistBatchCacheService.restart(this, currentPlaylistIndex, request)' in main
+        and 'readPendingBatchCacheResults' not in main
+        and 'readPendingResults' in main
+        and 'android:process=":playlist_cache"' in manifest
+        and 'FOREGROUND_SERVICE_DATA_SYNC' in manifest
+        and 'ACTION_PAUSE' in batch_service
+        and 'ACTION_RESTART' in batch_service
+        and 'PROGRESS_STALE_MS' in batch_service
+        and 'android.os.Process.killProcess' in batch_service
+        and 'RESULTS_FOLDER' in batch_service
+        and 'CacheKeyLock.acquire(context, key)' in network
+        and 'FileChannel' in cache_lock
+        and 'tryLock' in cache_lock
+    ),
+    'nonblocking batch result merge and isolated notification': (
+        'requestBatchCacheSync(true)' in main
+        and 'PlaylistBatchUiSync' in main
+        and 'batchCacheSyncRunning.compareAndSet(false, true)' in main
+        and 'readPendingResults(appContext)' in main
+        and 'consumePendingBatchCacheResults' not in main
+        and 'song.cachedUri == null || song.cachedUri.trim().isEmpty()' in main
+        and 'publishPlaybackControlState(true);\n        saveLastSong(0);' in main
+        and 'android:process=":playback_control"' in manifest
+        and 'lastBroadcastMs' in batch_service
+        and 'now - lastBroadcastMs >= 1200L' in batch_service
+    ),
+    'media player error containment': (
+        'attachPlaybackErrorHandler' in main
+        and 'handlePlaybackFailure' in main
+        and 'setOnErrorListener' in main
+    ),
+    'audio file tags untouched': ('AudioMetadataWriter.apply' not in network and '不向音频文件写入歌名' in network),
+    'managed cache accepts source formats': (
+        '受管理歌曲缓存必须是 MP3' not in cache
+        and 'storeAudio(context, key, actualExtension' in network
+        and 'return "application/octet-stream";' in cache
+    ),
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026072705' in gradle,
+    'version bumped': 'versionCode 2026080107' in gradle,
     'logs synchronized': (
-        'MP3 缓存统一与设置栏界面修正' in project_log
-        and 'MP3 cache normalization and settings drawer follow-up' in changelog
+        '多格式缓存优先级与一分钟过滤' in project_log
+        and 'Multi-format cache priority and one-minute filter' in changelog
     ),
     'no literal passphrase': '姜Lab欢迎你' not in ''.join(
         [main, cache, network, broom, metadata, picker, catalog, gradle, project_log, changelog]),

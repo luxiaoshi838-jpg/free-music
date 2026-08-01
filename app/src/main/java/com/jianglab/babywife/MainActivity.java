@@ -76,6 +76,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 
@@ -149,7 +150,9 @@ public class MainActivity extends Activity {
     private ListView searchResultsList;
     private ListView playlistSongsList;
     private EditText playlistSearchInput;
+    private Button cachePlaylistButton;
     private final List<Song> playlistFilteredSongs = new ArrayList<>();
+    private boolean playlistBatchCaching = false;
     private TextView searchPageStatusView;
     private TextView searchLoadMoreView;
     private CatalogSearch.Session activeSearchSession;
@@ -193,6 +196,10 @@ public class MainActivity extends Activity {
     private int highlightedLyricIndex = -1;
     private int lyricEdgeBlankLineCount = MIN_LYRIC_EDGE_BLANK_LINES;
     private boolean playbackReceiverRegistered = false;
+    private boolean batchCacheReceiverRegistered = false;
+    private final AtomicBoolean batchCacheSyncRunning = new AtomicBoolean(false);
+    private volatile boolean batchCacheSyncAgain = false;
+    private volatile PlaylistBatchCacheService.TaskState cachedBatchTaskState;
     private long lastPublishedPlaybackSecond = -1L;
     private boolean lastPublishedPlaying = false;
     private String lastPublishedSongKey = "";
@@ -220,6 +227,20 @@ public class MainActivity extends Activity {
             }
         }
     };
+    private final BroadcastReceiver playlistBatchCacheReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null || !PlaylistBatchCacheService.ACTION_PROGRESS.equals(intent.getAction())) return;
+            String message = intent.getStringExtra(PlaylistBatchCacheService.EXTRA_MESSAGE);
+            if (statusView != null && message != null && !message.trim().isEmpty()) {
+                statusView.setText(message);
+            }
+            // Never scan files, parse JSON, rewrite playlists or redraw lists inside
+            // BroadcastReceiver.onReceive(). Coalesce all of that work off the UI thread.
+            requestBatchCacheSync(true);
+        }
+    };
+
     private final Runnable lyricTicker = new Runnable() {
         @Override
         public void run() {
@@ -238,6 +259,8 @@ public class MainActivity extends Activity {
         setContentView(buildContentView());
         maybeRequireJiangLabPassphrase();
         registerPlaybackControlReceiver();
+        registerPlaylistBatchCacheReceiver();
+        requestBatchCacheSync(true);
         PlaybackControlService.ensureStarted(this);
         renderPlaylists();
         renderCurrentPlaylist();
@@ -246,6 +269,13 @@ public class MainActivity extends Activity {
         publishPlaybackControlState(true);
     }
 
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updatePlaylistCacheButton();
+        requestBatchCacheSync(true);
+    }
 
     private void maybeRequireJiangLabPassphrase() {
         if (!BuildConfig.REQUIRE_FIRST_RUN_PASSPHRASE) return;
@@ -350,6 +380,121 @@ public class MainActivity extends Activity {
             registerReceiver(playbackCommandReceiver, filter);
         }
         playbackReceiverRegistered = true;
+    }
+
+    private void registerPlaylistBatchCacheReceiver() {
+        if (batchCacheReceiverRegistered) return;
+        IntentFilter filter = new IntentFilter(PlaylistBatchCacheService.ACTION_PROGRESS);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(playlistBatchCacheReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(playlistBatchCacheReceiver, filter);
+        }
+        batchCacheReceiverRegistered = true;
+        requestBatchCacheSync(false);
+    }
+
+    private void requestBatchCacheSync(boolean includeResults) {
+        if (!batchCacheSyncRunning.compareAndSet(false, true)) {
+            if (includeResults) batchCacheSyncAgain = true;
+            return;
+        }
+        final Context appContext = getApplicationContext();
+        new Thread(() -> {
+            PlaylistBatchCacheService.TaskState state =
+                PlaylistBatchCacheService.readState(appContext);
+            List<PlaylistBatchCacheService.ResultRecord> records = includeResults
+                ? PlaylistBatchCacheService.readPendingResults(appContext)
+                : Collections.emptyList();
+            Map<String, Song> updates = new HashMap<>();
+            for (PlaylistBatchCacheService.ResultRecord record : records) {
+                if (record == null || record.identity == null || record.identity.trim().isEmpty()) continue;
+                try {
+                    updates.put(record.identity, Song.fromJson(new JSONObject(record.updatedSongJson)));
+                } catch (Exception ignored) {
+                }
+            }
+            runOnUiThread(() -> {
+                cachedBatchTaskState = state;
+                boolean changed = applyBatchSongUpdates(updates);
+                if (changed) {
+                    savePlaylists();
+                    if (playlistAdapter != null) applyPlaylistFilter();
+                    if (resultAdapter != null) resultAdapter.notifyDataSetChanged();
+                }
+                updatePlaylistCacheButton();
+                if (!records.isEmpty()) {
+                    new Thread(() -> PlaylistBatchCacheService.markResultsConsumed(
+                        appContext, records), "PlaylistBatchResultCleanup").start();
+                }
+                batchCacheSyncRunning.set(false);
+                if (batchCacheSyncAgain) {
+                    batchCacheSyncAgain = false;
+                    requestBatchCacheSync(true);
+                }
+            });
+        }, "PlaylistBatchUiSync").start();
+    }
+
+    private boolean applyBatchSongUpdates(Map<String, Song> updates) {
+        if (updates == null || updates.isEmpty()) return false;
+        boolean changed = false;
+        for (Playlist playlist : playlists) {
+            for (Song item : playlist.songs) {
+                if (item == null) continue;
+                Song updated = updates.get(item.key());
+                if (updated == null) continue;
+                copyBatchSongFields(item, updated);
+                changed = true;
+            }
+        }
+        for (Song item : searchResults) {
+            if (item == null) continue;
+            Song updated = updates.get(item.key());
+            if (updated != null) copyBatchSongFields(item, updated);
+        }
+        if (currentSong != null) {
+            Song updated = updates.get(currentSong.key());
+            if (updated != null) {
+                copyBatchSongFields(currentSong, updated);
+                if (titleView != null) titleView.setText(currentSong.title);
+                if (artistView != null) artistView.setText(currentSong.artist + " · " + currentSong.source);
+            }
+        }
+        return changed;
+    }
+
+    private void applyBatchSongUpdate(String identity, String updatedSongJson) {
+        try {
+            Song updated = Song.fromJson(new JSONObject(updatedSongJson));
+            for (Playlist playlist : playlists) {
+                for (Song item : playlist.songs) {
+                    if (item != null && identity.equals(item.key())) copyBatchSongFields(item, updated);
+                }
+            }
+            if (currentSong != null && identity.equals(currentSong.key())) {
+                copyBatchSongFields(currentSong, updated);
+                if (titleView != null) titleView.setText(currentSong.title);
+                if (artistView != null) artistView.setText(currentSong.artist + " · " + currentSong.source);
+            }
+            // The isolated cache process writes result files only; MainActivity remains
+            // the sole writer of playlist preferences, avoiding cross-process overwrites.
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void copyBatchSongFields(Song target, Song source) {
+        if (target == null || source == null) return;
+        target.source = source.source;
+        target.lyric = source.lyric;
+        target.lyricLabel = source.lyricLabel;
+        target.uri = source.uri;
+        target.catalogJson = source.catalogJson;
+        target.cachedUri = source.cachedUri;
+        target.unavailable = source.unavailable;
+        target.autoUnavailable = source.autoUnavailable;
+        target.manualUnavailable = source.manualUnavailable;
+        target.manualAttempt = false;
     }
 
     private MediaPlayer createWakefulMediaPlayer() {
@@ -902,7 +1047,17 @@ public class MainActivity extends Activity {
         });
         panel.addView(playlistSongsList, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+
+        cachePlaylistButton = makeButton("一键缓存未缓存歌曲", true);
+        cachePlaylistButton.setTextSize(14);
+        cachePlaylistButton.setVisibility(View.GONE);
+        cachePlaylistButton.setOnClickListener(view -> cacheCurrentPlaylist());
+        LinearLayout.LayoutParams cacheButtonParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+        cacheButtonParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(cachePlaylistButton, cacheButtonParams);
         applyPlaylistFilter();
+        updatePlaylistCacheButton();
         return panel;
     }
 
@@ -1275,6 +1430,8 @@ public class MainActivity extends Activity {
         if (playerPanel != null) playerPanel.setVisibility(View.GONE);
         if (searchPanel != null) searchPanel.setVisibility(View.GONE);
         if (playlistPanel != null) playlistPanel.setVisibility(View.VISIBLE);
+        updatePlaylistCacheButton();
+        requestBatchCacheSync(true);
     }
 
     private void performSearch() {
@@ -1542,6 +1699,8 @@ public class MainActivity extends Activity {
         playlist.songs.add(song);
         int addedIndex = playlist.songs.size() - 1;
         song.unavailable = false;
+        song.autoUnavailable = false;
+        song.manualUnavailable = false;
         savePlaylists();
         renderCurrentPlaylist();
         if (currentSong == song) switchPlaybackToPlaylist(playlist, addedIndex);
@@ -1632,10 +1791,128 @@ public class MainActivity extends Activity {
     private void renderCurrentPlaylist() {
         applyPlaylistFilter();
         renderPlaylists();
+        updatePlaylistCacheButton();
         if (statusView != null) {
             statusView.setText("当前歌单：" + currentPlaylist().name
                 + "，共 " + currentPlaylist().songs.size() + " 首");
         }
+    }
+
+    private List<Song> uncachedSongsInCurrentPlaylist() {
+        List<Song> uncached = new ArrayList<>();
+        for (Song song : currentPlaylist().songs) {
+            if (song == null || !song.isNetworkCatalog()) continue;
+            if (song.cachedUri == null || song.cachedUri.trim().isEmpty()) uncached.add(song);
+        }
+        return uncached;
+    }
+
+    private String buildPlaylistBatchRequest(List<Song> pending) {
+        JSONObject request = new JSONObject();
+        JSONArray songs = new JSONArray();
+        try {
+            request.put("playlistIndex", currentPlaylistIndex);
+            for (Song song : pending) {
+                JSONObject row = new JSONObject();
+                row.put("identity", song.key());
+                row.put("songJson", song.toJson().toString());
+                songs.put(row);
+            }
+            request.put("songs", songs);
+        } catch (JSONException error) {
+            throw new IllegalStateException("无法建立缓存任务：" + error.getMessage());
+        }
+        return request.toString();
+    }
+
+    private void updatePlaylistCacheButton() {
+        if (cachePlaylistButton == null) return;
+        int count = uncachedSongsInCurrentPlaylist().size();
+        if (count <= 0) {
+            playlistBatchCaching = false;
+            cachePlaylistButton.setEnabled(false);
+            cachePlaylistButton.setVisibility(View.GONE);
+            return;
+        }
+
+        PlaylistBatchCacheService.TaskState state = cachedBatchTaskState;
+        if (state == null) {
+            cachePlaylistButton.setEnabled(true);
+            cachePlaylistButton.setText("一键缓存未缓存歌曲（" + count + "首）");
+            requestBatchCacheSync(false);
+            return;
+        }
+        boolean samePlaylist = state.belongsTo(currentPlaylistIndex);
+        cachePlaylistButton.setVisibility(View.VISIBLE);
+        if (samePlaylist && state.isRunningFresh()) {
+            playlistBatchCaching = true;
+            cachePlaylistButton.setEnabled(true);
+            cachePlaylistButton.setText("暂停一键缓存（" + state.done + "/" + state.total + "）");
+            return;
+        }
+        playlistBatchCaching = false;
+        if (samePlaylist && state.isStale()) {
+            cachePlaylistButton.setEnabled(true);
+            cachePlaylistButton.setText("任务已停滞，点击重启（" + count + "首）");
+            return;
+        }
+        if (samePlaylist && state.isPaused()) {
+            cachePlaylistButton.setEnabled(true);
+            cachePlaylistButton.setText("继续一键缓存（" + count + "首）");
+            return;
+        }
+        if (state.isRunningFresh() && !samePlaylist) {
+            cachePlaylistButton.setEnabled(false);
+            cachePlaylistButton.setText("其他歌单正在缓存");
+            return;
+        }
+        cachePlaylistButton.setEnabled(true);
+        cachePlaylistButton.setText("一键缓存未缓存歌曲（" + count + "首）");
+    }
+
+    private void cacheCurrentPlaylist() {
+        List<Song> pending = uncachedSongsInCurrentPlaylist();
+        if (pending.isEmpty()) {
+            updatePlaylistCacheButton();
+            return;
+        }
+        PlaylistBatchCacheService.TaskState state = cachedBatchTaskState;
+        if (state == null) {
+            requestBatchCacheSync(false);
+            cachePlaylistButton.setText("正在读取缓存任务状态...");
+            cachePlaylistButton.postDelayed(() -> requestBatchCacheSync(false), 350L);
+            return;
+        }
+        boolean samePlaylist = state.belongsTo(currentPlaylistIndex);
+        if (samePlaylist && state.isRunningFresh()) {
+            cachePlaylistButton.setEnabled(false);
+            cachePlaylistButton.setText("正在暂停一键缓存...");
+            PlaylistBatchCacheService.pause(this);
+            cachePlaylistButton.postDelayed(() -> requestBatchCacheSync(false), 500L);
+            return;
+        }
+        if (state.isRunningFresh() && !samePlaylist) {
+            toast("另一个歌单正在缓存，请先切换到该歌单暂停任务");
+            return;
+        }
+
+        String request = buildPlaylistBatchRequest(pending);
+        cachePlaylistButton.setEnabled(false);
+        cachePlaylistButton.setText(state.isStale()
+            ? "正在重启后台缓存..." : "正在启动后台缓存...");
+        if (statusView != null) {
+            statusView.setText("缓存任务使用独立进程，搜索和正常播放可同时进行");
+        }
+        try {
+            if (state.isStale()) {
+                PlaylistBatchCacheService.restart(this, currentPlaylistIndex, request);
+            } else {
+                PlaylistBatchCacheService.start(this, currentPlaylistIndex, request);
+            }
+        } catch (Exception error) {
+            toast("启动缓存任务失败：" + error.getMessage());
+        }
+        cachePlaylistButton.postDelayed(() -> requestBatchCacheSync(false), 600L);
     }
 
     private void renderEmptyPlayer() {
@@ -2387,14 +2664,14 @@ public class MainActivity extends Activity {
             stopPlayback();
             mediaPlayer = createWakefulMediaPlayer();
             mediaPlayer.setDataSource(this, Uri.parse(currentSong.uri));
+            attachPlaybackErrorHandler(mediaPlayer, currentSong);
             mediaPlayer.setOnCompletionListener(player -> playAfterCompletion());
             mediaPlayer.prepare();
             if (position > 0) mediaPlayer.seekTo(position);
             updatePlaybackProgress();
             playButton.setText("▶");
         } catch (Exception ignored) {
-            stopPlayback();
-            playButton.setText("▶");
+            handlePlaybackFailure(currentSong, "上次缓存无法稳定恢复");
         }
     }
 
@@ -2405,13 +2682,17 @@ public class MainActivity extends Activity {
             clearPendingLyricPreview();
         }
         currentSong = song;
+        // Push the new track identity before lyric parsing, list rendering or any
+        // cache work. PlaybackControlService runs in its own process.
+        publishPlaybackControlState(true);
         saveLastSong(0);
         titleView.setText(song.title);
         artistView.setText(song.artist + " · " + song.source);
         updateLyricActionVisibility(song);
         statusView.setText("当前选择：" + song.title);
-        showSongLyrics(song);
-        publishPlaybackControlState(true);
+        lyricHandler.post(() -> {
+            if (currentSong == song) showSongLyrics(song);
+        });
 
         if (song.isNetworkCatalog()) {
             stopPlayback();
@@ -2658,6 +2939,7 @@ public class MainActivity extends Activity {
             stopPlayback();
             mediaPlayer = createWakefulMediaPlayer();
             mediaPlayer.setDataSource(this, Uri.parse(song.uri));
+            attachPlaybackErrorHandler(mediaPlayer, song);
             mediaPlayer.setOnCompletionListener(player -> playAfterCompletion());
             if (song.uri.startsWith("http://") || song.uri.startsWith("https://")) {
                 statusView.setText("正在打开在线音频...");
@@ -2682,10 +2964,34 @@ public class MainActivity extends Activity {
                 publishPlaybackControlState(true);
             }
         } catch (Exception ex) {
-            stopPlayback();
-            playButton.setText("▶");
-            toast("播放失败：" + ex.getMessage());
+            handlePlaybackFailure(song, "播放失败：" + ex.getMessage());
         }
+    }
+
+    private void attachPlaybackErrorHandler(MediaPlayer player, Song song) {
+        if (player == null) return;
+        player.setOnErrorListener((failedPlayer, what, extra) -> {
+            runOnUiThread(() -> handlePlaybackFailure(song,
+                "音频解码或拖动失败（" + what + "/" + extra + "）"));
+            return true;
+        });
+    }
+
+    private void handlePlaybackFailure(Song song, String reason) {
+        stopPlayback();
+        if (playButton != null) playButton.setText("▶");
+        if (song != null && song.isNetworkCatalog()) {
+            NetworkMediaCache.deleteCatalogCache(this, song.catalogJson);
+            song.cachedUri = "";
+            song.uri = "";
+            song.autoUnavailable = true;
+            song.manualAttempt = false;
+            markSongUnavailable(song, true);
+            savePlaylists();
+            renderCurrentPlaylist();
+        }
+        if (statusView != null) statusView.setText(reason + "；请手动替换歌曲版本");
+        toast("该版本无法稳定播放，已移除缓存并标红");
     }
 
     private void togglePlayback() {
@@ -2700,17 +3006,21 @@ public class MainActivity extends Activity {
             publishPlaybackControlState(true);
             return;
         }
-        if (mediaPlayer.isPlaying()) {
-            mediaPlayer.pause();
-            playButton.setText("▶");
-            saveLastSong(mediaPlayer.getCurrentPosition());
-            lyricHandler.removeCallbacks(lyricTicker);
-        } else {
-            mediaPlayer.start();
-            playButton.setText("Ⅱ");
-            lyricHandler.post(lyricTicker);
+        try {
+            if (mediaPlayer.isPlaying()) {
+                mediaPlayer.pause();
+                playButton.setText("▶");
+                saveLastSong(mediaPlayer.getCurrentPosition());
+                lyricHandler.removeCallbacks(lyricTicker);
+            } else {
+                mediaPlayer.start();
+                playButton.setText("Ⅱ");
+                lyricHandler.post(lyricTicker);
+            }
+            publishPlaybackControlState(true);
+        } catch (IllegalStateException error) {
+            handlePlaybackFailure(currentSong, "播放器状态异常，已停止该音频");
         }
-        publishPlaybackControlState(true);
     }
 
     private void saveLastSong(int position) {
@@ -2893,6 +3203,7 @@ public class MainActivity extends Activity {
                     String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
                     if (key.isEmpty() || !seen.add(key)) continue;
                     NetworkMediaCache.normalizeCacheFiles(this, song.catalogJson);
+                    NetworkMediaCache.validateCatalogCache(this, song.catalogJson);
                 }
             }
             runOnUiThread(this::refreshCachedUrisAfterMigration);
@@ -4258,6 +4569,13 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
             }
             playbackReceiverRegistered = false;
+        }
+        if (batchCacheReceiverRegistered) {
+            try {
+                unregisterReceiver(playlistBatchCacheReceiver);
+            } catch (Exception ignored) {
+            }
+            batchCacheReceiverRegistered = false;
         }
         stopService(new Intent(this, PlaybackControlService.class));
         super.onDestroy();

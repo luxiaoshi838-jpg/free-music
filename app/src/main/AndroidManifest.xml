@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:allowBackup="true"
@@ -22,7 +23,14 @@
         <service
             android:name=".PlaybackControlService"
             android:exported="false"
+            android:process=":playback_control"
             android:foregroundServiceType="mediaPlayback" />
+
+        <service
+            android:name=".PlaylistBatchCacheService"
+            android:exported="false"
+            android:process=":playlist_cache"
+            android:foregroundServiceType="dataSync" />
 
         <activity
             android:name=".MainActivity"

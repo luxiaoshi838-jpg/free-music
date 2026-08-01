@@ -84,3 +84,55 @@
 - Changed the settings drawer width from 60% to 70%.
 - Extended the drawer background to the top of the screen while preserving the vertical position of the playlist manager and settings actions.
 - Bumped Android version to `2026072705 / 2026.07.27.light-ui-source-format`.
+
+## 2026-08-01 Multi-format cache priority and one-minute filter
+
+- Rebased exclusively on the latest public `main` commit `404ff797`; no private fallback-repository patch was reused.
+- Automatic candidates are ordered as MP3, FLAC, then other source formats without an extension whitelist.
+- Known catalog durations below 60 seconds are skipped, and downloaded files must also report at least 60 seconds through Android media parsing.
+- Text/HTML/JSON responses, empty files, unsupported files, and short files are rejected before playlist source persistence.
+- Audio bytes remain untouched: title, artist, album, and ID3-style tags are not written into cached songs. Playlist data remains authoritative.
+- Cache filenames use `title - artist.original-extension`; only real same-name collisions receive `(2)`, `(3)`, and so on. Cache migration remains supported, and unknown extensions use `.audio` rather than a false `.mp3` suffix.
+- Audio and lyric files now share the exact same basename: `title - artist.audio-extension` and `title - artist.lrc`. Legacy `.txt` lyric files are read only for migration compatibility and are normalized to `.lrc`.
+
+## 2026-08-01 Original-source playback fast path
+
+- Fixed the cache path resolving every cross-platform candidate even when the playlist's original source was valid.
+- The original source is now resolved, downloaded, validated, and returned immediately before any alternative search.
+- MP3 is still requested first within the original source; its source format is used when MP3 is unavailable.
+- Cross-platform matching runs only after an original-source resolve, download, readability, or 60-second validation failure.
+- Alternatives are resolved and validated one at a time, returning the first valid result, with at most four attempts.
+
+## 2026-08-01 Playback compatibility and playlist batch cache
+
+- Kept support for valid M4A files while validating the audio track, device decoder, readable samples, and mid-file seeking before accepting a cache.
+- Invalid existing caches are removed and resolved again instead of being accepted by duration metadata alone.
+- Added MediaPlayer error containment so decode or seek failures release the player, remove the broken cache, and mark the song for manual replacement.
+- Added a conditional one-click cache button at the bottom of the current playlist.
+- Batch caching runs sequentially without changing playback; automatic failures are shown in red for manual version selection.
+
+
+## 2026-08-01 Background playlist cache service
+
+- Moved one-click playlist caching from an Activity thread into a foreground data-sync service.
+- Batch caching now continues during background playback, lock screen use, and Activity recreation.
+- Progress and per-song results are persisted; failed songs remain marked red for manual replacement.
+
+
+## 2026-08-01 Resumable isolated playlist cache
+
+- Moved playlist batch caching into a dedicated process so search and playback remain responsive.
+- Added start/pause/resume/stale-task restart behavior to the same playlist cache button.
+- Persisted task state and result journals with atomic files, while keeping playlist preferences single-writer.
+- Added per-track cross-process cache locks and unique partial downloads.
+- Hide the cache button when the current playlist has no uncached online tracks.
+
+
+## 2026-08-01 Responsive UI and playback notification
+
+- Moved batch result file scanning and parsing off the Android main thread.
+- Coalesced cache progress refreshes and stopped redrawing lists for every callback.
+- Made playlist/search navigation render immediately before asynchronous cache refresh.
+- Removed per-song storage probes from the cache button UI path.
+- Moved playback notification handling into a dedicated process and published track changes before lyric rendering.
+- Throttled batch progress broadcasts and notification updates.
