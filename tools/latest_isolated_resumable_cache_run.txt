@@ -1,9 +1,9 @@
-run_id=30695652119
-artifact_name=isolated-resumable-cache-apks-30695652119
-feature_commit=053941ed180d92456ccdb2784aa75d36b7460d8c
+run_id=30695742578
+artifact_name=isolated-resumable-cache-apks-30695742578
+feature_commit=8634169464fb9a8248977f401635e43fe3e9c5a8
 patch=success
 checks=success
-build=failure
-verify=skipped
-push=skipped
-upload=skipped
+build=success
+verify=success
+push=success
+upload=success
