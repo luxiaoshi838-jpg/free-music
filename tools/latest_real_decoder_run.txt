@@ -1,7 +1,9 @@
-run_id=30689070303
-artifact_name=real-decoder-validation-debug-apks-30689070303
+run_id=30689239107
+artifact_name=real-mediacodec-validation-apks-30689239107
 feature_commit=f0083e91e5dec98f52d13b67eb0397f1c3b4b863
+patch=success
 checks=success
 build=success
 verify=success
+push=success
 upload=success
