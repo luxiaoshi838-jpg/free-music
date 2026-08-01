@@ -1,0 +1,136 @@
+name: Apply low-priority resilient batch cache fix
+
+on:
+  push:
+    branches:
+      - tools/fix-pr9-playback-batch-cache
+    paths:
+      - tools/apply_low_priority_resilient_batch_fix.py
+      - .github/workflows/apply-low-priority-resilient-batch-fix.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: low-priority-resilient-batch-cache
+  cancel-in-progress: true
+
+jobs:
+  apply-build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/multiformat-cache-priority-60s
+          path: repo
+          fetch-depth: 0
+
+      - name: Checkout patch branch
+        uses: actions/checkout@v4
+        with:
+          ref: tools/fix-pr9-playback-batch-cache
+          path: patch
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android packages
+        run: yes | sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+
+      - name: Apply low-priority resilient batch fix
+        id: patch_sources
+        run: python patch/tools/apply_low_priority_resilient_batch_fix.py --root repo
+
+      - name: Run public-repo and feature checks
+        id: feature_checks
+        working-directory: repo
+        run: |
+          python scripts/check_public_repo.py
+          python scripts/check_feature_requirements.py
+          git diff --check
+
+      - name: Build all four debug brands
+        id: build_apks
+        working-directory: repo
+        run: |
+          chmod +x gradlew
+          sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          attempt=1
+          until ./gradlew --no-daemon :app:assembleDebug; do
+            if [ "$attempt" -ge 3 ]; then
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            sleep 5
+          done
+
+      - name: Verify four APK outputs
+        id: verify_apks
+        working-directory: repo
+        run: |
+          find app/build/outputs/apk -type f -name '*.apk' -print
+          test "$(find app/build/outputs/apk -type f -name '*.apk' | wc -l)" -ge 4
+          grep -q 'versionCode 2026080109' app/build.gradle
+          grep -q 'low-priority-resilient-batch' app/build.gradle
+
+      - name: Commit and push feature branch
+        id: push_feature
+        working-directory: repo
+        run: |
+          git checkout -- gradle/wrapper/gradle-wrapper.properties
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/build.gradle \
+            app/src/main/java/com/jianglab/babywife/MainActivity.java \
+            app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java \
+            app/src/main/java/com/jianglab/babywife/PlaylistBatchCacheService.java \
+            scripts/check_feature_requirements.py \
+            PROJECT_LOG.md docs/CHANGELOG.md
+          git diff --cached --check
+          git commit -m 'Prioritize playback and keep batch cache moving'
+          git push origin HEAD:fix/multiformat-cache-priority-60s
+
+      - name: Upload four debug APKs
+        id: upload_apks
+        uses: actions/upload-artifact@v4
+        with:
+          name: low-priority-resilient-batch-apks-${{ github.run_id }}
+          path: repo/app/build/outputs/apk/*/debug/*.apk
+          if-no-files-found: error
+
+      - name: Record run results
+        if: always()
+        working-directory: patch
+        env:
+          PATCH_OUTCOME: ${{ steps.patch_sources.outcome }}
+          CHECK_OUTCOME: ${{ steps.feature_checks.outcome }}
+          BUILD_OUTCOME: ${{ steps.build_apks.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify_apks.outcome }}
+          PUSH_OUTCOME: ${{ steps.push_feature.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload_apks.outcome }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          mkdir -p tools
+          {
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "artifact_name=low-priority-resilient-batch-apks-${GITHUB_RUN_ID}"
+            echo "feature_commit=$(git -C ../repo rev-parse HEAD 2>/dev/null || true)"
+            echo "patch=${PATCH_OUTCOME}"
+            echo "checks=${CHECK_OUTCOME}"
+            echo "build=${BUILD_OUTCOME}"
+            echo "verify=${VERIFY_OUTCOME}"
+            echo "push=${PUSH_OUTCOME}"
+            echo "upload=${UPLOAD_OUTCOME}"
+          } > tools/latest_low_priority_resilient_batch_run.txt
+          git add tools/latest_low_priority_resilient_batch_run.txt
+          git commit -m "Record low-priority batch build ${GITHUB_RUN_ID}" || true
+          git push origin HEAD:tools/fix-pr9-playback-batch-cache
