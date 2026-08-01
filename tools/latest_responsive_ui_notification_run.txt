@@ -1,6 +1,6 @@
 run_id=30697854630
 artifact_name=responsive-ui-notification-apks-30697854630
-feature_commit=fce54cc71953d1aed4453d9be010af3df9f9b64d
+feature_commit=9f83ccf759cf07f409ea35e8bc99c72d95b16673
 patch=failure
 checks=skipped
 build=skipped
