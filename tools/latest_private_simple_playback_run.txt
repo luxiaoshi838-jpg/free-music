@@ -1,9 +1,9 @@
-run_id=30710372898
-artifact_name=private-simple-playback-apks-30710372898
-feature_commit=5d0d9a87155ea5d53f5ddd998902e2a9e6fb1a3d
+run_id=30710312423
+artifact_name=private-simple-playback-apks-30710312423
+feature_commit=6c531961085ed0bc195ed14f8d2da01833c90795
 patch=success
 checks=success
-build=cancelled
-verify=skipped
-push=skipped
-upload=skipped
+build=success
+verify=success
+push=success
+upload=success
