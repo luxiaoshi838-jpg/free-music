@@ -1,11 +1,18 @@
 # Changelog
 
+## 2026-08-01
+
+- Added a one-click current-playlist cache action on the playlist page.
+- Persist failed one-click cache attempts per song with `cacheFailed`, so later one-click cache runs skip songs that already failed and continue with later tracks instead of repeatedly starting from the failed item.
+- Clear the failed-cache mark after a song caches successfully, is added fresh to a playlist, or is replaced with a confirmed song version.
+- Bumped Android version to `2026080101 / 2026.08.01.playlist-cache-skip-failed`.
+
 ## 2026-07-26
 
 - Restored the public `free-music` repository to a four-brand Android APK source tree.
 - Added public repository checks for four-brand source completeness and private signing material exclusion.
 - Added playlist playback context fixes:
-  - playlist playback hides “add to current playlist”;
+  - playlist playback hides ?add to current playlist?;
   - search playback hides song/lyric replacement actions;
   - adding the current search song to a playlist switches subsequent playback to that playlist.
 - Added transient cache cleanup entry point with a broom button.
@@ -31,7 +38,7 @@
 
 - Inspected the previously supplied `apk-output.zip` instead of inferring legacy behavior.
 - Confirmed all four legacy APKs stored media under app-private `files/network_music`; those files were excluded from Android backup and are removed on uninstall.
-- Fixed CSV header mapping so `歌曲ID` can no longer overwrite the `歌名` column.
+- Fixed CSV header mapping so `??ID` can no longer overwrite the `??` column.
 - Replaced the colored broom emoji with a custom white line icon matching the settings control.
 - Moved the cache-folder control into the lower settings actions directly above the background-image button.
 - Added explicit legacy-default and current cache paths to the cache-location dialog.
@@ -64,7 +71,7 @@
 - Reduced the settings drawer to 60% of screen width without moving the existing controls vertically.
 - Extended the drawer's black appearance through the system status-bar area while the drawer is open, restoring the original status-bar color on close.
 - Removed uninstall-behavior suffixes from the cache-folder button while keeping full behavior details in the dialog.
-- Shortened playlist-manager labels to `新建` and `导出`.
+- Shortened playlist-manager labels to `??` and `??`.
 - Bumped Android version to `2026072703 / 2026.07.27.mp3-cache-settings-ui`.
 
 ### Lightweight UI-only follow-up
@@ -84,3 +91,11 @@
 - Changed the settings drawer width from 60% to 70%.
 - Extended the drawer background to the top of the screen while preserving the vertical position of the playlist manager and settings actions.
 - Bumped Android version to `2026072705 / 2026.07.27.light-ui-source-format`.
+
+### Playback-confirmed source flag replacement
+
+- Deferred automatic replacement flag persistence until the replacement source actually prepares and starts playback.
+- Added a playback request serial so stale cache or replacement threads cannot write back into the current song after the user has moved on.
+- Added a `MediaPlayer.OnErrorListener` path that marks playlist items unavailable without saving a failed replacement source.
+- Kept the original playlist identity until playback success, then persisted the confirmed replacement `catalogJson`, cached URI and source label.
+- Bumped Android version to `2026072901 / 2026.07.29.playback-flag-commit`.

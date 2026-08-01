@@ -193,6 +193,7 @@ public class MainActivity extends Activity {
     private int highlightedLyricIndex = -1;
     private int lyricEdgeBlankLineCount = MIN_LYRIC_EDGE_BLANK_LINES;
     private boolean playbackReceiverRegistered = false;
+    private int playbackRequestSerial = 0;
     private long lastPublishedPlaybackSecond = -1L;
     private boolean lastPublishedPlaying = false;
     private String lastPublishedSongKey = "";
@@ -253,13 +254,13 @@ public class MainActivity extends Activity {
         if (preferences.getBoolean(KEY_JIANGLAB_VERIFIED, false)) return;
         final EditText input = new EditText(this);
         input.setSingleLine(true);
-        input.setHint("请输入首次使用口令");
+        input.setHint("?????????");
         input.setPadding(dp(18), 0, dp(18), 0);
         AlertDialog dialog = new AlertDialog.Builder(this)
-            .setTitle("姜Lab首次验证")
-            .setMessage("验证成功后，本机后续启动不再要求输入。")
+            .setTitle("?Lab????")
+            .setMessage("???????????????????")
             .setView(input)
-            .setPositiveButton("验证", null)
+            .setPositiveButton("??", null)
             .create();
         dialog.setCancelable(false);
         dialog.setCanceledOnTouchOutside(false);
@@ -270,9 +271,9 @@ public class MainActivity extends Activity {
                 if (!expected.isEmpty() && expected.equals(entered)) {
                     preferences.edit().putBoolean(KEY_JIANGLAB_VERIFIED, true).apply();
                     dialog.dismiss();
-                    toast("验证成功");
+                    toast("????");
                 } else {
-                    input.setError("口令不正确");
+                    input.setError("?????");
                     input.selectAll();
                 }
             }));
@@ -362,8 +363,8 @@ public class MainActivity extends Activity {
     }
 
     private void publishPlaybackControlState(boolean force) {
-        String title = currentSong == null ? "尚未播放" : currentSong.title;
-        String artist = currentSong == null ? "大宝贝儿老婆" : currentSong.artist;
+        String title = currentSong == null ? "????" : currentSong.title;
+        String artist = currentSong == null ? "??????" : currentSong.artist;
         String songKey = currentSong == null ? "" : currentSong.key();
         boolean isPlaying = false;
         long duration = 0L;
@@ -423,7 +424,7 @@ public class MainActivity extends Activity {
 
         BroomIconView clearCacheButton = new BroomIconView(this);
         clearCacheButton.setBackground(rounded(Color.argb(88, 255, 255, 255), dp(999)));
-        clearCacheButton.setContentDescription("清除非歌单缓存");
+        clearCacheButton.setContentDescription("???????");
         clearCacheButton.setOnClickListener(view -> confirmClearTransientCache());
         LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(42), dp(42));
         clearParams.setMargins(dp(6), 0, 0, 0);
@@ -523,7 +524,7 @@ public class MainActivity extends Activity {
 
         searchInput = new EditText(this);
         searchInput.setSingleLine(true);
-        searchInput.setHint("搜索歌曲 / 歌手");
+        searchInput.setHint("???? / ??");
         searchInput.setTextColor(TEXT_MAIN);
         searchInput.setHintTextColor(Color.argb(190, 255, 255, 255));
         searchInput.setPadding(dp(22), 0, dp(14), 0);
@@ -532,26 +533,26 @@ public class MainActivity extends Activity {
         inputParams.setMargins(dp(8), 0, dp(8), 0);
         row.addView(searchInput, inputParams);
 
-        Button searchButton = makeButton("搜索", true);
+        Button searchButton = makeButton("??", true);
         searchButton.setOnClickListener(view -> performSearch());
         row.addView(searchButton, new LinearLayout.LayoutParams(dp(76), dp(46)));
         panel.addView(row);
 
         sourceSpinner = new Spinner(this);
         String[] sources = {
-            "快速搜索",
-            "全部平台",
-            "更多来源",
-            "本地歌曲",
-            "网易云",
-            "QQ音乐",
-            "酷狗",
-            "酷我",
-            "咪咕",
-            "汽水",
-            "哔哩哔哩",
+            "????",
+            "????",
+            "????",
+            "????",
+            "???",
+            "QQ??",
+            "??",
+            "??",
+            "??",
+            "??",
+            "????",
             "5sing",
-            "千千",
+            "??",
             "Jamendo",
             "Joox",
             "Apple Music"
@@ -576,14 +577,14 @@ public class MainActivity extends Activity {
         ));
 
         searchPageStatusView = new TextView(this);
-        searchPageStatusView.setText("搜索只建立目录；滚动到底部继续加载，点击歌曲后缓存音频和歌词");
+        searchPageStatusView.setText("??????????????????????????????");
         searchPageStatusView.setTextColor(TEXT_MUTED);
         searchPageStatusView.setTextSize(12);
         searchPageStatusView.setPadding(dp(8), dp(5), dp(8), dp(5));
         panel.addView(searchPageStatusView);
 
         TextView header = new TextView(this);
-        header.setText("歌名                 歌手             平台");
+        header.setText("??                 ??             ??");
         header.setTextColor(TEXT_MUTED);
         header.setTextSize(13);
         header.setPadding(dp(8), dp(6), dp(8), dp(6));
@@ -593,7 +594,7 @@ public class MainActivity extends Activity {
         searchResultsList = new ListView(this);
         searchResultsList.setBackground(rounded(Color.argb(72, 0, 0, 0), dp(20)));
         searchLoadMoreView = new TextView(this);
-        searchLoadMoreView.setText("搜索后可在此加载下一批未搜索平台");
+        searchLoadMoreView.setText("????????????????");
         searchLoadMoreView.setTextColor(TEXT_MAIN);
         searchLoadMoreView.setTextSize(14);
         searchLoadMoreView.setGravity(Gravity.CENTER);
@@ -659,12 +660,12 @@ public class MainActivity extends Activity {
         artistView.setEllipsize(TextUtils.TruncateAt.END);
         panel.addView(artistView);
 
-        addCurrentButton = makeButton("加入当前歌单", false);
+        addCurrentButton = makeButton("??????", false);
         addCurrentButton.setTextSize(12);
         addCurrentButton.setVisibility(View.GONE);
         addCurrentButton.setOnClickListener(view -> {
             if (currentSong == null) {
-                toast("请先选择歌曲");
+                toast("??????");
                 return;
             }
             addSongToCurrentPlaylist(currentSong);
@@ -707,7 +708,7 @@ public class MainActivity extends Activity {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT));
 
-        songVersionButton = makeButton("替换歌曲", false);
+        songVersionButton = makeButton("????", false);
         songVersionButton.setTextSize(12);
         songVersionButton.setVisibility(View.GONE);
         songVersionButton.setOnClickListener(view -> showSongVersionPicker());
@@ -716,7 +717,7 @@ public class MainActivity extends Activity {
         songAction.setMargins(dp(6), dp(5), 0, 0);
         lyricFrame.addView(songVersionButton, songAction);
 
-        lyricVersionButton = makeButton("替换歌词", false);
+        lyricVersionButton = makeButton("????", false);
         lyricVersionButton.setTextSize(12);
         lyricVersionButton.setVisibility(View.GONE);
         lyricVersionButton.setOnClickListener(view -> showLyricVersionPicker());
@@ -725,7 +726,7 @@ public class MainActivity extends Activity {
         lyricAction.setMargins(0, dp(5), dp(6), 0);
         lyricFrame.addView(lyricVersionButton, lyricAction);
 
-        confirmLyricButton = makeButton("确认替换", true);
+        confirmLyricButton = makeButton("????", true);
         confirmLyricButton.setTextSize(12);
         confirmLyricButton.setVisibility(View.GONE);
         confirmLyricButton.setOnClickListener(view -> confirmPendingReplacement());
@@ -790,19 +791,19 @@ public class MainActivity extends Activity {
         controls.setGravity(Gravity.CENTER);
         controls.setPadding(0, dp(2), 0, dp(2));
 
-        Button previous = makeRoundButton("⏮", false);
+        Button previous = makeRoundButton("?", false);
         previous.setTextSize(18);
         previous.setOnClickListener(view -> playPlaylistOffset(-1));
         controls.addView(previous, new LinearLayout.LayoutParams(dp(50), dp(50)));
 
-        playButton = makeRoundButton("▶", true);
+        playButton = makeRoundButton("?", true);
         playButton.setTextSize(22);
         playButton.setOnClickListener(view -> togglePlayback());
         LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(dp(62), dp(62));
         playParams.setMargins(dp(28), 0, dp(28), 0);
         controls.addView(playButton, playParams);
 
-        Button next = makeRoundButton("⏭", false);
+        Button next = makeRoundButton("?", false);
         next.setTextSize(18);
         next.setOnClickListener(view -> playPlaylistOffset(1));
         controls.addView(next, new LinearLayout.LayoutParams(dp(50), dp(50)));
@@ -834,24 +835,32 @@ public class MainActivity extends Activity {
         backButton.setOnClickListener(view -> showPlayerPage());
         topRow.addView(backButton, new LinearLayout.LayoutParams(dp(46), dp(46)));
         TextView title = new TextView(this);
-        title.setText("当前歌单");
+        title.setText("????");
         title.setTextColor(TEXT_MAIN);
         title.setTextSize(20);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setGravity(Gravity.CENTER);
         topRow.addView(title, new LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        Button playlistSortButton = makeButton("排序", false);
+        Button playlistSortButton = makeButton("??", false);
         playlistSortButton.setTextSize(12);
         playlistSortButton.setSingleLine(true);
-        playlistSortButton.setContentDescription("排序当前歌单");
+        playlistSortButton.setContentDescription("??????");
         playlistSortButton.setOnClickListener(view -> showCurrentPlaylistSortDialog());
         topRow.addView(playlistSortButton, new LinearLayout.LayoutParams(dp(58), dp(42)));
+        Button playlistCacheButton = makeButton("\u7f13\u5b58", false);
+        playlistCacheButton.setTextSize(12);
+        playlistCacheButton.setSingleLine(true);
+        playlistCacheButton.setContentDescription("\u4e00\u952e\u7f13\u5b58\u5f53\u524d\u6b4c\u5355");
+        playlistCacheButton.setOnClickListener(view -> cacheCurrentPlaylistOneClick());
+        LinearLayout.LayoutParams cacheButtonParams = new LinearLayout.LayoutParams(dp(58), dp(42));
+        cacheButtonParams.setMargins(dp(6), 0, 0, 0);
+        topRow.addView(playlistCacheButton, cacheButtonParams);
         panel.addView(topRow);
 
         playlistSearchInput = new EditText(this);
         playlistSearchInput.setSingleLine(true);
-        playlistSearchInput.setHint("搜索当前歌单中的歌曲 / 歌手");
+        playlistSearchInput.setHint("?????????? / ??");
         playlistSearchInput.setTextColor(TEXT_MAIN);
         playlistSearchInput.setHintTextColor(Color.argb(185, 255, 255, 255));
         playlistSearchInput.setBackground(rounded(Color.argb(72, 255, 255, 255), dp(20)));
@@ -876,7 +885,7 @@ public class MainActivity extends Activity {
         panel.addView(playlistSearchInput, searchParams);
 
         TextView hint = new TextView(this);
-        hint.setText("点击播放；长按歌曲后确认删除");
+        hint.setText("??????????????");
         hint.setTextColor(TEXT_MUTED);
         hint.setTextSize(12);
         hint.setGravity(Gravity.CENTER);
@@ -907,18 +916,18 @@ public class MainActivity extends Activity {
     }
 
     private void showCurrentPlaylistSortDialog() {
-        final String[] options = {"歌名↑", "歌名↓", "歌手↑", "歌手↓"};
+        final String[] options = {"???", "???", "???", "???"};
         new AlertDialog.Builder(this)
-            .setTitle("排序当前歌单")
+            .setTitle("??????")
             .setItems(options, (dialog, which) -> sortCurrentPlaylist(which, options[which]))
-            .setNegativeButton("取消", null)
+            .setNegativeButton("??", null)
             .show();
     }
 
     private void sortCurrentPlaylist(int mode, String label) {
         Playlist playlist = currentPlaylist();
         if (playlist.songs.size() < 2) {
-            toast("当前歌单无需排序");
+            toast("????????");
             return;
         }
         final boolean byArtist = mode >= 2;
@@ -948,7 +957,7 @@ public class MainActivity extends Activity {
         savePlaylists();
         renderCurrentPlaylist();
         if (playlistSongsList != null) playlistSongsList.setSelection(0);
-        toast("当前歌单已按" + label + "排序");
+        toast("??????" + label + "??");
     }
 
     private String playlistSortText(String value) {
@@ -971,10 +980,10 @@ public class MainActivity extends Activity {
     private void confirmDeletePlaylistSong(Song song) {
         if (song == null) return;
         new AlertDialog.Builder(this)
-            .setTitle("删除歌曲")
-            .setMessage("确定从当前歌单中删除《" + song.title + "》吗？")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("确定", (dialog, which) -> {
+            .setTitle("????")
+            .setMessage("???????????" + song.title + "???")
+            .setNegativeButton("??", null)
+            .setPositiveButton("??", (dialog, which) -> {
                 int actualIndex = currentPlaylist().songs.indexOf(song);
                 if (actualIndex < 0) return;
                 currentPlaylist().songs.remove(actualIndex);
@@ -988,7 +997,7 @@ public class MainActivity extends Activity {
                 savePlaylists();
                 renderCurrentPlaylist();
                 updateLyricActionVisibility(currentSong);
-                toast("已从歌单删除：" + song.title + "；缓存已保留，可用扫把清理");
+                toast("???????" + song.title + "?????????????");
             })
             .show();
     }
@@ -1024,7 +1033,7 @@ public class MainActivity extends Activity {
             Song removed = currentPlaylist().songs.remove(position);
             savePlaylists();
             renderCurrentPlaylist();
-            toast("\u5df2\u5220\u9664\uff1a" + removed.title + "；缓存已保留，可用扫把清理");
+            toast("\u5df2\u5220\u9664\uff1a" + removed.title + "?????????????");
             return true;
         });
         playlistColumn.addView(playlistList, new LinearLayout.LayoutParams(
@@ -1123,7 +1132,7 @@ public class MainActivity extends Activity {
         panel.setBackground(rounded(Color.argb(54, 255, 255, 255), dp(18)));
 
         TextView label = new TextView(this);
-        label.setText("歌单管理");
+        label.setText("????");
         label.setTextSize(17);
         label.setTypeface(Typeface.DEFAULT_BOLD);
         label.setTextColor(TEXT_MAIN);
@@ -1184,21 +1193,21 @@ public class MainActivity extends Activity {
 
         LinearLayout firstRow = new LinearLayout(this);
         firstRow.setOrientation(LinearLayout.HORIZONTAL);
-        firstRow.addView(makeSmallButton("新建", view -> promptNewPlaylist()),
+        firstRow.addView(makeSmallButton("??", view -> promptNewPlaylist()),
             new LinearLayout.LayoutParams(0, dp(38), 1));
-        firstRow.addView(makeSmallButton("改名", view -> promptRenamePlaylist()),
+        firstRow.addView(makeSmallButton("??", view -> promptRenamePlaylist()),
             new LinearLayout.LayoutParams(0, dp(38), 1));
-        firstRow.addView(makeSmallButton("删除", view -> deleteCurrentPlaylist()),
+        firstRow.addView(makeSmallButton("??", view -> deleteCurrentPlaylist()),
             new LinearLayout.LayoutParams(0, dp(38), 1));
         panel.addView(firstRow);
 
         LinearLayout secondRow = new LinearLayout(this);
         secondRow.setOrientation(LinearLayout.HORIZONTAL);
-        secondRow.addView(makeSmallButton("合并", view -> mergePlaylistsIntoCurrent()),
+        secondRow.addView(makeSmallButton("??", view -> mergePlaylistsIntoCurrent()),
             new LinearLayout.LayoutParams(0, dp(38), 1));
-        secondRow.addView(makeSmallButton("清空", view -> clearCurrentPlaylist()),
+        secondRow.addView(makeSmallButton("??", view -> clearCurrentPlaylist()),
             new LinearLayout.LayoutParams(0, dp(38), 1));
-        secondRow.addView(makeSmallButton("导出", view -> exportCurrentPlaylistCsv()),
+        secondRow.addView(makeSmallButton("??", view -> exportCurrentPlaylistCsv()),
             new LinearLayout.LayoutParams(0, dp(38), 1));
         panel.addView(secondRow);
         return panel;
@@ -1280,7 +1289,7 @@ public class MainActivity extends Activity {
     private void performSearch() {
         String keyword = searchInput.getText().toString().trim();
         if (keyword.isEmpty()) {
-            toast("请输入歌曲名或歌手");
+            toast("?????????");
             return;
         }
         String mode = String.valueOf(sourceSpinner.getSelectedItem());
@@ -1291,21 +1300,21 @@ public class MainActivity extends Activity {
         searchResults.clear();
         if (searchLoadMoreView != null) {
             searchLoadMoreView.setVisibility(View.VISIBLE);
-            searchLoadMoreView.setText("正在建立首批歌曲目录...");
+            searchLoadMoreView.setText("??????????...");
         }
 
-        if (mode.contains("本地")) {
+        if (mode.contains("??")) {
             appendLocalSearch(keyword);
             sortByKeyword(searchResults, keyword);
             renderResults();
-            searchPageStatusView.setText("本地搜索完成：" + searchResults.size() + " 首");
+            searchPageStatusView.setText("???????" + searchResults.size() + " ?");
             if (searchLoadMoreView != null) searchLoadMoreView.setVisibility(View.GONE);
             return;
         }
 
         renderResults();
         activeSearchSession = CatalogSearch.newSession(keyword, mode);
-        searchPageStatusView.setText(mode + "：正在加载首批歌曲目录...");
+        searchPageStatusView.setText(mode + "???????????...");
         loadNextSearchBatch(true);
     }
 
@@ -1313,7 +1322,7 @@ public class MainActivity extends Activity {
         CatalogSearch.Session session = activeSearchSession;
         if (session == null || searchPageLoading || session.isLoading() || !session.hasMore()) {
             if (session != null && !session.hasMore() && searchLoadMoreView != null) {
-                searchLoadMoreView.setText("当前搜索模式已加载完");
+                searchLoadMoreView.setText("??????????");
                 searchLoadMoreView.setEnabled(false);
             }
             return;
@@ -1321,9 +1330,9 @@ public class MainActivity extends Activity {
         searchPageLoading = true;
         if (searchLoadMoreView != null) {
             searchLoadMoreView.setEnabled(false);
-            searchLoadMoreView.setText(firstBatch ? "正在搜索首批平台..." : "正在搜索下一批未搜索平台...");
+            searchLoadMoreView.setText(firstBatch ? "????????..." : "????????????...");
         }
-        if (!firstBatch) searchPageStatusView.setText("正在加载下一批未搜索平台或目录结果...");
+        if (!firstBatch) searchPageStatusView.setText("?????????????????...");
         new Thread(() -> {
             CatalogSearch.Batch batch = session.loadNext();
             List<Song> rows = new ArrayList<>();
@@ -1335,18 +1344,18 @@ public class MainActivity extends Activity {
                 searchPageLoading = false;
                 String platformText = batch.attemptedSources.isEmpty()
                     ? ""
-                    : "，新搜索平台 " + batch.attemptedSources.size() + " 个";
+                    : "?????? " + batch.attemptedSources.size() + " ?";
                 boolean hasMore = batch.hasMore;
                 searchPageStatusView.setText(
-                    "已建立目录 " + searchResults.size() + " 首" + platformText
-                        + (hasMore ? "；继续向下滚动或点击底部加载" : "；当前模式已加载完")
+                    "????? " + searchResults.size() + " ?" + platformText
+                        + (hasMore ? "??????????????" : "?????????")
                 );
                 if (searchLoadMoreView != null) {
                     searchLoadMoreView.setEnabled(hasMore);
                     searchLoadMoreView.setVisibility(View.VISIBLE);
                     searchLoadMoreView.setText(hasMore
-                        ? "继续加载下一批未搜索平台"
-                        : "当前搜索模式已加载完");
+                        ? "????????????"
+                        : "??????????");
                 }
             });
         }).start();
@@ -1542,6 +1551,7 @@ public class MainActivity extends Activity {
         playlist.songs.add(song);
         int addedIndex = playlist.songs.size() - 1;
         song.unavailable = false;
+        song.cacheFailed = false;
         savePlaylists();
         renderCurrentPlaylist();
         if (currentSong == song) switchPlaybackToPlaylist(playlist, addedIndex);
@@ -1582,7 +1592,7 @@ public class MainActivity extends Activity {
         playlistSpinnerAdapter.clear();
         if (playlistManagerAdapter != null) playlistManagerAdapter.clear();
         for (Playlist playlist : playlists) {
-            String label = (playlists.indexOf(playlist) == 0 ? "[本地] " : "[在线] ") + playlist.name + " \u00b7 " + playlist.songs.size() + "\u9996";
+            String label = (playlists.indexOf(playlist) == 0 ? "[??] " : "[??] ") + playlist.name + " \u00b7 " + playlist.songs.size() + "\u9996";
             playlistSpinnerAdapter.add(label);
             if (playlistManagerAdapter != null) playlistManagerAdapter.add(label);
         }
@@ -1633,13 +1643,13 @@ public class MainActivity extends Activity {
         applyPlaylistFilter();
         renderPlaylists();
         if (statusView != null) {
-            statusView.setText("当前歌单：" + currentPlaylist().name
-                + "，共 " + currentPlaylist().songs.size() + " 首");
+            statusView.setText("?????" + currentPlaylist().name
+                + "?? " + currentPlaylist().songs.size() + " ?");
         }
     }
 
     private void renderEmptyPlayer() {
-        titleView.setText("还没有选择歌曲");
+        titleView.setText("???????");
         artistView.setText("");
         lyricView.setText("");
         lyricLines.clear();
@@ -1648,7 +1658,7 @@ public class MainActivity extends Activity {
         if (addCurrentButton != null) addCurrentButton.setVisibility(View.GONE);
         if (songVersionButton != null) songVersionButton.setVisibility(View.GONE);
         if (lyricVersionButton != null) lyricVersionButton.setVisibility(View.GONE);
-        if (playButton != null) playButton.setText("▶");
+        if (playButton != null) playButton.setText("?");
         resetPlaybackProgress();
     }
 
@@ -1673,7 +1683,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        lyricView.setText("正在匹配歌词...");
+        lyricView.setText("??????...");
         String matchKey = "current|" + song.key();
         if (!lyricMatchingSongs.add(matchKey)) return;
         final boolean bindToPlaylist = isSongInAnyPlaylist(song);
@@ -1687,7 +1697,7 @@ public class MainActivity extends Activity {
                         if (currentSong != song) return;
                         String safeLyric = lyric == null ? "" : lyric.trim();
                         if (safeLyric.isEmpty()) {
-                            lyricView.setText("暂未找到匹配歌词");
+                            lyricView.setText("????????");
                             return;
                         }
                         String safeLabel = label == null ? "" : label;
@@ -1699,7 +1709,7 @@ public class MainActivity extends Activity {
                             song.lyricLabel = safeLabel;
                         }
                         applyLyricText(safeLyric);
-                        if (statusView != null) statusView.setText("已匹配歌词：" + safeLabel);
+                        if (statusView != null) statusView.setText("??????" + safeLabel);
                         android.util.Log.i("BabywifeLyrics", "match success key=" + song.key()
                             + " chars=" + safeLyric.length());
                     });
@@ -1710,7 +1720,7 @@ public class MainActivity extends Activity {
                     runOnUiThread(() -> {
                         lyricMatchingSongs.remove(matchKey);
                         if (currentSong == song && (song.lyric == null || song.lyric.trim().isEmpty())) {
-                            lyricView.setText("暂未找到匹配歌词，可使用右上角替换歌词");
+                            lyricView.setText("???????????????????");
                         }
                         android.util.Log.w("BabywifeLyrics", "match unavailable key=" + song.key());
                     });
@@ -1731,11 +1741,11 @@ public class MainActivity extends Activity {
     private void showSongVersionPicker() {
         Song song = currentSong;
         if (song == null) {
-            toast("请先选择歌曲");
+            toast("??????");
             return;
         }
         if (!isSongInAnyPlaylist(song)) {
-            toast("替换歌曲只对歌单内歌曲生效");
+            toast("?????????????");
             return;
         }
         SongVersionPicker.show(this, song.title, song.artist, new SongVersionPicker.Callback() {
@@ -1759,13 +1769,13 @@ public class MainActivity extends Activity {
                     pendingSongCatalogJson = catalogJson;
                     pendingReplacementType = REPLACEMENT_SONG;
                     titleView.setText(pendingSongTitle);
-                    artistView.setText(pendingSongArtist + " · " + pendingSongSource);
+                    artistView.setText(pendingSongArtist + " ? " + pendingSongSource);
                     if (confirmLyricButton != null) {
-                        confirmLyricButton.setText("确认替换歌曲");
+                        confirmLyricButton.setText("??????");
                         confirmLyricButton.setVisibility(View.VISIBLE);
                         confirmLyricButton.bringToFront();
                     }
-                    statusView.setText("正在预览替换版本；点击右下角确认后才会写入歌单");
+                    statusView.setText("???????????????????????");
                 });
             }
 
@@ -1777,7 +1787,7 @@ public class MainActivity extends Activity {
                     markSongUnavailable(song, song.autoUnavailable && song.manualUnavailable);
                     savePlaylists();
                     renderCurrentPlaylist();
-                    statusView.setText("手动搜索全部来源后仍未找到相近版本");
+                    statusView.setText("?????????????????");
                 });
             }
         });
@@ -1796,7 +1806,7 @@ public class MainActivity extends Activity {
         if (target == null || pendingSongCatalogJson == null || pendingSongCatalogJson.trim().isEmpty()) return;
         if (currentSong != target || !isSongInAnyPlaylist(target)) {
             clearPendingLyricPreview();
-            toast("当前歌曲已不在歌单中");
+            toast("??????????");
             return;
         }
         String originalKey = pendingSongOriginalKey;
@@ -1814,6 +1824,7 @@ public class MainActivity extends Activity {
                     item.manualAttempt = true;
                     item.manualUnavailable = false;
                     item.unavailable = false;
+                    item.cacheFailed = false;
                 }
             }
         }
@@ -1828,13 +1839,14 @@ public class MainActivity extends Activity {
         target.manualAttempt = true;
         target.manualUnavailable = false;
         target.unavailable = false;
+        target.cacheFailed = false;
         clearPendingLyricPreview();
         savePlaylists();
         renderCurrentPlaylist();
         titleView.setText(target.title);
-        artistView.setText(target.artist + " · " + target.source);
-        statusView.setText("歌曲版本已替换，正在按新版本缓存播放");
-        toast("已替换歌单中的歌曲版本");
+        artistView.setText(target.artist + " ? " + target.source);
+        statusView.setText("??????????????????");
+        toast("???????????");
         playSong(target);
     }
 
@@ -1852,14 +1864,65 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void commitResolvedPlayback(Song song, PendingPlaybackCommit commit, int playToken) {
+        if (song == null || commit == null || currentSong != song || playToken != playbackRequestSerial) return;
+        if (commit.catalogJson != null && !commit.catalogJson.trim().isEmpty()) {
+            song.catalogJson = commit.catalogJson;
+        }
+        if (commit.sourceLabel != null && !commit.sourceLabel.trim().isEmpty()) {
+            song.source = commit.sourceLabel;
+        }
+        song.cachedUri = commit.audioUri;
+        song.uri = commit.audioUri;
+        if ((song.lyric == null || song.lyric.trim().isEmpty())
+            && commit.lyric != null && !commit.lyric.trim().isEmpty()) {
+            song.lyric = commit.lyric;
+            song.lyricLabel = song.title + " ? " + song.artist + " ? " + song.source;
+        }
+        if (isSongInAnyPlaylist(song) && commit.lyric != null && !commit.lyric.trim().isEmpty()) {
+            bindLyricToPlaylistCopies(song, commit.lyric, song.title + " ? " + song.artist + " ? " + song.source);
+        }
+        persistResolvedCatalogToPlaylistCopies(song, commit.originalKey);
+        song.autoUnavailable = false;
+        song.manualUnavailable = false;
+        song.manualAttempt = false;
+        song.cacheFailed = false;
+        markSongUnavailable(song, false);
+        artistView.setText(song.artist + " ? " + song.source);
+        if (commit.sourceChanged) {
+            toast("?????????????" + song.source + "??");
+            renderResults();
+        }
+        if (isSongInAnyPlaylist(song)) {
+            savePlaylists();
+            renderCurrentPlaylist();
+        }
+    }
+
+    private void markPlaybackFailure(Song song, boolean afterCacheResolved) {
+        if (song == null || !isSongInAnyPlaylist(song)) return;
+        if (song.manualAttempt) {
+            song.manualUnavailable = true;
+            song.manualAttempt = false;
+        } else {
+            song.autoUnavailable = true;
+        }
+        markSongUnavailable(song, song.autoUnavailable && song.manualUnavailable);
+        savePlaylists();
+        renderCurrentPlaylist();
+        if (afterCacheResolved) {
+            toast("????????????????????");
+        }
+    }
+
     private void showLyricVersionPicker() {
         Song song = currentSong;
         if (song == null) {
-            toast("请先选择歌曲");
+            toast("??????");
             return;
         }
         if (!isSongInAnyPlaylist(song)) {
-            toast("替换歌词只对歌单内歌曲生效");
+            toast("?????????????");
             return;
         }
         LyricVersionPicker.show(this, song.title, song.artist, new LyricVersionPicker.Callback() {
@@ -1877,15 +1940,15 @@ public class MainActivity extends Activity {
                     clearPendingLyricPreview();
                     pendingLyricSong = song;
                     pendingLyric = lyric;
-                    pendingLyricLabel = lyricTitle + " · " + lyricArtist + " · " + sourceLabel;
+                    pendingLyricLabel = lyricTitle + " ? " + lyricArtist + " ? " + sourceLabel;
                     pendingReplacementType = REPLACEMENT_LYRIC;
                     applyLyricText(lyric);
                     if (confirmLyricButton != null) {
-                        confirmLyricButton.setText("确认替换歌词");
+                        confirmLyricButton.setText("??????");
                         confirmLyricButton.setVisibility(View.VISIBLE);
                         confirmLyricButton.bringToFront();
                     }
-                    statusView.setText("正在预览：" + pendingLyricLabel + "；点击右下角确认替换");
+                    statusView.setText("?????" + pendingLyricLabel + "??????????");
                 });
             }
         });
@@ -1895,7 +1958,7 @@ public class MainActivity extends Activity {
         if (pendingLyricSong == null || pendingLyric == null || pendingLyric.trim().isEmpty()) return;
         if (currentSong != pendingLyricSong || !isSongInAnyPlaylist(pendingLyricSong)) {
             clearPendingLyricPreview();
-            toast("当前歌曲已不在歌单中");
+            toast("??????????");
             return;
         }
         Song target = pendingLyricSong;
@@ -1905,8 +1968,8 @@ public class MainActivity extends Activity {
         clearPendingLyricPreview();
         savePlaylists();
         showSongLyrics(currentSong);
-        statusView.setText("已绑定歌词：" + label);
-        toast("歌词已与歌单歌曲绑定");
+        statusView.setText("??????" + label);
+        toast("??????????");
     }
 
     private void clearPendingLyricPreview() {
@@ -1921,12 +1984,12 @@ public class MainActivity extends Activity {
         pendingSongCatalogJson = "";
         pendingReplacementType = REPLACEMENT_NONE;
         if (confirmLyricButton != null) {
-            confirmLyricButton.setText("确认替换");
+            confirmLyricButton.setText("????");
             confirmLyricButton.setVisibility(View.GONE);
         }
         if (currentSong != null && titleView != null && artistView != null) {
             titleView.setText(currentSong.title);
-            artistView.setText(currentSong.artist + " · " + currentSong.source);
+            artistView.setText(currentSong.artist + " ? " + currentSong.source);
         }
     }
 
@@ -1969,6 +2032,7 @@ public class MainActivity extends Activity {
                     item.autoUnavailable = song.autoUnavailable;
                     item.manualUnavailable = song.manualUnavailable;
                     item.manualAttempt = song.manualAttempt;
+                    item.cacheFailed = song.cacheFailed;
                 }
             }
         }
@@ -2001,6 +2065,80 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    private void cacheCurrentPlaylistOneClick() {
+        Playlist playlist = currentPlaylist();
+        if (playlist == null || playlist.songs.isEmpty()) {
+            toast("\u5f53\u524d\u6b4c\u5355\u4e3a\u7a7a");
+            return;
+        }
+        List<Song> targets = new ArrayList<>(playlist.songs);
+        statusView.setText("\u5f00\u59cb\u4e00\u952e\u7f13\u5b58\uff1a" + playlist.name);
+        new Thread(() -> {
+            int done = 0;
+            int skipped = 0;
+            int failed = 0;
+            for (int i = 0; i < targets.size(); i++) {
+                Song song = targets.get(i);
+                if (song == null || !song.isNetworkCatalog()) {
+                    skipped++;
+                    continue;
+                }
+                String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
+                String existingUri = key.isEmpty() ? "" : CacheStorage.findAudioUri(this, key);
+                if (!existingUri.isEmpty() && NetworkMediaCache.cachedAudioExists(this, existingUri)) {
+                    song.cachedUri = existingUri;
+                    song.uri = existingUri;
+                    song.cacheFailed = false;
+                    done++;
+                    continue;
+                }
+                if (song.cacheFailed) {
+                    skipped++;
+                    continue;
+                }
+                final int index = i + 1;
+                runOnUiThread(() -> statusView.setText("\u6b63\u5728\u7f13\u5b58 " + index + "/" + targets.size() + "\uff1a" + song.title));
+                try {
+                    NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
+                        this,
+                        song.catalogJson,
+                        true,
+                        message -> runOnUiThread(() -> statusView.setText(message))
+                    );
+                    song.cachedUri = cached.audioUri;
+                    song.uri = cached.audioUri;
+                    if (cached.catalogJson != null && !cached.catalogJson.trim().isEmpty()) song.catalogJson = cached.catalogJson;
+                    if (cached.sourceCode != null && !cached.sourceCode.trim().isEmpty()) {
+                        song.source = CatalogSearch.labelForSource(cached.sourceCode);
+                    }
+                    if ((song.lyric == null || song.lyric.trim().isEmpty())
+                        && cached.lyric != null && !cached.lyric.trim().isEmpty()) {
+                        song.lyric = cached.lyric;
+                    }
+                    song.cacheFailed = false;
+                    song.unavailable = false;
+                    song.autoUnavailable = false;
+                    song.manualUnavailable = false;
+                    done++;
+                } catch (Exception error) {
+                    song.cacheFailed = true;
+                    song.unavailable = true;
+                    failed++;
+                }
+            }
+            int finalDone = done;
+            int finalSkipped = skipped;
+            int finalFailed = failed;
+            runOnUiThread(() -> {
+                savePlaylists();
+                renderCurrentPlaylist();
+                statusView.setText("\u4e00\u952e\u7f13\u5b58\u5b8c\u6210\uff1a\u6210\u529f " + finalDone
+                    + "\uff0c\u8df3\u8fc7 " + finalSkipped + "\uff0c\u65b0\u5931\u8d25 " + finalFailed
+                    + "\u3002\u4e0b\u6b21\u4f1a\u81ea\u52a8\u8df3\u8fc7\u5df2\u5931\u8d25\u6b4c\u66f2\u3002");
+            });
+        }).start();
+    }
+
     private void bindLyricToPlaylistCopies(Song song, String lyric, String label) {
         if (song == null || lyric == null || lyric.trim().isEmpty()) return;
         String key = song.key();
@@ -2022,7 +2160,7 @@ public class MainActivity extends Activity {
         String key = song.key();
         if (!lyricMatchingSongs.add(key)) return;
         if (currentSong == song && statusView != null) {
-            statusView.setText("歌曲已加入歌单，正在匹配歌词...");
+            statusView.setText("??????????????...");
         }
         PlaylistLyricMatcher.matchAsync(song.title, song.artist, song.catalogJson,
             new PlaylistLyricMatcher.Callback() {
@@ -2037,7 +2175,7 @@ public class MainActivity extends Activity {
                         }
                         if (currentSong == song && pendingLyricSong != song) {
                             showSongLyrics(song);
-                            statusView.setText("已匹配歌词：" + label);
+                            statusView.setText("??????" + label);
                         }
                     });
                 }
@@ -2048,8 +2186,8 @@ public class MainActivity extends Activity {
                         lyricMatchingSongs.remove(key);
                         if (currentSong == song && pendingLyricSong != song
                             && (song.lyric == null || song.lyric.trim().isEmpty())) {
-                            lyricView.setText("暂未找到匹配歌词，可点击右上角手动选择版本");
-                            statusView.setText("自动匹配歌词未找到可用版本");
+                            lyricView.setText("?????????????????????");
+                            statusView.setText("?????????????");
                         }
                     });
                 }
@@ -2103,7 +2241,7 @@ public class MainActivity extends Activity {
         }
         if (lyricLines.isEmpty()) {
             String visible = stripVisibleLyricTags(safeRaw);
-            lyricView.setText(visible.trim().isEmpty() ? "暂无歌词" : visible);
+            lyricView.setText(visible.trim().isEmpty() ? "????" : visible);
             return;
         }
         renderLyricHighlight(0);
@@ -2328,8 +2466,8 @@ public class MainActivity extends Activity {
                     searchSongIndex = -1;
                     currentSongIndex = -1;
                     titleView.setText(currentSong.title);
-                    artistView.setText(currentSong.artist + " · " + currentSong.source);
-                    statusView.setText("已恢复上次搜索歌曲：" + currentSong.title);
+                    artistView.setText(currentSong.artist + " ? " + currentSong.source);
+                    statusView.setText("??????????" + currentSong.title);
                     prepareLastSong(position);
                     showPlayerPage();
                     return;
@@ -2348,9 +2486,9 @@ public class MainActivity extends Activity {
                 currentSongIndex = songIndex;
                 currentSong = playlist.songs.get(songIndex);
                 titleView.setText(currentSong.title);
-                artistView.setText(currentSong.artist + " · " + currentSong.source);
+                artistView.setText(currentSong.artist + " ? " + currentSong.source);
                 lyricView.setText(currentSong.lyric);
-                statusView.setText("已恢复上次播放：" + currentSong.title);
+                statusView.setText("????????" + currentSong.title);
                 prepareLastSong(position);
                 showPlayerPage();
                 return;
@@ -2362,7 +2500,7 @@ public class MainActivity extends Activity {
 
     private void prepareLastSong(int position) {
         if (currentSong == null) {
-            if (playButton != null) playButton.setText("▶");
+            if (playButton != null) playButton.setText("?");
             resetPlaybackProgress();
             return;
         }
@@ -2372,14 +2510,14 @@ public class MainActivity extends Activity {
             if (NetworkMediaCache.cachedAudioExists(this, currentSong.cachedUri)) {
                 currentSong.uri = currentSong.cachedUri;
             } else {
-                if (playButton != null) playButton.setText("▶");
-                statusView.setText("网络歌曲目录已恢复，点击播放时再缓存");
+                if (playButton != null) playButton.setText("?");
+                statusView.setText("??????????????????");
                 resetPlaybackProgress();
                 return;
             }
         }
         if (currentSong.uri == null || currentSong.uri.isEmpty()) {
-            if (playButton != null) playButton.setText("▶");
+            if (playButton != null) playButton.setText("?");
             resetPlaybackProgress();
             return;
         }
@@ -2391,15 +2529,16 @@ public class MainActivity extends Activity {
             mediaPlayer.prepare();
             if (position > 0) mediaPlayer.seekTo(position);
             updatePlaybackProgress();
-            playButton.setText("▶");
+            playButton.setText("?");
         } catch (Exception ignored) {
             stopPlayback();
-            playButton.setText("▶");
+            playButton.setText("?");
         }
     }
 
     private void playSong(Song song) {
         if (song == null) return;
+        int playToken = ++playbackRequestSerial;
         if ((pendingLyricSong != null && pendingLyricSong != song)
             || (pendingSongTarget != null && pendingSongTarget != song)) {
             clearPendingLyricPreview();
@@ -2407,31 +2546,31 @@ public class MainActivity extends Activity {
         currentSong = song;
         saveLastSong(0);
         titleView.setText(song.title);
-        artistView.setText(song.artist + " · " + song.source);
+        artistView.setText(song.artist + " ? " + song.source);
         updateLyricActionVisibility(song);
-        statusView.setText("当前选择：" + song.title);
+        statusView.setText("?????" + song.title);
         showSongLyrics(song);
         publishPlaybackControlState(true);
 
         if (song.isNetworkCatalog()) {
             stopPlayback();
-            playButton.setText("▶");
-            cacheAndPlay(song);
+            playButton.setText("?");
+            cacheAndPlay(song, playToken);
             return;
         }
 
         if (song.uri == null || song.uri.isEmpty()) {
             stopPlayback();
-            playButton.setText("▶");
-            resolveAndPlay(song);
+            playButton.setText("?");
+            resolveAndPlay(song, playToken);
             return;
         }
-        startLocalPlayback(song);
+        startLocalPlayback(song, playToken, null, null);
     }
 
-    private void cacheAndPlay(Song song) {
+    private void cacheAndPlay(Song song, int playToken) {
         String originalKey = song.key();
-        statusView.setText("正在缓存歌曲并匹配歌词...");
+        statusView.setText("???????????...");
         new Thread(() -> {
             try {
                 NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
@@ -2439,62 +2578,47 @@ public class MainActivity extends Activity {
                     song.catalogJson,
                     true,
                     message -> runOnUiThread(() -> {
-                        if (currentSong == song) statusView.setText(message);
+                        if (currentSong == song && playToken == playbackRequestSerial) statusView.setText(message);
                     })
                 );
                 runOnUiThread(() -> {
-                    if (currentSong != song) return;
+                    if (currentSong != song || playToken != playbackRequestSerial) return;
+                    String playbackUri = cached.audioUri;
+                    String resolvedCatalogJson = cached.catalogJson;
+                    String resolvedSourceCode = cached.sourceCode;
+                    String resolvedSourceLabel = resolvedSourceCode == null || resolvedSourceCode.trim().isEmpty()
+                        ? song.source : CatalogSearch.labelForSource(resolvedSourceCode);
+                    String resolvedLyric = cached.lyric;
+                    PendingPlaybackCommit commit = new PendingPlaybackCommit(
+                        originalKey,
+                        playbackUri,
+                        resolvedCatalogJson,
+                        resolvedSourceLabel,
+                        cached.sourceChanged,
+                        resolvedLyric
+                    );
                     song.cachedUri = cached.audioUri;
                     song.uri = cached.audioUri;
-                    if (cached.catalogJson != null && !cached.catalogJson.trim().isEmpty()) {
-                        song.catalogJson = cached.catalogJson;
-                    }
-                    if (cached.sourceCode != null && !cached.sourceCode.trim().isEmpty()) {
-                        song.source = CatalogSearch.labelForSource(cached.sourceCode);
-                    }
                     if ((song.lyric == null || song.lyric.trim().isEmpty())
                         && cached.lyric != null && !cached.lyric.trim().isEmpty()) {
-                        String label = song.title + " · " + song.artist + " · " + song.source;
-                        if (isSongInAnyPlaylist(song)) {
-                            bindLyricToPlaylistCopies(song, cached.lyric, label);
-                        } else {
-                            song.lyric = cached.lyric;
-                            song.lyricLabel = label;
-                        }
+                        song.lyric = cached.lyric;
+                        song.lyricLabel = song.title + " ? " + song.artist + " ? " + resolvedSourceLabel;
                     }
-                    persistResolvedCatalogToPlaylistCopies(song, originalKey);
-                    song.autoUnavailable = false;
-                    song.manualUnavailable = false;
-                    song.manualAttempt = false;
-                    markSongUnavailable(song, false);
-                    artistView.setText(song.artist + " · " + song.source);
-                    if (cached.sourceChanged) {
-                        toast("原来源不可用，已切换并记住" + song.source + "版本");
-                        renderResults();
-                    }
-                    if (isSongInAnyPlaylist(song)) savePlaylists();
+                    artistView.setText(song.artist + " ? " + song.source);
                     showSongLyrics(song);
-                    startLocalPlayback(song);
+                    startLocalPlayback(song, playToken,
+                        () -> commitResolvedPlayback(song, commit, playToken),
+                        () -> markPlaybackFailure(song, true));
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
-                    if (currentSong != song) return;
+                    if (currentSong != song || playToken != playbackRequestSerial) return;
                     stopPlayback();
-                    playButton.setText("▶");
+                    playButton.setText("?");
                     showSongLyrics(song);
-                    if (isSongInAnyPlaylist(song)) {
-                        if (song.manualAttempt) {
-                            song.manualUnavailable = true;
-                            song.manualAttempt = false;
-                        } else {
-                            song.autoUnavailable = true;
-                        }
-                        markSongUnavailable(song, song.autoUnavailable && song.manualUnavailable);
-                        savePlaylists();
-                        renderCurrentPlaylist();
-                    }
-                    statusView.setText("缓存失败：" + error.getMessage());
-                    toast("该歌曲当前无法缓存播放");
+                    markPlaybackFailure(song, false);
+                    statusView.setText("?????" + error.getMessage());
+                    toast("???????????");
                 });
             }
         }).start();
@@ -2517,19 +2641,19 @@ public class MainActivity extends Activity {
         return out.toString();
     }
 
-    private void resolveAndPlay(Song song) {
+    private void resolveAndPlay(Song song, int playToken) {
         statusView.setText("\u6b63\u5728\u89e3\u6790\u53ef\u64ad\u653e\u97f3\u9891...");
         new Thread(() -> {
             Song resolved = resolvePlayableSong(song);
             runOnUiThread(() -> {
-                if (currentSong != song) return;
+                if (currentSong != song || playToken != playbackRequestSerial) return;
                 if (resolved == null || resolved.uri == null || resolved.uri.isEmpty()) {
                     toast("\u6682\u65f6\u6ca1\u6709\u89e3\u6790\u5230\u53ef\u64ad\u653e\u97f3\u9891");
                     return;
                 }
                 song.uri = resolved.uri;
                 if ((song.lyric == null || song.lyric.trim().isEmpty()) && resolved.lyric != null) song.lyric = resolved.lyric;
-                startLocalPlayback(song);
+                startLocalPlayback(song, playToken, null, null);
             });
         }).start();
     }
@@ -2653,39 +2777,59 @@ public class MainActivity extends Activity {
         return "\u2928";
     }
 
-    private void startLocalPlayback(Song song) {
+    private void startLocalPlayback(Song song, int playToken, Runnable onStarted, Runnable onFailed) {
         try {
             stopPlayback();
             mediaPlayer = createWakefulMediaPlayer();
             mediaPlayer.setDataSource(this, Uri.parse(song.uri));
             mediaPlayer.setOnCompletionListener(player -> playAfterCompletion());
-            if (song.uri.startsWith("http://") || song.uri.startsWith("https://")) {
-                statusView.setText("正在打开在线音频...");
-                mediaPlayer.setOnPreparedListener(player -> {
-                    player.start();
-                    playButton.setText("Ⅱ");
-                    statusView.setText("当前播放：" + song.title);
-                    updatePlaybackProgress();
-                    lyricHandler.removeCallbacks(lyricTicker);
-                    lyricHandler.post(lyricTicker);
+            mediaPlayer.setOnErrorListener((player, what, extra) -> {
+                if (currentSong == song && playToken == playbackRequestSerial) {
+                    stopPlayback();
+                    playButton.setText("?");
+                    statusView.setText("????????????");
+                    if (onFailed != null) onFailed.run();
                     publishPlaybackControlState(true);
+                }
+                return true;
+            });
+            if (song.uri.startsWith("http://") || song.uri.startsWith("https://")) {
+                statusView.setText("????????...");
+                mediaPlayer.setOnPreparedListener(player -> {
+                    try {
+                        if (currentSong != song || playToken != playbackRequestSerial) return;
+                        player.start();
+                        onPlaybackStarted(song, onStarted);
+                    } catch (Exception error) {
+                        stopPlayback();
+                        playButton.setText("?");
+                        statusView.setText("?????" + error.getMessage());
+                        if (onFailed != null) onFailed.run();
+                    }
                 });
                 mediaPlayer.prepareAsync();
             } else {
                 mediaPlayer.prepare();
                 mediaPlayer.start();
-                playButton.setText("Ⅱ");
-                saveLastSong(0);
-                updatePlaybackProgress();
-                lyricHandler.removeCallbacks(lyricTicker);
-                lyricHandler.post(lyricTicker);
-                publishPlaybackControlState(true);
+                onPlaybackStarted(song, onStarted);
             }
         } catch (Exception ex) {
             stopPlayback();
-            playButton.setText("▶");
-            toast("播放失败：" + ex.getMessage());
+            playButton.setText("?");
+            if (onFailed != null) onFailed.run();
+            toast("?????" + ex.getMessage());
         }
+    }
+
+    private void onPlaybackStarted(Song song, Runnable onStarted) {
+        playButton.setText("?");
+        saveLastSong(0);
+        updatePlaybackProgress();
+        lyricHandler.removeCallbacks(lyricTicker);
+        lyricHandler.post(lyricTicker);
+        statusView.setText("?????" + song.title);
+        if (onStarted != null) onStarted.run();
+        publishPlaybackControlState(true);
     }
 
     private void togglePlayback() {
@@ -2695,19 +2839,19 @@ public class MainActivity extends Activity {
             } else if (!currentPlaylist().songs.isEmpty()) {
                 playSongFromPlaylist(0);
             } else {
-                toast("请先导入或选择歌曲");
+                toast("?????????");
             }
             publishPlaybackControlState(true);
             return;
         }
         if (mediaPlayer.isPlaying()) {
             mediaPlayer.pause();
-            playButton.setText("▶");
+            playButton.setText("?");
             saveLastSong(mediaPlayer.getCurrentPosition());
             lyricHandler.removeCallbacks(lyricTicker);
         } else {
             mediaPlayer.start();
-            playButton.setText("Ⅱ");
+            playButton.setText("?");
             lyricHandler.post(lyricTicker);
         }
         publishPlaybackControlState(true);
@@ -2779,25 +2923,25 @@ public class MainActivity extends Activity {
         cacheLocationButton.setOnClickListener(view -> showCacheLocationDialog());
         bottomActions.addView(cacheLocationButton, bottomSettingParams(38, 2));
 
-        Button importAudio = makeButton("导入本地歌曲", false);
+        Button importAudio = makeButton("??????", false);
         importAudio.setOnClickListener(view -> showLocalAudioImportOptions());
         bottomActions.addView(importAudio, bottomSettingParams(38, 2));
 
-        Button importPlaylist = makeButton("导入歌单", false);
+        Button importPlaylist = makeButton("????", false);
         importPlaylist.setOnClickListener(view -> showPlaylistImportOptions());
         bottomActions.addView(importPlaylist, bottomSettingParams(38, 2));
 
-        Button chooseBackground = makeButton("选择本地图片作为背景", false);
+        Button chooseBackground = makeButton("??????????", false);
         chooseBackground.setOnClickListener(view -> chooseBackgroundImage());
         bottomActions.addView(chooseBackground, bottomSettingParams(38, 2));
 
         if (getResources().getBoolean(R.bool.icon_selector_enabled)) {
-            Button changeIcon = makeButton("更换桌面图标", false);
+            Button changeIcon = makeButton("??????", false);
             changeIcon.setOnClickListener(view -> showLauncherIconPicker());
             bottomActions.addView(changeIcon, bottomSettingParams(38, 2));
         }
 
-        Button resetBackground = makeButton("恢复默认背景", true);
+        Button resetBackground = makeButton("??????", true);
         resetBackground.setOnClickListener(view -> showBuiltInBackgroundPicker());
         bottomActions.addView(resetBackground, bottomSettingParams(42, 5));
 
@@ -2815,12 +2959,12 @@ public class MainActivity extends Activity {
 
     private void showCacheLocationDialog() {
         new AlertDialog.Builder(this)
-            .setTitle("歌单缓存位置")
+            .setTitle("??????")
             .setMessage(CacheStorage.details(this)
-                + "\n\n更换位置时会先复制全部受管理文件，全部成功后才切换并删除旧位置文件。")
-            .setPositiveButton("选择缓存文件夹", (dialog, which) -> chooseCacheFolder())
-            .setNeutralButton("使用卸载时清理的位置", (dialog, which) -> migrateCacheToInternal())
-            .setNegativeButton("取消", null)
+                + "\n\n??????????????????????????????????")
+            .setPositiveButton("???????", (dialog, which) -> chooseCacheFolder())
+            .setNeutralButton("??????????", (dialog, which) -> migrateCacheToInternal())
+            .setNegativeButton("??", null)
             .show();
     }
 
@@ -2835,7 +2979,7 @@ public class MainActivity extends Activity {
 
     private void migrateCacheToDocumentTree(Uri treeUri) {
         if (treeUri == null) return;
-        statusView.setText("正在迁移歌曲与歌词缓存，请勿关闭软件...");
+        statusView.setText("??????????????????...");
         new Thread(() -> {
             try {
                 CacheStorage.MigrationResult result = CacheStorage.useDocumentTree(this, treeUri);
@@ -2843,22 +2987,22 @@ public class MainActivity extends Activity {
                     refreshCachedUrisAfterMigration();
                     updateCacheLocationButton();
                     updateUninstallCleanupButton();
-                    statusView.setText("缓存位置已更新");
+                    statusView.setText("???????");
                     toast(result.changed
-                        ? "缓存位置已更换，已迁移 " + result.copied + " 个文件；卸载后会保留"
-                        : "当前已经是所选缓存文件夹");
+                        ? "??????????? " + result.copied + " ??????????"
+                        : "????????????");
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
-                    statusView.setText("缓存位置更换失败");
-                    toast("缓存文件夹设置失败，旧文件未删除：" + error.getMessage());
+                    statusView.setText("????????");
+                    toast("?????????????????" + error.getMessage());
                 });
             }
         }).start();
     }
 
     private void migrateCacheToInternal() {
-        statusView.setText("正在把缓存迁回应用内部，请勿关闭软件...");
+        statusView.setText("??????????????????...");
         new Thread(() -> {
             try {
                 CacheStorage.MigrationResult result = CacheStorage.useInternalStorage(this);
@@ -2866,15 +3010,15 @@ public class MainActivity extends Activity {
                     refreshCachedUrisAfterMigration();
                     updateCacheLocationButton();
                     updateUninstallCleanupButton();
-                    statusView.setText("缓存位置已更新");
+                    statusView.setText("???????");
                     toast(result.changed
-                        ? "已迁回应用内部，共迁移 " + result.copied + " 个文件；卸载时会清理"
-                        : "当前已经使用卸载时清理的位置");
+                        ? "??????????? " + result.copied + " ??????????"
+                        : "??????????????");
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
-                    statusView.setText("缓存迁回失败");
-                    toast("迁回应用内部失败，原文件未删除：" + error.getMessage());
+                    statusView.setText("??????");
+                    toast("????????????????" + error.getMessage());
                 });
             }
         }).start();
@@ -2920,8 +3064,8 @@ public class MainActivity extends Activity {
     }
 
     private String uninstallCleanupSettingText() {
-        return "卸载软件时清理缓存："
-            + (CacheStorage.uninstallCleanupEnabled(this) ? "开启" : "关闭");
+        return "??????????"
+            + (CacheStorage.uninstallCleanupEnabled(this) ? "??" : "??");
     }
 
     private void updateUninstallCleanupButton() {
@@ -2933,42 +3077,42 @@ public class MainActivity extends Activity {
     private void toggleUninstallCleanupSetting() {
         if (CacheStorage.uninstallCleanupEnabled(this)) {
             new AlertDialog.Builder(this)
-                .setTitle("卸载软件时清理缓存")
-                .setMessage("当前为开启状态，缓存位于应用内部。关闭后需要选择一个外部总文件夹，"
-                    + "歌曲、歌词和歌曲信息会迁移过去，卸载软件后仍然保留。")
-                .setPositiveButton("选择保留文件夹", (dialog, which) -> chooseCacheFolder())
-                .setNegativeButton("取消", null)
+                .setTitle("?????????")
+                .setMessage("?????????????????????????????????"
+                    + "??????????????????????????")
+                .setPositiveButton("???????", (dialog, which) -> chooseCacheFolder())
+                .setNegativeButton("??", null)
                 .show();
         } else {
             new AlertDialog.Builder(this)
-                .setTitle("卸载软件时清理缓存")
-                .setMessage("开启后会先把全部缓存迁回应用内部，并删除所选外部文件夹中的对应缓存文件。"
-                    + "以后卸载软件时，Android 会一并清理这些缓存。")
-                .setPositiveButton("迁回并开启", (dialog, which) -> migrateCacheToInternal())
-                .setNegativeButton("取消", null)
+                .setTitle("?????????")
+                .setMessage("????????????????????????????????????"
+                    + "????????Android ??????????")
+                .setPositiveButton("?????", (dialog, which) -> migrateCacheToInternal())
+                .setNegativeButton("??", null)
                 .show();
         }
     }
 
     private void showLocalAudioImportOptions() {
         new AlertDialog.Builder(this)
-            .setTitle("导入本地歌曲")
-            .setItems(new CharSequence[] {"选择歌曲", "选择文件夹"}, (dialog, which) -> {
+            .setTitle("??????")
+            .setItems(new CharSequence[] {"????", "?????"}, (dialog, which) -> {
                 if (which == 0) chooseAudioFiles();
                 else chooseAudioFolder();
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton("??", null)
             .show();
     }
 
     private void showPlaylistImportOptions() {
         new AlertDialog.Builder(this)
-            .setTitle("导入歌单")
-            .setItems(new CharSequence[] {"CSV 文件", "歌单链接"}, (dialog, which) -> {
+            .setTitle("????")
+            .setItems(new CharSequence[] {"CSV ??", "????"}, (dialog, which) -> {
                 if (which == 0) openPlaylistCsvImport();
                 else promptImportPlaylistLink();
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton("??", null)
             .show();
     }
 
@@ -3025,12 +3169,12 @@ public class MainActivity extends Activity {
         if ("kuwo".equals(sourceCode)) return importKuwoPlaylist(url);
         if ("kugou".equals(sourceCode)) return importKugouPlaylist(url);
         if ("migu".equals(sourceCode)) return importMiguPlaylist(url);
-        return new Playlist(source + "歌单");
+        return new Playlist(source + "??");
     }
 
     private Playlist importNeteasePlaylist(String urlText) {
         String playlistId = firstMatch(urlText, "(?:id=|playlist/)(\\d+)");
-        Playlist imported = new Playlist("网易云歌单 " + playlistId);
+        Playlist imported = new Playlist("????? " + playlistId);
         if (playlistId.isEmpty()) return imported;
         try {
             JSONObject payload = httpJson(
@@ -3060,7 +3204,7 @@ public class MainActivity extends Activity {
 
     private Playlist importQQPlaylist(String urlText) {
         String playlistId = firstMatch(urlText, "(?:disstid=|playlist/)(\\d+)");
-        Playlist imported = new Playlist("QQ音乐歌单 " + playlistId);
+        Playlist imported = new Playlist("QQ???? " + playlistId);
         if (playlistId.isEmpty()) return imported;
         try {
             JSONObject payload = httpJson(
@@ -3093,7 +3237,7 @@ public class MainActivity extends Activity {
 
     private Playlist importKuwoPlaylist(String urlText) {
         String playlistId = firstMatch(urlText, "(?:pid=|playlist/|play_detail/)(\\d+)");
-        Playlist imported = new Playlist("酷我歌单 " + playlistId);
+        Playlist imported = new Playlist("???? " + playlistId);
         if (playlistId.isEmpty()) return imported;
         try {
             JSONObject payload = httpJson(
@@ -3124,7 +3268,7 @@ public class MainActivity extends Activity {
 
     private Playlist importKugouPlaylist(String urlText) {
         String playlistId = firstMatch(urlText, "(?:special/single/|specialid=|id=)(\\d+)");
-        Playlist imported = new Playlist("酷狗歌单 " + playlistId);
+        Playlist imported = new Playlist("???? " + playlistId);
         if (playlistId.isEmpty()) return imported;
         try {
             JSONObject payload = httpJson("https://m.kugou.com/plist/list/" + playlistId + "?json=true", "https://m.kugou.com/");
@@ -3159,7 +3303,7 @@ public class MainActivity extends Activity {
             String id = firstNonEmpty(item.optString("hash"), item.optString("FileHash"), item.optString("audio_id"));
             String title = firstNonEmpty(item.optString("songname"), item.optString("SongName"), item.optString("filename"));
             String artist = firstNonEmpty(item.optString("singername"), item.optString("SingerName"), item.optString("singer"));
-            if (title.contains(" - ") && (artist.isEmpty() || "未知歌手".equals(artist))) {
+            if (title.contains(" - ") && (artist.isEmpty() || "????".equals(artist))) {
                 String[] parts = title.split(" - ", 2);
                 artist = parts[0];
                 title = parts[1];
@@ -3171,7 +3315,7 @@ public class MainActivity extends Activity {
 
     private Playlist importMiguPlaylist(String urlText) {
         String playlistId = firstMatch(urlText, "(?:playlistId=|id=|playlist/)([A-Za-z0-9]+)");
-        Playlist imported = new Playlist("咪咕歌单 " + playlistId);
+        Playlist imported = new Playlist("???? " + playlistId);
         if (playlistId.isEmpty()) return imported;
         try {
             JSONObject payload = httpJson(
@@ -3226,7 +3370,7 @@ public class MainActivity extends Activity {
     }
 
     private Song neteaseSongFromJson(JSONObject item) {
-        String title = item.optString("name", "未知歌曲");
+        String title = item.optString("name", "????");
         JSONArray artists = item.optJSONArray("artists");
         if (artists == null) artists = item.optJSONArray("ar");
         String artist = artistsFromNetease(artists);
@@ -3241,8 +3385,8 @@ public class MainActivity extends Activity {
 
     private Song createNetworkCatalogSong(String id, String title, String artist, String album, int duration, String sourceCode) {
         return new Song(
-            firstNonEmpty(title, "未知歌曲"),
-            firstNonEmpty(artist, "未知歌手"),
+            firstNonEmpty(title, "????"),
+            firstNonEmpty(artist, "????"),
             sourceLabelFromCode(sourceCode),
             "",
             "",
@@ -3284,13 +3428,13 @@ public class MainActivity extends Activity {
     }
 
     private String sourceLabelFromCode(String sourceCode) {
-        if ("netease".equals(sourceCode)) return "网易云";
-        if ("qq".equals(sourceCode)) return "QQ音乐";
-        if ("kugou".equals(sourceCode)) return "酷狗";
-        if ("kuwo".equals(sourceCode)) return "酷我";
-        if ("migu".equals(sourceCode)) return "咪咕";
-        if ("soda".equals(sourceCode)) return "汽水";
-        return "外部来源";
+        if ("netease".equals(sourceCode)) return "???";
+        if ("qq".equals(sourceCode)) return "QQ??";
+        if ("kugou".equals(sourceCode)) return "??";
+        if ("kuwo".equals(sourceCode)) return "??";
+        if ("migu".equals(sourceCode)) return "??";
+        if ("soda".equals(sourceCode)) return "??";
+        return "????";
     }
 
     private String firstMatch(String value, String regex) {
@@ -3307,7 +3451,7 @@ public class MainActivity extends Activity {
     }
 
     private String namesFromArray(JSONArray array, String key) {
-        if (array == null) return "未知歌手";
+        if (array == null) return "????";
         StringBuilder builder = new StringBuilder();
         for (int i = 0; i < array.length(); i++) {
             JSONObject item = array.optJSONObject(i);
@@ -3317,7 +3461,7 @@ public class MainActivity extends Activity {
             if (builder.length() > 0) builder.append(" / ");
             builder.append(name);
         }
-        return builder.length() == 0 ? "未知歌手" : builder.toString();
+        return builder.length() == 0 ? "????" : builder.toString();
     }
 
     private String httpText(String urlText, String referer) throws Exception {
@@ -3351,16 +3495,16 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(12), dp(8), dp(12), dp(8));
         final AlertDialog[] holder = new AlertDialog[1];
-        addBackgroundPreview(root, "新版默认背景", R.drawable.default_background,
+        addBackgroundPreview(root, "??????", R.drawable.default_background,
             BACKGROUND_MODE_DEFAULT, holder);
         if (dual) {
-            addBackgroundPreview(root, "旧版默认背景", R.drawable.default_background_legacy,
+            addBackgroundPreview(root, "??????", R.drawable.default_background_legacy,
                 BACKGROUND_MODE_LEGACY, holder);
         }
         holder[0] = new AlertDialog.Builder(this)
-            .setTitle("选择默认背景")
+            .setTitle("??????")
             .setView(root)
-            .setNegativeButton("取消", null)
+            .setNegativeButton("??", null)
             .create();
         holder[0].show();
     }
@@ -3393,14 +3537,14 @@ public class MainActivity extends Activity {
         root.setGravity(Gravity.CENTER);
         root.setPadding(dp(12), dp(12), dp(12), dp(12));
         final AlertDialog[] holder = new AlertDialog[1];
-        root.addView(buildIconPreview("经典图标", R.mipmap.ic_launcher_classic,
+        root.addView(buildIconPreview("????", R.mipmap.ic_launcher_classic,
             "classic", holder), new LinearLayout.LayoutParams(0, dp(170), 1));
-        root.addView(buildIconPreview("新图标", R.mipmap.ic_launcher_new,
+        root.addView(buildIconPreview("???", R.mipmap.ic_launcher_new,
             "new", holder), new LinearLayout.LayoutParams(0, dp(170), 1));
         holder[0] = new AlertDialog.Builder(this)
-            .setTitle("选择桌面图标")
+            .setTitle("??????")
             .setView(root)
-            .setNegativeButton("取消", null)
+            .setNegativeButton("??", null)
             .create();
         holder[0].show();
     }
@@ -3442,7 +3586,7 @@ public class MainActivity extends Activity {
             PackageManager.DONT_KILL_APP);
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .edit().putString(KEY_LAUNCHER_ICON, useNew ? "new" : "classic").apply();
-        toast("桌面图标已切换，部分桌面可能需要几秒刷新");
+        toast("????????????????????");
     }
 
     private void resetBackgroundImage() {
@@ -3646,22 +3790,22 @@ public class MainActivity extends Activity {
         Map<String, Integer> columns = new HashMap<>();
         for (int i = 0; header != null && i < header.size(); i++) {
             String key = normalizeCsvHeader(header.get(i));
-            if (key.contains("歌曲id") || key.equals("id") || key.equals("songid")) {
+            if (key.contains("??id") || key.equals("id") || key.equals("songid")) {
                 columns.put("songId", i);
-            } else if (key.equals("歌名") || key.equals("歌曲名") || key.equals("歌曲标题")
+            } else if (key.equals("??") || key.equals("???") || key.equals("????")
                 || key.equals("title") || key.equals("name")) {
                 columns.put("title", i);
-            } else if (key.contains("歌手") || key.contains("演唱") || key.equals("artist") || key.equals("singer")) {
+            } else if (key.contains("??") || key.contains("??") || key.equals("artist") || key.equals("singer")) {
                 columns.put("artist", i);
-            } else if (key.contains("专辑") || key.equals("album")) {
+            } else if (key.contains("??") || key.equals("album")) {
                 columns.put("album", i);
-            } else if (key.contains("时长") || key.equals("duration") || key.equals("time")) {
+            } else if (key.contains("??") || key.equals("duration") || key.equals("time")) {
                 columns.put("duration", i);
-            } else if (key.contains("平台代码") || key.equals("sourcecode")) {
+            } else if (key.contains("????") || key.equals("sourcecode")) {
                 columns.put("sourceCode", i);
-            } else if (key.contains("平台") || key.equals("source") || key.equals("platform")) {
+            } else if (key.contains("??") || key.equals("source") || key.equals("platform")) {
                 columns.put("sourceLabel", i);
-            } else if (key.contains("歌词") || key.equals("lyric") || key.equals("lyriclabel") || key.equals("lyricversion")) {
+            } else if (key.contains("??") || key.equals("lyric") || key.equals("lyriclabel") || key.equals("lyricversion")) {
                 columns.put("lyricLabel", i);
             }
         }
@@ -3723,7 +3867,7 @@ public class MainActivity extends Activity {
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("text/csv");
         String safeName = playlist.name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
-        if (safeName.isEmpty()) safeName = "歌单";
+        if (safeName.isEmpty()) safeName = "??";
         intent.putExtra(Intent.EXTRA_TITLE, safeName + ".csv");
         startActivityForResult(intent, REQUEST_EXPORT_PLAYLIST);
     }
@@ -3733,7 +3877,7 @@ public class MainActivity extends Activity {
         try (OutputStream output = getContentResolver().openOutputStream(uri);
              OutputStreamWriter writer = new OutputStreamWriter(output, "UTF-8")) {
             writer.write('\ufeff');
-            writer.write("歌名,歌手,专辑,时长秒,平台,平台代码,歌曲ID,歌词版本\r\n");
+            writer.write("??,??,??,???,??,????,??ID,????\r\n");
             for (Song song : playlist.songs) {
                 String album = "";
                 String sourceCode = "";
@@ -3760,9 +3904,9 @@ public class MainActivity extends Activity {
                     + csvCell(song.lyricLabel) + "\r\n");
             }
             writer.flush();
-            toast("已导出歌单：" + playlist.name);
+            toast("??????" + playlist.name);
         } catch (Exception error) {
-            toast("导出失败：" + error.getMessage());
+            toast("?????" + error.getMessage());
         }
     }
 
@@ -3891,7 +4035,7 @@ public class MainActivity extends Activity {
     }
 
     private void promptNewPlaylist() {
-        promptText("新建在线歌单", "请输入在线歌单名称", "", value -> {
+        promptText("??????", "?????????", "", value -> {
             Playlist playlist = new Playlist(value);
             playlists.add(playlist);
             currentPlaylistIndex = playlists.indexOf(playlist);
@@ -3931,14 +4075,14 @@ public class MainActivity extends Activity {
     private void deleteCurrentPlaylist() {
         Playlist selected = currentPlaylist();
         if (isLocalPlaylist(selected)) {
-            toast("本地歌单固定保留，不能删除；可以清空、导出CSV或改名");
+            toast("?????????????????????CSV???");
             return;
         }
         new AlertDialog.Builder(this)
-            .setTitle("删除在线歌单")
-            .setMessage("确定删除在线歌单《" + selected.name + "》及其中的 " + selected.songs.size() + " 首歌曲吗？")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("确定删除", (dialog, which) -> {
+            .setTitle("??????")
+            .setMessage("?????????" + selected.name + "????? " + selected.songs.size() + " ?????")
+            .setNegativeButton("??", null)
+            .setPositiveButton("????", (dialog, which) -> {
                 List<Song> removedSongs = new ArrayList<>(selected.songs);
                 int removedIndex = currentPlaylistIndex;
                 playlists.remove(removedIndex);
@@ -3951,7 +4095,7 @@ public class MainActivity extends Activity {
                 }
                 savePlaylists();
                 renderCurrentPlaylist();
-                toast("已删除在线歌单：" + selected.name + "；缓存已保留，可用扫把清理");
+                toast("????????" + selected.name + "?????????????");
             })
             .show();
     }
@@ -3961,13 +4105,13 @@ public class MainActivity extends Activity {
         currentPlaylist().songs.clear();
         savePlaylists();
         renderCurrentPlaylist();
-        toast("\u5df2\u6e05\u7a7a\u5f53\u524d\u6b4c\u5355；缓存已保留，可用扫把清理");
+        toast("\u5df2\u6e05\u7a7a\u5f53\u524d\u6b4c\u5355?????????????");
     }
 
     private void mergePlaylistsIntoCurrent() {
         Playlist target = currentPlaylist();
         if (isLocalPlaylist(target)) {
-            toast("本地歌单不参与合并，请先选择一个在线歌单");
+            toast("????????????????????");
             return;
         }
         List<Playlist> sources = new ArrayList<>();
@@ -3976,16 +4120,16 @@ public class MainActivity extends Activity {
             if (playlist != target) sources.add(playlist);
         }
         if (sources.isEmpty()) {
-            toast("没有其他在线歌单可合并");
+            toast("???????????");
             return;
         }
         int sourceCount = sources.size();
         new AlertDialog.Builder(this)
-            .setTitle("合并在线歌单")
-            .setMessage("将其他 " + sourceCount + " 个在线歌单合并到《" + target.name
-                + "》。同歌名且同歌手只保留一首；本地歌单不会参与或被删除。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("确认合并", (dialog, which) -> {
+            .setTitle("??????")
+            .setMessage("??? " + sourceCount + " ?????????" + target.name
+                + "????????????????????????????")
+            .setNegativeButton("??", null)
+            .setPositiveButton("????", (dialog, which) -> {
                 Map<String, Song> kept = new HashMap<>();
                 for (Song song : target.songs) kept.put(dedupeKey(song), song);
                 int added = 0;
@@ -4009,7 +4153,7 @@ public class MainActivity extends Activity {
                 currentPlaylistIndex = playlists.indexOf(target);
                 savePlaylists();
                 renderCurrentPlaylist();
-                toast("在线歌单合并完成：新增 " + added + " 首，合并重复 " + merged + " 首；本地歌单保持不变");
+                toast("??????????? " + added + " ?????? " + merged + " ??????????");
             })
             .show();
     }
@@ -4057,7 +4201,7 @@ public class MainActivity extends Activity {
         if (value == null) return "";
         return java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFKC)
             .toLowerCase(java.util.Locale.ROOT)
-            .replaceAll("[\\s·•・_/\\\\,，、;；]+", "")
+            .replaceAll("[\\s???_/\\\\,??;?]+", "")
             .trim();
     }
 
@@ -4065,7 +4209,7 @@ public class MainActivity extends Activity {
         if (song == null) return false;
         String source = song.source == null ? "" : song.source;
         String uri = song.uri == null ? "" : song.uri;
-        return source.contains("本地") || (uri.startsWith("content://") && !song.isNetworkCatalog());
+        return source.contains("??") || (uri.startsWith("content://") && !song.isNetworkCatalog());
     }
 
     private boolean isLocalPlaylist(Playlist playlist) {
@@ -4073,7 +4217,7 @@ public class MainActivity extends Activity {
     }
 
     private Playlist localPlaylist() {
-        if (playlists.isEmpty()) playlists.add(new Playlist("本地歌曲"));
+        if (playlists.isEmpty()) playlists.add(new Playlist("????"));
         return playlists.get(0);
     }
 
@@ -4084,7 +4228,7 @@ public class MainActivity extends Activity {
             currentPlaylistIndex = 1;
             return playlists.get(1);
         }
-        Playlist created = new Playlist("在线歌曲");
+        Playlist created = new Playlist("????");
         playlists.add(created);
         currentPlaylistIndex = 1;
         return created;
@@ -4096,8 +4240,8 @@ public class MainActivity extends Activity {
 
     private void mergeSongMetadata(Song keeper, Song candidate) {
         if (keeper == null || candidate == null) return;
-        if (empty(keeper.artist) || "未知歌手".equals(keeper.artist)) keeper.artist = candidate.artist;
-        if (empty(keeper.source) || "在线".equals(keeper.source)) keeper.source = candidate.source;
+        if (empty(keeper.artist) || "????".equals(keeper.artist)) keeper.artist = candidate.artist;
+        if (empty(keeper.source) || "??".equals(keeper.source)) keeper.source = candidate.source;
         if (empty(keeper.lyric) && !empty(candidate.lyric)) keeper.lyric = candidate.lyric;
         if (empty(keeper.lyricLabel) && !empty(candidate.lyricLabel)) keeper.lyricLabel = candidate.lyricLabel;
         if (empty(keeper.catalogJson) && !empty(candidate.catalogJson)) keeper.catalogJson = candidate.catalogJson;
@@ -4107,7 +4251,7 @@ public class MainActivity extends Activity {
 
     private boolean normalizePlaylistKinds() {
         if (playlists.isEmpty()) {
-            playlists.add(new Playlist("本地歌曲"));
+            playlists.add(new Playlist("????"));
             currentPlaylistIndex = 0;
             return true;
         }
@@ -4137,7 +4281,7 @@ public class MainActivity extends Activity {
         local.songs.addAll(localSongs);
         if (dedupePlaylist(local) > 0) changed = true;
         if (!recoveredOnlineSongs.isEmpty()) {
-            Playlist recovered = new Playlist("在线歌曲");
+            Playlist recovered = new Playlist("????");
             recovered.songs.addAll(recoveredOnlineSongs);
             dedupePlaylist(recovered);
             playlists.add(1, recovered);
@@ -4166,7 +4310,7 @@ public class MainActivity extends Activity {
     private boolean migrateLegacyNeteasePlaylistSongs(Playlist playlist) {
         boolean changed = false;
         for (Song song : playlist.songs) {
-            if (song == null || song.isNetworkCatalog() || !song.source.contains("网易")) continue;
+            if (song == null || song.isNetworkCatalog() || !song.source.contains("??")) continue;
             String id = firstMatch(song.uri, "id=(\\d+)");
             if (id.isEmpty()) continue;
             song.catalogJson = buildCatalogJson("netease", id, song.title, song.artist, "", 0);
@@ -4187,7 +4331,7 @@ public class MainActivity extends Activity {
             JSONArray array = new JSONArray(raw);
             for (int i = 0; i < array.length(); i++) {
                 Playlist playlist = Playlist.fromJson(array.getJSONObject(i));
-                if ("默认歌单".equals(playlist.name)) playlist.name = "本地歌曲";
+                if ("????".equals(playlist.name)) playlist.name = "????";
                 if (migrateLegacyNeteasePlaylistSongs(playlist)) playlistsMigrated = true;
                 dedupePlaylist(playlist);
                 playlists.add(playlist);
@@ -4195,7 +4339,7 @@ public class MainActivity extends Activity {
         } catch (JSONException ignored) {
             playlists.clear();
         }
-        if (playlists.isEmpty()) playlists.add(new Playlist("本地歌曲"));
+        if (playlists.isEmpty()) playlists.add(new Playlist("????"));
         if (normalizePlaylistKinds()) playlistsMigrated = true;
         if (currentPlaylistIndex < 0 || currentPlaylistIndex >= playlists.size()) currentPlaylistIndex = 0;
         if (playlistsMigrated) savePlaylists();
@@ -4333,6 +4477,7 @@ public class MainActivity extends Activity {
         boolean autoUnavailable;
         boolean manualUnavailable;
         boolean manualAttempt;
+        boolean cacheFailed;
 
         Song(String title, String artist, String source, String lyric) {
             this(title, artist, source, lyric, "", "", "");
@@ -4343,9 +4488,9 @@ public class MainActivity extends Activity {
         }
 
         Song(String title, String artist, String source, String lyric, String uri, String catalogJson, String cachedUri) {
-            this.title = title == null || title.isEmpty() ? "未知歌曲" : title;
-            this.artist = artist == null || artist.isEmpty() ? "未知歌手" : artist;
-            this.source = source == null || source.isEmpty() ? "本地" : source;
+            this.title = title == null || title.isEmpty() ? "????" : title;
+            this.artist = artist == null || artist.isEmpty() ? "????" : artist;
+            this.source = source == null || source.isEmpty() ? "??" : source;
             this.lyric = lyric == null ? "" : lyric;
             this.lyricLabel = "";
             this.uri = uri == null ? "" : uri;
@@ -4355,6 +4500,7 @@ public class MainActivity extends Activity {
             this.autoUnavailable = false;
             this.manualUnavailable = false;
             this.manualAttempt = false;
+            this.cacheFailed = false;
         }
 
         static Song fromCatalog(CatalogSearch.Track track) {
@@ -4412,6 +4558,7 @@ public class MainActivity extends Activity {
                 object.put("unavailable", unavailable);
                 object.put("autoUnavailable", autoUnavailable);
                 object.put("manualUnavailable", manualUnavailable);
+                object.put("cacheFailed", cacheFailed);
             } catch (JSONException ignored) {
             }
             return object;
@@ -4432,7 +4579,27 @@ public class MainActivity extends Activity {
             song.autoUnavailable = object.optBoolean("autoUnavailable", song.unavailable);
             song.manualUnavailable = object.optBoolean("manualUnavailable", song.unavailable);
             song.manualAttempt = false;
+            song.cacheFailed = object.optBoolean("cacheFailed", false);
             return song;
+        }
+    }
+
+    private static final class PendingPlaybackCommit {
+        final String originalKey;
+        final String audioUri;
+        final String catalogJson;
+        final String sourceLabel;
+        final boolean sourceChanged;
+        final String lyric;
+
+        PendingPlaybackCommit(String originalKey, String audioUri, String catalogJson,
+                              String sourceLabel, boolean sourceChanged, String lyric) {
+            this.originalKey = originalKey == null ? "" : originalKey;
+            this.audioUri = audioUri == null ? "" : audioUri;
+            this.catalogJson = catalogJson == null ? "" : catalogJson;
+            this.sourceLabel = sourceLabel == null ? "" : sourceLabel;
+            this.sourceChanged = sourceChanged;
+            this.lyric = lyric == null ? "" : lyric;
         }
     }
 }
