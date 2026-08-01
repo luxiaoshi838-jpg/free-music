@@ -11,19 +11,8 @@ def main():
     args = parser.parse_args()
     patch_root = Path(__file__).resolve().parents[1]
     target = Path(args.root).resolve()
-    implementation = patch_root / 'tools/apply_manual_search_background_playback_fix.py'
+    implementation = patch_root / 'tools/apply_private_exact_playable_search_fix.py'
     subprocess.run([sys.executable, str(implementation), '--root', str(target)], check=True)
-
-    # Directory search is routed through SearchPriorityCoordinator, but exact
-    # lyric retrieval still calls Bridge.lyrics and therefore keeps this import.
-    matcher_path = target / 'app/src/main/java/com/jianglab/babywife/PlaylistLyricMatcher.java'
-    matcher = matcher_path.read_text(encoding='utf-8')
-    if 'import bridge.Bridge;' not in matcher:
-        anchor = 'import java.util.Set;\n\n'
-        if anchor not in matcher:
-            raise RuntimeError('PlaylistLyricMatcher import anchor missing')
-        matcher = matcher.replace(anchor, anchor + 'import bridge.Bridge;\n\n', 1)
-        matcher_path.write_text(matcher, encoding='utf-8')
 
     subprocess.run(['git', '-C', str(target), 'config', 'user.name',
                     'github-actions[bot]'], check=True)
@@ -31,23 +20,21 @@ def main():
                     '41898282+github-actions[bot]@users.noreply.github.com'], check=True)
     code_paths = [
         'app/build.gradle',
-        'app/src/main/AndroidManifest.xml',
         'app/src/main/java/com/jianglab/babywife/CatalogSearch.java',
-        'app/src/main/java/com/jianglab/babywife/LyricVersionPicker.java',
         'app/src/main/java/com/jianglab/babywife/MainActivity.java',
         'app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java',
         'app/src/main/java/com/jianglab/babywife/PlaybackControlService.java',
-        'app/src/main/java/com/jianglab/babywife/PlaylistBatchCacheService.java',
-        'app/src/main/java/com/jianglab/babywife/PlaylistLyricMatcher.java',
         'app/src/main/java/com/jianglab/babywife/SearchPriorityCoordinator.java',
         'app/src/main/java/com/jianglab/babywife/SongVersionPicker.java',
         'scripts/check_feature_requirements.py',
+        'PROJECT_LOG.md',
+        'docs/CHANGELOG.md',
     ]
     subprocess.run(['git', '-C', str(target), 'add', *code_paths], check=True)
     subprocess.run(['git', '-C', str(target), 'diff', '--cached', '--check'], check=True)
     subprocess.run(['git', '-C', str(target), 'commit', '-m',
-                    'Prioritize manual search and resolve playback in foreground'], check=True)
-    print('legacy_build_entry=manual_priority_background_playback')
+                    'Filter manual search to exact playable results'], check=True)
+    print('legacy_build_entry=private_exact_playable_manual_search')
 
 
 if __name__ == '__main__':
