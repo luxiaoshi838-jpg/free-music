@@ -1,0 +1,11 @@
+job_status=success
+source=success
+jdk=success
+android=success
+sdk=success
+gradle=success
+build=success
+upload=success
+target_sha=f0083e91e5dec98f52d13b67eb0397f1c3b4b863
+artifact_name=real-mediacodec-validation-apks-30689183595
+run_id=30689183595
