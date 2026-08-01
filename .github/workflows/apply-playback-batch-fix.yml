@@ -65,7 +65,15 @@ jobs:
         working-directory: repo
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon :app:assembleDebug
+          sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          attempt=1
+          until ./gradlew --no-daemon :app:assembleDebug; do
+            if [ "$attempt" -ge 3 ]; then
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            sleep 5
+          done
 
       - name: Verify four APK outputs
         id: verify_apks
@@ -78,6 +86,7 @@ jobs:
         id: push_feature
         working-directory: repo
         run: |
+          git checkout -- gradle/wrapper/gradle-wrapper.properties
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add app/build.gradle \
