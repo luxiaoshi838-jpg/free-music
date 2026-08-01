@@ -289,16 +289,18 @@ final class CatalogSearch {
         return rows;
     }
 
-    static List<Track> findExactAlternatives(Context context, String catalogJson) {
+    static List<Track> findExactAlternatives(Context context, String catalogJson,
+                                                  boolean manualPriority) {
         List<Track> matches = new ArrayList<>();
         try {
             JSONObject selected = new JSONObject(catalogJson == null ? "{}" : catalogJson);
             String selectedSource = selected.optString("source", "").trim().toLowerCase(Locale.ROOT);
             String selectedTitle = selected.optString("name", "");
             String selectedArtist = selected.optString("artist", "");
-            if (normalize(selectedTitle).isEmpty()) return matches;
-            String searchKeyword = isUnknownArtist(selectedArtist)
-                ? selectedTitle : selectedTitle + " " + selectedArtist;
+            if (normalize(selectedTitle).isEmpty() || normalize(selectedArtist).isEmpty()) {
+                return matches;
+            }
+            String searchKeyword = selectedTitle + " " + selectedArtist;
 
             List<String> sources = new ArrayList<>(ALL_SOURCES);
             sources.remove(selectedSource);
@@ -306,7 +308,8 @@ final class CatalogSearch {
             try {
                 Map<String, Future<List<Track>>> futures = new LinkedHashMap<>();
                 for (String source : sources) {
-                    futures.put(source, pool.submit(() -> searchOneSource(context, false, source, searchKeyword)));
+                    futures.put(source, pool.submit(() ->
+                        searchOneSource(context, manualPriority, source, searchKeyword)));
                 }
                 for (String source : sources) {
                     Future<List<Track>> future = futures.get(source);
@@ -318,7 +321,7 @@ final class CatalogSearch {
                         continue;
                     }
                     for (Track track : rows) {
-                        if (replacementScore(selectedTitle, selectedArtist, track) >= 700) matches.add(track);
+                        if (sameIdentity(selectedTitle, selectedArtist, track)) matches.add(track);
                     }
                 }
             } finally {
@@ -326,14 +329,15 @@ final class CatalogSearch {
             }
         } catch (Exception ignored) {
         }
-        Collections.sort(matches, (left, right) ->
-            replacementScore(selectedTitleSafe(catalogJson), selectedArtistSafe(catalogJson), right)
-                - replacementScore(selectedTitleSafe(catalogJson), selectedArtistSafe(catalogJson), left));
         return matches;
     }
 
+    static List<Track> findExactAlternatives(Context context, String catalogJson) {
+        return findExactAlternatives(context, catalogJson, false);
+    }
+
     static List<Track> findExactAlternatives(String catalogJson) {
-        return findExactAlternatives(null, catalogJson);
+        return findExactAlternatives(null, catalogJson, false);
     }
 
     private static String selectedTitleSafe(String catalogJson) {

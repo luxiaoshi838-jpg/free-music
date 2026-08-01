@@ -37,7 +37,7 @@ final class SongVersionPicker {
         void onUnavailable();
     }
 
-    private static final String CACHE_PREFS = "song_version_directory_v2";
+    private static final String CACHE_PREFS = "song_version_directory_v3_exact_identity";
     private static final int MAX_CACHED_ROWS = 96;
 
     private final Activity activity;
@@ -69,7 +69,7 @@ final class SongVersionPicker {
             ? normalize(this.title) + "|" + normalize(this.artist)
             : this.identity;
         this.cacheKey = "song_" + Integer.toHexString(stableIdentity.hashCode());
-        this.session = CatalogSearch.newSession(activity, this.title, "全部平台", true);
+        this.session = CatalogSearch.newSession(activity, (this.title + " " + this.artist).trim(), "全部平台", true);
         loadCachedDirectory();
     }
 
@@ -143,7 +143,7 @@ final class SongVersionPicker {
             ViewGroup.LayoutParams.MATCH_PARENT, dp(430)));
 
         dialog = new AlertDialog.Builder(activity)
-            .setTitle("选择歌曲版本")
+            .setTitle("选择同歌名同歌手版本")
             .setView(root)
             .setNegativeButton("关闭", null)
             .create();
@@ -155,7 +155,7 @@ final class SongVersionPicker {
                 + (session.hasMore() ? "；下拉或滚到底部加载更多" : "；全部来源已搜索"));
             updateFooter();
         } else {
-            status.setText("正在搜索可播放的相近歌曲版本…");
+            status.setText("正在按歌名和歌手搜索对应版本…");
             loadNext();
         }
     }
@@ -168,7 +168,7 @@ final class SongVersionPicker {
         loading = true;
         footer.setEnabled(false);
         footer.setText("正在搜索更多歌曲版本…");
-        if (callback != null) callback.onStatus("手动搜索优先，正在查找替换歌曲版本…");
+        if (callback != null) callback.onStatus("手动搜索优先，正在查找同歌名同歌手版本…");
 
         new Thread(() -> {
             CatalogSearch.Batch batch = null;
@@ -178,16 +178,9 @@ final class SongVersionPicker {
                 batch = session.loadNext();
                 for (CatalogSearch.Track track : batch.tracks) {
                     if (track == null || track.id.isEmpty()) continue;
-                    if (CatalogSearch.replacementScore(title, artist, track) < 420) continue;
+                    if (!CatalogSearch.sameIdentity(title, artist, track)) continue;
                     if (emitted.add(track.key())) accepted.add(track);
                 }
-                Collections.sort(accepted, new Comparator<CatalogSearch.Track>() {
-                    @Override
-                    public int compare(CatalogSearch.Track left, CatalogSearch.Track right) {
-                        return CatalogSearch.replacementScore(title, artist, right)
-                            - CatalogSearch.replacementScore(title, artist, left);
-                    }
-                });
             } catch (Throwable error) {
                 failure = error;
             }
@@ -206,7 +199,7 @@ final class SongVersionPicker {
                 rows.addAll(accepted);
                 saveCachedDirectory();
                 adapter.notifyDataSetChanged();
-                status.setText("已找到 " + rows.size() + " 个相近歌曲版本"
+                status.setText("已找到 " + rows.size() + " 个同歌名同歌手版本"
                     + (session.hasMore() ? "；下拉或滚到底部继续加载" : "；全部来源已搜索"));
                 if (result != null && !result.hasMore && rows.isEmpty() && callback != null) {
                     callback.onUnavailable();
@@ -236,7 +229,8 @@ final class SongVersionPicker {
                 String source = item.optString("source", "");
                 if (rawJson.isEmpty() || source.isEmpty()) continue;
                 CatalogSearch.Track track = new CatalogSearch.Track(new JSONObject(rawJson), source);
-                if (track.id.isEmpty() || !emitted.add(track.key())) continue;
+                if (track.id.isEmpty() || !CatalogSearch.sameIdentity(title, artist, track)
+                    || !emitted.add(track.key())) continue;
                 rows.add(track);
             }
         } catch (Exception ignored) {

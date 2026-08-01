@@ -177,7 +177,7 @@ checks = {
         and 'SearchPriorityCoordinator.searchAutomatic' in catalog
         and 'bridge_search.lock' in priority
         and 'manual_search.lease' in priority
-        and 'song_version_directory_v2' in picker
+        and 'song_version_directory_v3_exact_identity' in picker
         and 'restoreNextSourceIndex' in picker
         and '下拉或滚到底部' in picker
         and 'IME_ACTION_SEARCH' in main
@@ -190,6 +190,19 @@ checks = {
         and 'eagerLyrics' in network
         and 'PlaybackResolveWorker' in playback_service
         and 'mediaPlayback|dataSync' in manifest
+    ),
+    'private style instant search and simple playback replacement': (
+        'song_version_directory_v3_exact_identity' in picker
+        and '(this.title + " " + this.artist).trim()' in picker
+        and 'CatalogSearch.sameIdentity(title, artist, track)' in picker
+        and 'findExactAlternatives(Context context, String catalogJson,' in catalog
+        and 'sameIdentity(selectedTitle, selectedArtist, track)' in catalog
+        and 'cachePrivateStylePlayback' in network
+        and 'resolvePrivateStyle' in network
+        and 'findPrivateStyleFallback' in network
+        and '未找到同歌手同名的可播放版本' in network
+        and 'PlaybackCompatibility.isPlayable(partial)' in network
+        and 'cacheForAutomatic' in network
     ),
     'media player error containment': (
         'attachPlaybackErrorHandler' in main
@@ -205,7 +218,7 @@ checks = {
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080110' in gradle,
+    'version bumped': 'versionCode 2026080111' in gradle,
     'logs synchronized': (
         '多格式缓存优先级与一分钟过滤' in project_log
         and 'Multi-format cache priority and one-minute filter' in changelog

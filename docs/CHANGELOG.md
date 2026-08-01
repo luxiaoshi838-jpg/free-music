@@ -162,3 +162,13 @@
 - Deferred lyric matching until playable audio is ready.
 - Removed the one-minute gate from manual search, manual replacement and clicked playback while retaining it for one-click batch caching and automatic replacement.
 - Bumped versionCode to 2026080110.
+
+
+## 2026-08-02 Private-style instant search and lightweight playback fallback
+
+- Restored instant metadata-only catalog search with no per-result URL prevalidation.
+- Routed selected-song playback and playlist playback fallback through the original private-repository flow: original source first, then exact normalized title and artist alternatives, first resolvable URL wins.
+- Removed forced MP3, one-minute gating, decoder probing and fuzzy four-candidate scoring from playback fallback only.
+- Retained the existing strict duration and decoder validation pipeline for one-click batch caching.
+- Kept retained replacement results, incremental loading and manual-search priority.
+- Bumped versionCode to 2026080111.

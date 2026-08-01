@@ -210,7 +210,153 @@ final class NetworkMediaCache {
 
     static CacheResult cacheForPlayback(Context context, String catalogJson,
                                         StatusCallback callback) throws Exception {
-        return cacheInternal(context, catalogJson, false, false, callback);
+        return cachePrivateStylePlayback(context, catalogJson, callback);
+    }
+
+    /**
+     * Lightweight playback path matching the original private repository:
+     * show catalog results immediately, resolve only after selection, try the
+     * original source first, then exact normalized title+artist alternatives.
+     * It intentionally skips one-minute, forced-format and decoder validation;
+     * those remain exclusive to cacheForAutomatic / one-click caching.
+     */
+    private static CacheResult cachePrivateStylePlayback(Context context, String catalogJson,
+                                                         StatusCallback callback) throws Exception {
+        checkInterrupted();
+        if (context == null) throw new IllegalArgumentException("context is required");
+        JSONObject requestedCatalog = canonicalCatalog(catalogJson);
+        String requestedSource = requestedCatalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
+        String requestedId = requestedCatalog.optString("id", "").trim();
+        if (requestedSource.isEmpty() || requestedId.isEmpty()) {
+            throw new IllegalArgumentException("歌曲目录缺少来源或 ID");
+        }
+
+        String requestedKey = sha256(requestedSource + "|" + requestedId);
+        String requestedTitle = catalogTitle(requestedCatalog);
+        String requestedArtist = catalogArtist(requestedCatalog);
+        String requestedAlbum = catalogAlbum(requestedCatalog);
+        CacheStorage.ensureFriendlyNames(context, requestedKey, requestedTitle, requestedArtist,
+            requestedAlbum, requestedCatalog.toString());
+        String requestedAudio = CacheStorage.findAudioUri(context, requestedKey);
+        String requestedLyric = CacheStorage.readLyric(context, requestedKey);
+        if (!requestedAudio.isEmpty() && CacheStorage.exists(context, requestedAudio)) {
+            status(callback, "已读取歌曲缓存");
+            return new CacheResult(requestedAudio, requestedLyric, true,
+                !requestedLyric.trim().isEmpty(), requestedCatalog.toString(), requestedSource, false);
+        }
+
+        status(callback, "正在按原平台解析歌曲地址...");
+        ResolvedChoice choice = null;
+        try {
+            choice = new ResolvedChoice(requestedCatalog,
+                resolvePrivateStyle(requestedCatalog.toString()));
+        } catch (Exception ignored) {
+        }
+        if (choice == null || choice.audioUrl().isEmpty()) {
+            status(callback, "原来源不可用，正在查找同歌手同名的其他平台版本...");
+            choice = findPrivateStyleFallback(context, requestedCatalog, callback);
+        }
+        if (choice == null || choice.audioUrl().isEmpty()) {
+            throw new IllegalStateException("未找到同歌手同名的可播放版本，请手动使用替换歌曲");
+        }
+        return storePrivateStyleChoice(context, requestedCatalog, choice, callback);
+    }
+
+    private static ResolvedChoice findPrivateStyleFallback(Context context,
+                                                            JSONObject requestedCatalog,
+                                                            StatusCallback callback) {
+        List<CatalogSearch.Track> alternatives = CatalogSearch.findExactAlternatives(
+            context, requestedCatalog.toString(), true);
+        String requestedSource = requestedCatalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
+        String requestedId = requestedCatalog.optString("id", "").trim();
+        for (CatalogSearch.Track alternative : alternatives) {
+            try {
+                checkInterrupted();
+                JSONObject catalog = canonicalCatalog(alternative.rawJson);
+                String source = catalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
+                String id = catalog.optString("id", "").trim();
+                if (source.isEmpty() || id.isEmpty()) continue;
+                if (requestedSource.equals(source) && requestedId.equals(id)) continue;
+                JSONObject resolved = resolvePrivateStyle(catalog.toString());
+                ResolvedChoice choice = new ResolvedChoice(catalog, resolved);
+                if (!choice.audioUrl().isEmpty()) {
+                    status(callback, "已匹配到同歌手同名的"
+                        + CatalogSearch.labelForSource(source) + "版本");
+                    return choice;
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return null;
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static CacheResult storePrivateStyleChoice(Context context,
+                                                       JSONObject requestedCatalog,
+                                                       ResolvedChoice choice,
+                                                       StatusCallback callback) throws Exception {
+        checkInterrupted();
+        JSONObject actualCatalog = canonicalCatalog(choice.catalog.toString());
+        String requestedSource = requestedCatalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
+        String requestedId = requestedCatalog.optString("id", "").trim();
+        String actualSource = actualCatalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
+        String actualId = actualCatalog.optString("id", "").trim();
+        if (actualSource.isEmpty() || actualId.isEmpty()) {
+            throw new IllegalStateException("替换歌曲目录不完整");
+        }
+        boolean sourceChanged = !requestedSource.equals(actualSource) || !requestedId.equals(actualId);
+        String key = sha256(actualSource + "|" + actualId);
+        try (CacheKeyLock ignored = CacheKeyLock.acquire(context, key)) {
+            String title = catalogTitle(actualCatalog);
+            String artist = catalogArtist(actualCatalog);
+            String album = catalogAlbum(actualCatalog);
+            CacheStorage.ensureFriendlyNames(context, key, title, artist, album,
+                actualCatalog.toString());
+            String lyric = CacheStorage.readLyric(context, key);
+            String existingAudio = CacheStorage.findAudioUri(context, key);
+            if (!existingAudio.isEmpty() && CacheStorage.exists(context, existingAudio)) {
+                status(callback, sourceChanged ? "已切换并读取其他平台缓存" : "歌曲缓存已存在");
+                return new CacheResult(existingAudio, lyric, true, !lyric.trim().isEmpty(),
+                    actualCatalog.toString(), actualSource, sourceChanged);
+            }
+
+            File tempRoot = new File(context.getCacheDir(), "network_download");
+            if (!tempRoot.exists() && !tempRoot.mkdirs()) {
+                throw new IllegalStateException("无法创建下载临时目录");
+            }
+            String hintedExtension = choiceExtension(choice);
+            File partial = new File(tempRoot, key + "." + hintedExtension + "."
+                + android.os.Process.myPid() + "." + Thread.currentThread().getId() + ".part");
+            if (partial.exists()) partial.delete();
+            status(callback, sourceChanged
+                ? "原来源不可用，正在从" + CatalogSearch.labelForSource(actualSource) + "缓存歌曲..."
+                : "正在缓存歌曲...");
+            try {
+                download(context, choice.audioUrl(), actualSource, partial, callback);
+                checkInterrupted();
+                if (partial.length() <= 0L) throw new IllegalStateException("歌曲缓存为空");
+                String actualExtension = detectAudioExtension(partial, hintedExtension);
+                String storedUri = CacheStorage.storeAudio(context, key, actualExtension, partial,
+                    title, artist, album, actualCatalog.toString());
+                status(callback, "歌曲缓存完成");
+                return new CacheResult(storedUri, lyric, false, !lyric.trim().isEmpty(),
+                    actualCatalog.toString(), actualSource, sourceChanged);
+            } finally {
+                if (partial.exists()) partial.delete();
+            }
+        }
+    }
+
+    private static JSONObject resolvePrivateStyle(String catalogJson) throws Exception {
+        JSONObject response = new JSONObject(Bridge.resolve(catalogJson));
+        if (!response.optBoolean("ok", false)) {
+            throw new IllegalStateException(response.optString("error", "歌曲解析失败"));
+        }
+        JSONObject data = response.optJSONObject("data");
+        if (data == null) throw new IllegalStateException("歌曲解析结果为空");
+        return data;
     }
 
     private static CacheResult cacheInternal(Context context, String catalogJson,
