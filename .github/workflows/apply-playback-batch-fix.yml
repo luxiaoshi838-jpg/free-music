@@ -1,20 +1,19 @@
-# Trigger: main-thread I/O removal and playback-notification isolation
-name: Apply responsive UI and playback notification fix
+# Trigger: foreground playback priority and resilient batch progression
+name: Apply playback-priority resilient batch fix
 
 on:
   push:
     branches:
       - tools/fix-pr9-playback-batch-cache
     paths:
-      - tools/apply_ui_responsiveness_notification_fix.py
-      - tools/fix_ui_patch_anchor.py
+      - tools/apply_low_priority_resilient_batch_fix.py
       - .github/workflows/apply-playback-batch-fix.yml
 
 permissions:
   contents: write
 
 concurrency:
-  group: responsive-ui-playback-notification
+  group: playback-priority-resilient-batch
   cancel-in-progress: true
 
 jobs:
@@ -47,11 +46,9 @@ jobs:
       - name: Install Android packages
         run: yes | sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
 
-      - name: Apply UI and notification fix
+      - name: Apply playback-priority batch fix
         id: patch_sources
-        run: |
-          python patch/tools/fix_ui_patch_anchor.py --script patch/tools/apply_ui_responsiveness_notification_fix.py
-          python patch/tools/apply_ui_responsiveness_notification_fix.py --root repo
+        run: python patch/tools/apply_low_priority_resilient_batch_fix.py --root repo
 
       - name: Run public-repo and feature checks
         id: feature_checks
@@ -82,6 +79,8 @@ jobs:
         run: |
           find app/build/outputs/apk -type f -name '*.apk' -print
           test "$(find app/build/outputs/apk -type f -name '*.apk' | wc -l)" -ge 4
+          grep -q 'versionCode 2026080109' app/build.gradle
+          grep -q 'low-priority-resilient-batch' app/build.gradle
 
       - name: Commit and push feature branch
         id: push_feature
@@ -91,20 +90,20 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add app/build.gradle \
-            app/src/main/AndroidManifest.xml \
             app/src/main/java/com/jianglab/babywife/MainActivity.java \
+            app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java \
             app/src/main/java/com/jianglab/babywife/PlaylistBatchCacheService.java \
             scripts/check_feature_requirements.py \
             PROJECT_LOG.md docs/CHANGELOG.md
           git diff --cached --check
-          git commit -m 'Keep navigation responsive and isolate playback notification'
+          git commit -m 'Prioritize playback and keep batch cache moving'
           git push origin HEAD:fix/multiformat-cache-priority-60s
 
       - name: Upload four debug APKs
         id: upload_apks
         uses: actions/upload-artifact@v4
         with:
-          name: responsive-ui-notification-apks-${{ github.run_id }}
+          name: playback-priority-resilient-batch-apks-${{ github.run_id }}
           path: repo/app/build/outputs/apk/*/debug/*.apk
           if-no-files-found: error
 
@@ -124,7 +123,7 @@ jobs:
           mkdir -p tools
           {
             echo "run_id=${GITHUB_RUN_ID}"
-            echo "artifact_name=responsive-ui-notification-apks-${GITHUB_RUN_ID}"
+            echo "artifact_name=playback-priority-resilient-batch-apks-${GITHUB_RUN_ID}"
             echo "feature_commit=$(git -C ../repo rev-parse HEAD 2>/dev/null || true)"
             echo "patch=${PATCH_OUTCOME}"
             echo "checks=${CHECK_OUTCOME}"
@@ -132,7 +131,7 @@ jobs:
             echo "verify=${VERIFY_OUTCOME}"
             echo "push=${PUSH_OUTCOME}"
             echo "upload=${UPLOAD_OUTCOME}"
-          } > tools/latest_responsive_ui_notification_run.txt
-          git add tools/latest_responsive_ui_notification_run.txt
-          git commit -m "Record responsive UI build ${GITHUB_RUN_ID}" || true
+          } > tools/latest_playback_priority_batch_run.txt
+          git add tools/latest_playback_priority_batch_run.txt
+          git commit -m "Record playback-priority batch build ${GITHUB_RUN_ID}" || true
           git push origin HEAD:tools/fix-pr9-playback-batch-cache
