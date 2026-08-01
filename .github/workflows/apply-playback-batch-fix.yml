@@ -1,0 +1,82 @@
+name: Apply playback compatibility and playlist batch cache fix
+
+on:
+  push:
+    branches:
+      - tools/fix-pr9-playback-batch-cache
+    paths:
+      - tools/apply_playback_batch_fix.py
+      - .github/workflows/apply-playback-batch-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/multiformat-cache-priority-60s
+          path: repo
+          fetch-depth: 0
+
+      - name: Checkout patch branch
+        uses: actions/checkout@v4
+        with:
+          ref: tools/fix-pr9-playback-batch-cache
+          path: patch
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android packages
+        run: yes | sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+
+      - name: Apply source patch
+        run: python patch/tools/apply_playback_batch_fix.py --root repo
+
+      - name: Run feature checks
+        working-directory: repo
+        run: python scripts/check_feature_requirements.py
+
+      - name: Build all four debug brands
+        working-directory: repo
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Verify four APK outputs
+        working-directory: repo
+        run: |
+          find app/build/outputs/apk -type f -name '*.apk' -print
+          test "$(find app/build/outputs/apk -type f -name '*.apk' | wc -l)" -ge 4
+
+      - name: Commit and push feature branch
+        working-directory: repo
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/build.gradle \
+            app/src/main/java/com/jianglab/babywife/MainActivity.java \
+            app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java \
+            app/src/main/java/com/jianglab/babywife/PlaybackCompatibility.java \
+            scripts/check_feature_requirements.py PROJECT_LOG.md docs/CHANGELOG.md
+          git diff --cached --check
+          git commit -m 'Validate playback formats and add playlist batch cache'
+          git push origin HEAD:fix/multiformat-cache-priority-60s
+
+      - name: Upload four debug APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: playback-compatible-batch-cache-debug-apks
+          path: repo/app/build/outputs/apk/*/debug/*.apk
+          if-no-files-found: error
