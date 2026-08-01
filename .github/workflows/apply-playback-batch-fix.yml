@@ -1,18 +1,18 @@
-name: Apply playback compatibility and playlist batch cache fix
+name: Apply background playlist cache service
 
 on:
   push:
     branches:
       - tools/fix-pr9-playback-batch-cache
     paths:
-      - tools/apply_playback_batch_followup.py
+      - tools/apply_background_playlist_cache_service.py
       - .github/workflows/apply-playback-batch-fix.yml
 
 permissions:
   contents: write
 
 concurrency:
-  group: playback-batch-cache-fix
+  group: background-playlist-cache-service
   cancel-in-progress: true
 
 jobs:
@@ -45,14 +45,17 @@ jobs:
       - name: Install Android packages
         run: yes | sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
 
-      - name: Apply source patch
+      - name: Apply background cache service patch
         id: patch_sources
-        run: python patch/tools/apply_playback_batch_followup.py --root repo
+        run: python patch/tools/apply_background_playlist_cache_service.py --root repo
 
-      - name: Run feature checks
+      - name: Run public-repo and feature checks
         id: feature_checks
         working-directory: repo
-        run: python scripts/check_feature_requirements.py
+        run: |
+          python scripts/check_public_repo.py
+          python scripts/check_feature_requirements.py
+          git diff --check
 
       - name: Build all four debug brands
         id: build_apks
@@ -74,20 +77,21 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add app/src/main/java/com/jianglab/babywife/MainActivity.java \
-            app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java \
-            scripts/check_feature_requirements.py
+          git add app/build.gradle \
+            app/src/main/AndroidManifest.xml \
+            app/src/main/java/com/jianglab/babywife/MainActivity.java \
+            app/src/main/java/com/jianglab/babywife/PlaylistBatchCacheService.java \
+            scripts/check_feature_requirements.py \
+            PROJECT_LOG.md docs/CHANGELOG.md
           git diff --cached --check
-          if ! git diff --cached --quiet; then
-            git commit -m 'Validate real MediaCodec audio output'
-            git push origin HEAD:fix/multiformat-cache-priority-60s
-          fi
+          git commit -m 'Keep playlist batch caching alive in background'
+          git push origin HEAD:fix/multiformat-cache-priority-60s
 
       - name: Upload four debug APKs
         id: upload_apks
         uses: actions/upload-artifact@v4
         with:
-          name: real-mediacodec-validation-apks-${{ github.run_id }}
+          name: background-playlist-cache-apks-${{ github.run_id }}
           path: repo/app/build/outputs/apk/*/debug/*.apk
           if-no-files-found: error
 
@@ -107,7 +111,7 @@ jobs:
           mkdir -p tools
           {
             echo "run_id=${GITHUB_RUN_ID}"
-            echo "artifact_name=real-mediacodec-validation-apks-${GITHUB_RUN_ID}"
+            echo "artifact_name=background-playlist-cache-apks-${GITHUB_RUN_ID}"
             echo "feature_commit=$(git -C ../repo rev-parse HEAD 2>/dev/null || true)"
             echo "patch=${PATCH_OUTCOME}"
             echo "checks=${CHECK_OUTCOME}"
@@ -115,7 +119,7 @@ jobs:
             echo "verify=${VERIFY_OUTCOME}"
             echo "push=${PUSH_OUTCOME}"
             echo "upload=${UPLOAD_OUTCOME}"
-          } > tools/latest_real_decoder_run.txt
-          git add tools/latest_real_decoder_run.txt
-          git commit -m "Record real decoder build ${GITHUB_RUN_ID}" || true
+          } > tools/latest_background_playlist_cache_run.txt
+          git add tools/latest_background_playlist_cache_run.txt
+          git commit -m "Record background playlist cache build ${GITHUB_RUN_ID}" || true
           git push origin HEAD:tools/fix-pr9-playback-batch-cache
