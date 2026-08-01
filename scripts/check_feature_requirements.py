@@ -98,11 +98,14 @@ checks = {
     'delayed red marking': 'autoUnavailable && song.manualUnavailable' in main,
     'csv import/export': '歌名,歌手,专辑,时长秒,平台,平台代码,歌曲ID,歌词版本' in main,
     'jianglab flavor gate': 'REQUIRE_FIRST_RUN_PASSPHRASE' in gradle and 'signingCertificateCommonName' in main,
-    'multi-format priority and one-minute validation': (
+    'original-source fast path and one-minute validation': (
         'MIN_AUTOMATIC_DURATION_MS = 60_000L' in network
-        and 'choiceFormatRank' in network
-        and 'if ("mp3".equals(extension)) return 0;' in network
-        and 'if ("flac".equals(extension)) return 1;' in network
+        and 'MAX_FALLBACK_ATTEMPTS = 4' in network
+        and '正在使用歌单原来源解析歌曲' in network
+        and '原来源不可用，才开始查找其他平台版本' in network
+        and 'cacheFirstUsableAlternative' in network
+        and 'findAutomaticChoices' not in network
+        and 'choices.sort' not in network
         and 'isAcceptableCachedAudio' in network
         and 'mediaDurationMs' in network
         and 'AudioTranscoder.ensureMp3' not in network
@@ -117,7 +120,7 @@ checks = {
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080101' in gradle,
+    'version bumped': 'versionCode 2026080102' in gradle,
     'logs synchronized': (
         '多格式缓存优先级与一分钟过滤' in project_log
         and 'Multi-format cache priority and one-minute filter' in changelog

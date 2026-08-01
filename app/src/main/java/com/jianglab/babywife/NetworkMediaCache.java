@@ -16,7 +16,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -29,7 +28,7 @@ final class NetworkMediaCache {
     private static final int READ_TIMEOUT_MS = 30000;
     private static final long MAX_AUDIO_BYTES = 512L * 1024L * 1024L;
     private static final long MIN_AUTOMATIC_DURATION_MS = 60_000L;
-    private static final int MAX_AUTOMATIC_CHOICES = 8;
+    private static final int MAX_FALLBACK_ATTEMPTS = 4;
 
     private NetworkMediaCache() {
     }
@@ -93,29 +92,30 @@ final class NetworkMediaCache {
                         requestedArtist, requestedAlbum, requestedCatalog.toString());
                 }
             }
-            status(callback, "已读取时长不少于1分钟的歌曲缓存");
+            status(callback, "已读取原来源歌曲缓存");
             return new CacheResult(requestedAudioUri, requestedLyric, true, lyricFromCache,
                 requestedCatalog.toString(), requestedSource, false);
         }
 
-        status(callback, "正在按 MP3、FLAC、其他格式的顺序查找资源...");
-        List<ResolvedChoice> choices = findAutomaticChoices(requestedCatalog, callback);
-        Exception lastError = null;
-        for (ResolvedChoice choice : choices) {
-            checkInterrupted();
-            try {
-                CacheResult result = cacheChoice(context, requestedCatalog, choice, callback);
-                if (result != null) return result;
-            } catch (InterruptedException interrupted) {
-                throw interrupted;
-            } catch (Exception error) {
-                lastError = error;
+        Exception primaryError = null;
+        status(callback, "正在使用歌单原来源解析歌曲...");
+        try {
+            long duration = catalogDurationMs(requestedCatalog);
+            if (duration > 0L && duration < MIN_AUTOMATIC_DURATION_MS) {
+                throw new IllegalStateException("原来源歌曲时长不足1分钟");
             }
+            ResolvedChoice original = new ResolvedChoice(requestedCatalog,
+                resolve(requestedCatalog.toString()));
+            CacheResult result = cacheChoice(context, requestedCatalog, original, callback);
+            if (result != null) return result;
+        } catch (InterruptedException interrupted) {
+            throw interrupted;
+        } catch (Exception error) {
+            primaryError = error;
         }
 
-        String detail = lastError == null || lastError.getMessage() == null
-            ? "" : "：" + lastError.getMessage();
-        throw new IllegalStateException("未找到时长不低于1分钟的可播放音频，请手动使用替换歌曲" + detail);
+        status(callback, "原来源不可用，才开始查找其他平台版本...");
+        return cacheFirstUsableAlternative(context, requestedCatalog, callback, primaryError);
     }
 
     private static final class ResolvedChoice {
@@ -139,53 +139,47 @@ final class NetworkMediaCache {
         return catalog;
     }
 
-    private static List<ResolvedChoice> findAutomaticChoices(JSONObject requestedCatalog,
-                                                               StatusCallback callback) throws Exception {
-        List<ResolvedChoice> choices = new ArrayList<>();
-        List<String> seen = new ArrayList<>();
-        try {
-            addResolvedChoice(choices, seen, requestedCatalog);
-        } catch (InterruptedException interrupted) {
-            throw interrupted;
-        } catch (Exception ignored) {
-            // 原来源解析失败不终止自动模式，继续检查其他平台。
-        }
-
-        status(callback, choices.isEmpty()
-            ? "原来源不可用，正在查找同歌手同名的其他平台版本..."
-            : "正在比较其他平台的 MP3、FLAC 和其他格式版本...");
+    private static CacheResult cacheFirstUsableAlternative(Context context,
+                                                               JSONObject requestedCatalog,
+                                                               StatusCallback callback,
+                                                               Exception primaryError) throws Exception {
         List<CatalogSearch.Track> alternatives = CatalogSearch.findExactAlternatives(requestedCatalog.toString());
+        String requestedSource = requestedCatalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
+        String requestedId = requestedCatalog.optString("id", "").trim();
+        Exception lastError = primaryError;
+        int attempted = 0;
+
         for (CatalogSearch.Track alternative : alternatives) {
             checkInterrupted();
-            if (choices.size() >= MAX_AUTOMATIC_CHOICES) break;
+            if (attempted >= MAX_FALLBACK_ATTEMPTS) break;
             try {
                 JSONObject catalog = canonicalCatalog(alternative.rawJson);
-                addResolvedChoice(choices, seen, catalog);
+                String source = catalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
+                String id = catalog.optString("id", "").trim();
+                if (source.isEmpty() || id.isEmpty()) continue;
+                if (requestedSource.equals(source) && requestedId.equals(id)) continue;
+                long duration = catalogDurationMs(catalog);
+                if (duration > 0L && duration < MIN_AUTOMATIC_DURATION_MS) continue;
+
+                attempted++;
+                status(callback, "正在尝试其他平台候选 " + attempted + "/" + MAX_FALLBACK_ATTEMPTS
+                    + "：" + CatalogSearch.labelForSource(source));
+                ResolvedChoice choice = new ResolvedChoice(catalog, resolve(catalog.toString()));
+                CacheResult result = cacheChoice(context, requestedCatalog, choice, callback);
+                if (result != null) return result;
             } catch (InterruptedException interrupted) {
                 throw interrupted;
-            } catch (Exception ignored) {
+            } catch (Exception error) {
+                lastError = error;
             }
         }
-        choices.sort((left, right) -> Integer.compare(choiceFormatRank(left), choiceFormatRank(right)));
-        return choices;
+
+        String detail = lastError == null || lastError.getMessage() == null
+            ? "" : "：" + lastError.getMessage();
+        throw new IllegalStateException("未找到时长不低于1分钟的可播放音频，请手动使用替换歌曲" + detail);
     }
 
-    private static void addResolvedChoice(List<ResolvedChoice> choices, List<String> seen,
-                                          JSONObject catalog) throws Exception {
-        if (catalog == null) return;
-        long catalogDuration = catalogDurationMs(catalog);
-        if (catalogDuration > 0L && catalogDuration < MIN_AUTOMATIC_DURATION_MS) return;
-        String source = catalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
-        String id = catalog.optString("id", "").trim();
-        if (source.isEmpty() || id.isEmpty()) return;
-        String identity = source + "|" + id;
-        if (seen.contains(identity)) return;
-        JSONObject resolved = resolve(catalog.toString());
-        ResolvedChoice choice = new ResolvedChoice(catalog, resolved);
-        if (choice.audioUrl().isEmpty()) return;
-        seen.add(identity);
-        choices.add(choice);
-    }
+
 
     private static CacheResult cacheChoice(Context context, JSONObject requestedCatalog,
                                            ResolvedChoice choice, StatusCallback callback) throws Exception {

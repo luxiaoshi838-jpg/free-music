@@ -94,3 +94,11 @@
 - Audio bytes remain untouched: title, artist, album, and ID3-style tags are not written into cached songs. Playlist data remains authoritative.
 - Cache filenames use `title - artist.original-extension`; only real same-name collisions receive `(2)`, `(3)`, and so on. Cache migration remains supported, and unknown extensions use `.audio` rather than a false `.mp3` suffix.
 - Audio and lyric files now share the exact same basename: `title - artist.audio-extension` and `title - artist.lrc`. Legacy `.txt` lyric files are read only for migration compatibility and are normalized to `.lrc`.
+
+## 2026-08-01 Original-source playback fast path
+
+- Fixed the cache path resolving every cross-platform candidate even when the playlist's original source was valid.
+- The original source is now resolved, downloaded, validated, and returned immediately before any alternative search.
+- MP3 is still requested first within the original source; its source format is used when MP3 is unavailable.
+- Cross-platform matching runs only after an original-source resolve, download, readability, or 60-second validation failure.
+- Alternatives are resolved and validated one at a time, returning the first valid result, with at most four attempts.
