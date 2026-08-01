@@ -14,14 +14,25 @@ import android.os.Build;
 import android.os.IBinder;
 
 /**
- * Foreground media-control service used by the notification shade and lock screen.
- * The current Activity keeps audio ownership; this service exposes a MediaSession
- * and sends explicit in-app playback commands back to the Activity.
+ * Foreground media-control and playback-resolution service.
+ * Catalog resolution and audio caching run in this independent foreground
+ * process so they continue while another app is visible.
  */
 public final class PlaybackControlService extends Service {
     static final String ACTION_COMMAND = "com.jianglab.babywife.PLAYBACK_COMMAND";
+    static final String ACTION_RESOLVE_PROGRESS = "com.jianglab.babywife.PLAYBACK_RESOLVE_PROGRESS";
+    static final String ACTION_RESOLVE_RESULT = "com.jianglab.babywife.PLAYBACK_RESOLVE_RESULT";
     static final String EXTRA_COMMAND = "command";
     static final String EXTRA_SEEK_POSITION = "seek_position";
+    static final String EXTRA_REQUEST_ID = "request_id";
+    static final String EXTRA_MESSAGE = "message";
+    static final String EXTRA_SUCCESS = "success";
+    static final String EXTRA_ERROR = "error";
+    static final String EXTRA_AUDIO_URI = "audio_uri";
+    static final String EXTRA_LYRIC = "lyric";
+    static final String EXTRA_CATALOG_JSON = "catalog_json";
+    static final String EXTRA_SOURCE_CODE = "source_code";
+    static final String EXTRA_SOURCE_CHANGED = "source_changed";
     static final String COMMAND_PREVIOUS = "previous";
     static final String COMMAND_TOGGLE = "toggle";
     static final String COMMAND_NEXT = "next";
@@ -32,6 +43,7 @@ public final class PlaybackControlService extends Service {
     private static final String ACTION_PREVIOUS = "com.jianglab.babywife.MEDIA_PREVIOUS";
     private static final String ACTION_TOGGLE = "com.jianglab.babywife.MEDIA_TOGGLE";
     private static final String ACTION_NEXT = "com.jianglab.babywife.MEDIA_NEXT";
+    private static final String ACTION_RESOLVE = "com.jianglab.babywife.MEDIA_RESOLVE";
 
     private static final String EXTRA_TITLE = "title";
     private static final String EXTRA_ARTIST = "artist";
@@ -46,18 +58,15 @@ public final class PlaybackControlService extends Service {
     private NotificationManager notificationManager;
     private String title = "尚未播放";
     private String artist = "大宝贝儿老婆";
-    private boolean playing = false;
-    private long duration = 0L;
-    private long position = 0L;
-    private boolean foregroundStarted = false;
+    private boolean playing;
+    private long duration;
+    private long position;
+    private boolean foregroundStarted;
+    private Thread resolveWorker;
+    private volatile long activeResolveRequestId;
 
     static void ensureStarted(Context context) {
-        Intent intent = new Intent(context, PlaybackControlService.class).setAction(ACTION_START);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent);
-        } else {
-            context.startService(intent);
-        }
+        start(context, new Intent(context, PlaybackControlService.class).setAction(ACTION_START));
     }
 
     static void publishState(Context context, String title, String artist,
@@ -69,6 +78,21 @@ public final class PlaybackControlService extends Service {
             .putExtra(EXTRA_PLAYING, playing)
             .putExtra(EXTRA_DURATION, Math.max(0L, duration))
             .putExtra(EXTRA_POSITION, Math.max(0L, position));
+        start(context, intent);
+    }
+
+    static void resolveForPlayback(Context context, long requestId, String title,
+                                   String artist, String catalogJson) {
+        Intent intent = new Intent(context, PlaybackControlService.class)
+            .setAction(ACTION_RESOLVE)
+            .putExtra(EXTRA_REQUEST_ID, requestId)
+            .putExtra(EXTRA_TITLE, title == null ? "未知歌曲" : title)
+            .putExtra(EXTRA_ARTIST, artist == null ? "" : artist)
+            .putExtra(EXTRA_CATALOG_JSON, catalogJson == null ? "" : catalogJson);
+        start(context, intent);
+    }
+
+    private static void start(Context context, Intent intent) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent);
         } else {
@@ -122,16 +146,76 @@ public final class PlaybackControlService extends Service {
         } else if (ACTION_NEXT.equals(action)) {
             dispatch(COMMAND_NEXT, -1L);
         } else if (ACTION_UPDATE.equals(action) && intent != null) {
-            title = intent.getStringExtra(EXTRA_TITLE);
-            artist = intent.getStringExtra(EXTRA_ARTIST);
+            title = safe(intent.getStringExtra(EXTRA_TITLE), "尚未播放");
+            artist = safe(intent.getStringExtra(EXTRA_ARTIST), "");
             playing = intent.getBooleanExtra(EXTRA_PLAYING, false);
             duration = intent.getLongExtra(EXTRA_DURATION, 0L);
             position = intent.getLongExtra(EXTRA_POSITION, 0L);
-            if (title == null || title.trim().isEmpty()) title = "尚未播放";
-            if (artist == null) artist = "";
+        } else if (ACTION_RESOLVE.equals(action) && intent != null) {
+            startResolve(intent);
         }
         updateSessionAndNotification();
         return START_STICKY;
+    }
+
+    private synchronized void startResolve(Intent intent) {
+        long requestId = intent.getLongExtra(EXTRA_REQUEST_ID, 0L);
+        String catalogJson = safe(intent.getStringExtra(EXTRA_CATALOG_JSON), "");
+        if (requestId == 0L || catalogJson.isEmpty()) return;
+        activeResolveRequestId = requestId;
+        title = safe(intent.getStringExtra(EXTRA_TITLE), "未知歌曲");
+        artist = safe(intent.getStringExtra(EXTRA_ARTIST), "");
+        playing = false;
+        duration = 0L;
+        position = 0L;
+        if (resolveWorker != null) resolveWorker.interrupt();
+        broadcastProgress(requestId, "正在优先寻找可播放音频…");
+        resolveWorker = new Thread(() -> {
+            try (NetworkMediaCache.ForegroundLease ignored =
+                     NetworkMediaCache.beginForegroundWork(this)) {
+                NetworkMediaCache.CacheResult result = NetworkMediaCache.cacheForPlayback(
+                    this,
+                    catalogJson,
+                    message -> {
+                        if (requestId != activeResolveRequestId) return;
+                        artist = message == null || message.trim().isEmpty()
+                            ? artist : message.trim();
+                        updateSessionAndNotification();
+                        broadcastProgress(requestId, message);
+                    }
+                );
+                if (requestId != activeResolveRequestId) return;
+                Intent output = new Intent(ACTION_RESOLVE_RESULT)
+                    .setPackage(getPackageName())
+                    .putExtra(EXTRA_REQUEST_ID, requestId)
+                    .putExtra(EXTRA_SUCCESS, true)
+                    .putExtra(EXTRA_AUDIO_URI, result.audioUri)
+                    .putExtra(EXTRA_LYRIC, result.lyric)
+                    .putExtra(EXTRA_CATALOG_JSON, result.catalogJson)
+                    .putExtra(EXTRA_SOURCE_CODE, result.sourceCode)
+                    .putExtra(EXTRA_SOURCE_CHANGED, result.sourceChanged);
+                sendBroadcast(output);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            } catch (Throwable error) {
+                if (requestId != activeResolveRequestId) return;
+                Intent output = new Intent(ACTION_RESOLVE_RESULT)
+                    .setPackage(getPackageName())
+                    .putExtra(EXTRA_REQUEST_ID, requestId)
+                    .putExtra(EXTRA_SUCCESS, false)
+                    .putExtra(EXTRA_ERROR, safeError(error));
+                sendBroadcast(output);
+            }
+        }, "PlaybackResolveWorker");
+        resolveWorker.start();
+    }
+
+    private void broadcastProgress(long requestId, String message) {
+        Intent progress = new Intent(ACTION_RESOLVE_PROGRESS)
+            .setPackage(getPackageName())
+            .putExtra(EXTRA_REQUEST_ID, requestId)
+            .putExtra(EXTRA_MESSAGE, message == null ? "" : message);
+        sendBroadcast(progress);
     }
 
     private void dispatch(String command, long seekPosition) {
@@ -174,27 +258,19 @@ public final class PlaybackControlService extends Service {
         Intent openIntent = new Intent(this, MainActivity.class)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent contentIntent = PendingIntent.getActivity(
-            this,
-            10,
-            openIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
+            this, 10, openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         Notification.Action previous = new Notification.Action.Builder(
-            android.R.drawable.ic_media_previous,
-            "上一首",
-            servicePendingIntent(ACTION_PREVIOUS, 11)
-        ).build();
+            android.R.drawable.ic_media_previous, "上一首",
+            servicePendingIntent(ACTION_PREVIOUS, 11)).build();
         Notification.Action toggle = new Notification.Action.Builder(
             playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play,
             playing ? "暂停" : "播放",
-            servicePendingIntent(ACTION_TOGGLE, 12)
-        ).build();
+            servicePendingIntent(ACTION_TOGGLE, 12)).build();
         Notification.Action next = new Notification.Action.Builder(
-            android.R.drawable.ic_media_next,
-            "下一首",
-            servicePendingIntent(ACTION_NEXT, 13)
-        ).build();
+            android.R.drawable.ic_media_next, "下一首",
+            servicePendingIntent(ACTION_NEXT, 13)).build();
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? new Notification.Builder(this, CHANNEL_ID)
@@ -220,25 +296,29 @@ public final class PlaybackControlService extends Service {
 
     private PendingIntent servicePendingIntent(String action, int requestCode) {
         Intent intent = new Intent(this, PlaybackControlService.class).setAction(action);
-        return PendingIntent.getService(
-            this,
-            requestCode,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
+        return PendingIntent.getService(this, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || notificationManager == null) return;
         NotificationChannel channel = new NotificationChannel(
-            CHANNEL_ID,
-            "音乐播放控制",
-            NotificationManager.IMPORTANCE_LOW
-        );
-        channel.setDescription("锁屏和通知栏的音乐播放控制");
+            CHANNEL_ID, "音乐播放控制", NotificationManager.IMPORTANCE_LOW);
+        channel.setDescription("锁屏控制、后台寻找歌曲和音乐播放状态");
         channel.setShowBadge(false);
         channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         notificationManager.createNotificationChannel(channel);
+    }
+
+    private static String safe(String value, String fallback) {
+        return value == null || value.trim().isEmpty() ? fallback : value.trim();
+    }
+
+    private static String safeError(Throwable error) {
+        if (error == null) return "歌曲寻找失败";
+        String message = error.getMessage();
+        return message == null || message.trim().isEmpty()
+            ? error.getClass().getSimpleName() : message.trim();
     }
 
     @Override
@@ -248,6 +328,9 @@ public final class PlaybackControlService extends Service {
 
     @Override
     public void onDestroy() {
+        activeResolveRequestId++;
+        if (resolveWorker != null) resolveWorker.interrupt();
+        resolveWorker = null;
         if (mediaSession != null) {
             mediaSession.setActive(false);
             mediaSession.release();

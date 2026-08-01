@@ -1,5 +1,7 @@
 package com.jianglab.babywife;
 
+import android.content.Context;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -46,8 +48,13 @@ final class CatalogSearch {
     private CatalogSearch() {
     }
 
+    static Session newSession(Context context, String keyword, String modeLabel,
+                              boolean manualPriority) {
+        return new Session(context, keyword, modeLabel, sourcesForMode(modeLabel), manualPriority);
+    }
+
     static Session newSession(String keyword, String modeLabel) {
-        return new Session(keyword, modeLabel, sourcesForMode(modeLabel));
+        return new Session(null, keyword, modeLabel, sourcesForMode(modeLabel), false);
     }
 
     static String labelForSource(String source) {
@@ -135,19 +142,24 @@ final class CatalogSearch {
     }
 
     static final class Session {
+        private final Context context;
         private final String keyword;
         private final String modeLabel;
         private final List<String> sourceQueue;
+        private final boolean manualPriority;
         private final Map<String, List<Track>> sourceRows = new LinkedHashMap<>();
         private final Map<String, Integer> visibleOffsets = new HashMap<>();
         private final Set<String> emittedKeys = new HashSet<>();
         private int nextSourceIndex = 0;
         private boolean loading = false;
 
-        Session(String keyword, String modeLabel, List<String> sourceQueue) {
+        Session(Context context, String keyword, String modeLabel,
+                List<String> sourceQueue, boolean manualPriority) {
+            this.context = context == null ? null : context.getApplicationContext();
             this.keyword = keyword == null ? "" : keyword.trim();
             this.modeLabel = modeLabel == null ? "快速搜索" : modeLabel;
             this.sourceQueue = sourceQueue;
+            this.manualPriority = manualPriority;
         }
 
         synchronized boolean isLoading() {
@@ -161,6 +173,14 @@ final class CatalogSearch {
                 if (offset < entry.getValue().size()) return true;
             }
             return false;
+        }
+
+        synchronized int nextSourceIndex() {
+            return nextSourceIndex;
+        }
+
+        synchronized void restoreNextSourceIndex(int index) {
+            nextSourceIndex = Math.max(0, Math.min(sourceQueue.size(), index));
         }
 
         Batch loadNext() {
@@ -204,7 +224,7 @@ final class CatalogSearch {
                     futures.put(source, pool.submit(new Callable<List<Track>>() {
                         @Override
                         public List<Track> call() {
-                            return searchOneSource(source, keyword);
+                            return searchOneSource(context, manualPriority, source, keyword);
                         }
                     }));
                 }
@@ -246,10 +266,14 @@ final class CatalogSearch {
         }
     }
 
-    private static List<Track> searchOneSource(String source, String keyword) {
+    private static List<Track> searchOneSource(Context context, boolean manualPriority,
+                                                   String source, String keyword) {
         List<Track> rows = new ArrayList<>();
         try {
-            JSONObject response = new JSONObject(Bridge.search(source, keyword));
+            String raw = manualPriority
+                ? SearchPriorityCoordinator.searchManual(context, source, keyword)
+                : SearchPriorityCoordinator.searchAutomatic(context, source, keyword);
+            JSONObject response = new JSONObject(raw);
             if (!response.optBoolean("ok", false)) return rows;
             JSONArray data = response.optJSONArray("data");
             if (data == null) return rows;
@@ -265,7 +289,7 @@ final class CatalogSearch {
         return rows;
     }
 
-    static List<Track> findExactAlternatives(String catalogJson) {
+    static List<Track> findExactAlternatives(Context context, String catalogJson) {
         List<Track> matches = new ArrayList<>();
         try {
             JSONObject selected = new JSONObject(catalogJson == null ? "{}" : catalogJson);
@@ -282,7 +306,7 @@ final class CatalogSearch {
             try {
                 Map<String, Future<List<Track>>> futures = new LinkedHashMap<>();
                 for (String source : sources) {
-                    futures.put(source, pool.submit(() -> searchOneSource(source, searchKeyword)));
+                    futures.put(source, pool.submit(() -> searchOneSource(context, false, source, searchKeyword)));
                 }
                 for (String source : sources) {
                     Future<List<Track>> future = futures.get(source);
@@ -306,6 +330,10 @@ final class CatalogSearch {
             replacementScore(selectedTitleSafe(catalogJson), selectedArtistSafe(catalogJson), right)
                 - replacementScore(selectedTitleSafe(catalogJson), selectedArtistSafe(catalogJson), left));
         return matches;
+    }
+
+    static List<Track> findExactAlternatives(String catalogJson) {
+        return findExactAlternatives(null, catalogJson);
     }
 
     private static String selectedTitleSafe(String catalogJson) {

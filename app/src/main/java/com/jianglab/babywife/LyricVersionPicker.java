@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-import bridge.Bridge;
 
 /** Lazy lyric catalog. Nothing is searched until show() is called. */
 final class LyricVersionPicker {
@@ -180,7 +179,7 @@ final class LyricVersionPicker {
     private List<Candidate> searchSource(String source, String keyword) {
         List<Candidate> out = new ArrayList<>();
         try {
-            JSONObject response = new JSONObject(Bridge.search(source, keyword));
+            JSONObject response = new JSONObject(SearchPriorityCoordinator.searchManual(activity, source, keyword));
             if (!response.optBoolean("ok", false)) return out;
             JSONArray data = response.optJSONArray("data");
             if (data == null) return out;

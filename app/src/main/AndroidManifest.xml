@@ -24,7 +24,7 @@
             android:name=".PlaybackControlService"
             android:exported="false"
             android:process=":playback_control"
-            android:foregroundServiceType="mediaPlayback" />
+            android:foregroundServiceType="mediaPlayback|dataSync" />
 
         <service
             android:name=".PlaylistBatchCacheService"

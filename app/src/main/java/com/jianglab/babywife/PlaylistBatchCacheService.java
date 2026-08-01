@@ -377,10 +377,9 @@ public final class PlaylistBatchCacheService extends Service {
                 currentMessage = "正在缓存 " + (index + 1) + "/" + total + "：" + song.title;
                 report(STATUS_RUNNING, currentMessage, true, true, "", "");
                 try {
-                    NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
+                    NetworkMediaCache.CacheResult cached = NetworkMediaCache.cacheForAutomatic(
                         this,
                         song.catalogJson,
-                        true,
                         message -> {
                             checkStoppedUnchecked();
                             currentMessage = "缓存 " + (done + 1) + "/" + total

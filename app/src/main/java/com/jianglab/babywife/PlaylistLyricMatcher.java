@@ -1,5 +1,6 @@
 package com.jianglab.babywife;
 
+import android.content.Context;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -13,6 +14,7 @@ import java.util.Locale;
 import java.util.Set;
 
 import bridge.Bridge;
+
 
 /** Resolves lyrics from the selected catalog first, then exact cross-platform alternatives. */
 final class PlaylistLyricMatcher {
@@ -30,9 +32,11 @@ final class PlaylistLyricMatcher {
     private PlaylistLyricMatcher() {
     }
 
-    static void matchAsync(String title, String artist, String catalogJson, Callback callback) {
+    static void matchAsync(Context context, String title, String artist,
+                           String catalogJson, Callback callback) {
+        Context app = context == null ? null : context.getApplicationContext();
         new Thread(() -> {
-            Match result = find(title, artist, catalogJson);
+            Match result = find(app, title, artist, catalogJson);
             if (result == null) {
                 Log.w(TAG, "all lyric sources unavailable title=" + safe(title) + " artist=" + safe(artist));
                 if (callback != null) callback.onUnavailable();
@@ -42,12 +46,16 @@ final class PlaylistLyricMatcher {
         }, "playlist-lyric-matcher").start();
     }
 
+    static void matchAsync(String title, String artist, String catalogJson, Callback callback) {
+        matchAsync(null, title, artist, catalogJson, callback);
+    }
+
     static String fetchExactLyric(String catalogJson) {
         FetchResult result = fetchLyric(catalogJson);
         return result.lyric;
     }
 
-    private static Match find(String title, String artist, String catalogJson) {
+    private static Match find(Context context, String title, String artist, String catalogJson) {
         String safeTitle = safe(title);
         String safeArtist = safe(artist);
         if (safeTitle.isEmpty()) return null;
@@ -57,7 +65,7 @@ final class PlaylistLyricMatcher {
         if (original != null) return original;
 
         if (catalogJson != null && !catalogJson.trim().isEmpty()) {
-            List<CatalogSearch.Track> alternatives = CatalogSearch.findExactAlternatives(catalogJson);
+            List<CatalogSearch.Track> alternatives = CatalogSearch.findExactAlternatives(context, catalogJson);
             for (CatalogSearch.Track track : alternatives) {
                 Match candidate = tryCatalog(track.rawJson, track.title, track.artist, attempted, track.sourceCode);
                 if (candidate != null) return candidate;
@@ -67,7 +75,7 @@ final class PlaylistLyricMatcher {
         String keyword = (safeTitle + " " + safeArtist).trim();
         for (String source : orderedSources(catalogJson)) {
             try {
-                JSONObject response = new JSONObject(Bridge.search(source, keyword));
+                JSONObject response = new JSONObject(SearchPriorityCoordinator.searchAutomatic(context, source, keyword));
                 if (!response.optBoolean("ok", false)) {
                     Log.w(TAG, "search failed source=" + source + " error=" + response.optString("error", "unknown"));
                     continue;

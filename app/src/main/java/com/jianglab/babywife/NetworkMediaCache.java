@@ -195,10 +195,28 @@ final class NetworkMediaCache {
      */
     static CacheResult cache(Context context, String catalogJson, boolean persist,
                              StatusCallback callback) throws Exception {
-        return cache(context, catalogJson, callback);
+        return cacheForAutomatic(context, catalogJson, callback);
     }
 
-    static CacheResult cache(Context context, String catalogJson, StatusCallback callback) throws Exception {
+    static CacheResult cache(Context context, String catalogJson,
+                             StatusCallback callback) throws Exception {
+        return cacheForAutomatic(context, catalogJson, callback);
+    }
+
+    static CacheResult cacheForAutomatic(Context context, String catalogJson,
+                                         StatusCallback callback) throws Exception {
+        return cacheInternal(context, catalogJson, true, true, callback);
+    }
+
+    static CacheResult cacheForPlayback(Context context, String catalogJson,
+                                        StatusCallback callback) throws Exception {
+        return cacheInternal(context, catalogJson, false, false, callback);
+    }
+
+    private static CacheResult cacheInternal(Context context, String catalogJson,
+                                             boolean enforceRequestedMinimum,
+                                             boolean eagerLyrics,
+                                             StatusCallback callback) throws Exception {
         checkInterrupted();
         if (context == null) throw new IllegalArgumentException("context is required");
         awaitBackgroundTurn(context);
@@ -217,7 +235,7 @@ final class NetworkMediaCache {
         String requestedLyric = CacheStorage.readLyric(context, requestedKey);
         if (!requestedAudioUri.isEmpty() && isAcceptableCachedAudio(context, requestedAudioUri)) {
             boolean lyricFromCache = !requestedLyric.trim().isEmpty();
-            if (!lyricFromCache) {
+            if (eagerLyrics && !lyricFromCache) {
                 status(callback, "正在按原平台读取歌词...");
                 yieldIfForegroundRequested(context);
                 requestedLyric = fetchLyrics(requestedCatalog.toString());
@@ -233,21 +251,22 @@ final class NetworkMediaCache {
         if (!requestedAudioUri.isEmpty() && CacheStorage.exists(context, requestedAudioUri)) {
             status(callback, "旧缓存无法稳定播放，正在重新匹配...");
             CacheStorage.deleteKey(context, requestedKey);
-            requestedAudioUri = "";
-            requestedLyric = "";
         }
 
         Exception primaryError = null;
         status(callback, "正在使用歌单原来源解析歌曲...");
         try {
-            long duration = catalogDurationMs(requestedCatalog);
-            if (duration > 0L && duration < MIN_AUTOMATIC_DURATION_MS) {
-                throw new IllegalStateException("原来源歌曲时长不足1分钟");
+            if (enforceRequestedMinimum) {
+                long duration = catalogDurationMs(requestedCatalog);
+                if (duration > 0L && duration < MIN_AUTOMATIC_DURATION_MS) {
+                    throw new IllegalStateException("原来源歌曲时长不足1分钟");
+                }
             }
             awaitBackgroundTurn(context);
             ResolvedChoice original = new ResolvedChoice(requestedCatalog,
                 resolve(requestedCatalog.toString()));
-            CacheResult result = cacheChoice(context, requestedCatalog, original, callback);
+            CacheResult result = cacheChoice(context, requestedCatalog, original,
+                enforceRequestedMinimum, eagerLyrics, callback);
             if (result != null) return result;
         } catch (InterruptedException interrupted) {
             throw interrupted;
@@ -256,7 +275,8 @@ final class NetworkMediaCache {
         }
 
         status(callback, "原来源不可用，才开始查找其他平台版本...");
-        return cacheFirstUsableAlternative(context, requestedCatalog, callback, primaryError);
+        return cacheFirstUsableAlternative(context, requestedCatalog, callback,
+            primaryError, eagerLyrics);
     }
 
     private static final class ResolvedChoice {
@@ -283,8 +303,11 @@ final class NetworkMediaCache {
     private static CacheResult cacheFirstUsableAlternative(Context context,
                                                                JSONObject requestedCatalog,
                                                                StatusCallback callback,
-                                                               Exception primaryError) throws Exception {
-        List<CatalogSearch.Track> alternatives = CatalogSearch.findExactAlternatives(requestedCatalog.toString());
+                                                               Exception primaryError,
+                                                               boolean eagerLyrics) throws Exception {
+        awaitBackgroundTurn(context);
+        List<CatalogSearch.Track> alternatives = CatalogSearch.findExactAlternatives(
+            context, requestedCatalog.toString());
         String requestedSource = requestedCatalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
         String requestedId = requestedCatalog.optString("id", "").trim();
         Exception lastError = primaryError;
@@ -307,7 +330,7 @@ final class NetworkMediaCache {
                 status(callback, "正在尝试其他平台候选 " + attempted + "/" + MAX_FALLBACK_ATTEMPTS
                     + "：" + CatalogSearch.labelForSource(source));
                 ResolvedChoice choice = new ResolvedChoice(catalog, resolve(catalog.toString()));
-                CacheResult result = cacheChoice(context, requestedCatalog, choice, callback);
+                CacheResult result = cacheChoice(context, requestedCatalog, choice, true, eagerLyrics, callback);
                 if (result != null) return result;
             } catch (InterruptedException interrupted) {
                 throw interrupted;
@@ -324,14 +347,17 @@ final class NetworkMediaCache {
 
 
     private static CacheResult cacheChoice(Context context, JSONObject requestedCatalog,
-                                           ResolvedChoice choice, StatusCallback callback) throws Exception {
+                                           ResolvedChoice choice, boolean enforceMinimumDuration,
+                                           boolean eagerLyrics, StatusCallback callback) throws Exception {
         checkInterrupted();
         awaitBackgroundTurn(context);
         if (choice == null || choice.audioUrl().isEmpty()) return null;
         JSONObject actualCatalog = canonicalCatalog(choice.catalog.toString());
-        long catalogDuration = catalogDurationMs(actualCatalog);
-        if (catalogDuration > 0L && catalogDuration < MIN_AUTOMATIC_DURATION_MS) {
-            throw new IllegalStateException("候选歌曲时长不足1分钟");
+        if (enforceMinimumDuration) {
+            long catalogDuration = catalogDurationMs(actualCatalog);
+            if (catalogDuration > 0L && catalogDuration < MIN_AUTOMATIC_DURATION_MS) {
+                throw new IllegalStateException("候选歌曲时长不足1分钟");
+            }
         }
 
         String requestedSource = requestedCatalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
@@ -353,7 +379,7 @@ final class NetworkMediaCache {
         boolean lyricFromCache = !lyric.trim().isEmpty();
         String existingAudioUri = CacheStorage.findAudioUri(context, key);
         if (!existingAudioUri.isEmpty() && isAcceptableCachedAudio(context, existingAudioUri)) {
-            if (!lyricFromCache) {
+            if (eagerLyrics && !lyricFromCache) {
                 yieldIfForegroundRequested(context);
                 lyric = fetchLyrics(actualCatalog.toString());
                 if (!lyric.trim().isEmpty()) {
@@ -386,10 +412,12 @@ final class NetworkMediaCache {
             checkInterrupted();
             if (partial.length() <= 0L) throw new IllegalStateException("歌曲缓存为空");
             String actualExtension = detectAudioExtension(partial, hintedExtension);
-            long actualDuration = mediaDurationMs(partial);
-            if (actualDuration < MIN_AUTOMATIC_DURATION_MS) {
-                if (actualDuration <= 0L) throw new IllegalStateException("设备无法识别候选音频或确认时长");
-                throw new IllegalStateException("候选音频只有" + Math.max(1L, actualDuration / 1000L) + "秒");
+            if (enforceMinimumDuration) {
+                long actualDuration = mediaDurationMs(partial);
+                if (actualDuration < MIN_AUTOMATIC_DURATION_MS) {
+                    if (actualDuration <= 0L) throw new IllegalStateException("设备无法识别候选音频或确认时长");
+                    throw new IllegalStateException("候选音频只有" + Math.max(1L, actualDuration / 1000L) + "秒");
+                }
             }
             yieldIfForegroundRequested(context);
             if (!PlaybackCompatibility.isPlayable(partial)) {
@@ -399,7 +427,7 @@ final class NetworkMediaCache {
             // 不向音频文件写入歌名、歌手、专辑或其他标签；歌曲信息由歌单保存。
             String storedUri = CacheStorage.storeAudio(context, key, actualExtension, partial,
                 actualTitle, actualArtist, actualAlbum, actualCatalog.toString());
-            if (!lyricFromCache) {
+            if (eagerLyrics && !lyricFromCache) {
                 yieldIfForegroundRequested(context);
                 lyric = fetchLyrics(actualCatalog.toString());
                 if (!lyric.trim().isEmpty()) {

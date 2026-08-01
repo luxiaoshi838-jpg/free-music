@@ -203,10 +203,23 @@ public class MainActivity extends Activity {
     private long lastPublishedPlaybackSecond = -1L;
     private boolean lastPublishedPlaying = false;
     private String lastPublishedSongKey = "";
+    private long playbackResolveRequestId;
+    private Song playbackResolveSong;
+    private String playbackResolveOriginalKey = "";
     private final BroadcastReceiver playbackCommandReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (intent == null) return;
+            String action = intent.getAction();
+            if (PlaybackControlService.ACTION_RESOLVE_PROGRESS.equals(action)) {
+                handlePlaybackResolveProgress(intent);
+                return;
+            }
+            if (PlaybackControlService.ACTION_RESOLVE_RESULT.equals(action)) {
+                handlePlaybackResolveResult(intent);
+                return;
+            }
+            if (!PlaybackControlService.ACTION_COMMAND.equals(action)) return;
             String command = intent.getStringExtra(PlaybackControlService.EXTRA_COMMAND);
             if (PlaybackControlService.COMMAND_PREVIOUS.equals(command)) {
                 playPlaylistOffset(-1);
@@ -374,6 +387,8 @@ public class MainActivity extends Activity {
     private void registerPlaybackControlReceiver() {
         if (playbackReceiverRegistered) return;
         IntentFilter filter = new IntentFilter(PlaybackControlService.ACTION_COMMAND);
+        filter.addAction(PlaybackControlService.ACTION_RESOLVE_PROGRESS);
+        filter.addAction(PlaybackControlService.ACTION_RESOLVE_RESULT);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(playbackCommandReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
@@ -668,6 +683,17 @@ public class MainActivity extends Activity {
 
         searchInput = new EditText(this);
         searchInput.setSingleLine(true);
+        searchInput.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        searchInput.setOnEditorActionListener((view, actionId, event) -> {
+            boolean enter = event != null
+                && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER
+                && event.getAction() == android.view.KeyEvent.ACTION_DOWN;
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH || enter) {
+                performSearch();
+                return true;
+            }
+            return false;
+        });
         searchInput.setHint("搜索歌曲 / 歌手");
         searchInput.setTextColor(TEXT_MAIN);
         searchInput.setHintTextColor(Color.argb(190, 255, 255, 255));
@@ -1461,7 +1487,7 @@ public class MainActivity extends Activity {
         }
 
         renderResults();
-        activeSearchSession = CatalogSearch.newSession(keyword, mode);
+        activeSearchSession = CatalogSearch.newSession(this, keyword, mode, true);
         searchPageStatusView.setText(mode + "：正在加载首批歌曲目录...");
         loadNextSearchBatch(true);
     }
@@ -1482,18 +1508,35 @@ public class MainActivity extends Activity {
         }
         if (!firstBatch) searchPageStatusView.setText("正在加载下一批未搜索平台或目录结果...");
         new Thread(() -> {
-            CatalogSearch.Batch batch = session.loadNext();
+            CatalogSearch.Batch batch = null;
+            Throwable failure = null;
             List<Song> rows = new ArrayList<>();
-            for (CatalogSearch.Track track : batch.tracks) rows.add(Song.fromCatalog(track));
+            try {
+                batch = session.loadNext();
+                for (CatalogSearch.Track track : batch.tracks) rows.add(Song.fromCatalog(track));
+            } catch (Throwable error) {
+                failure = error;
+            }
+            CatalogSearch.Batch result = batch;
+            Throwable error = failure;
             runOnUiThread(() -> {
                 if (session != activeSearchSession) return;
+                searchPageLoading = false;
+                if (error != null || result == null) {
+                    searchPageStatusView.setText("搜索过程异常，已保留现有结果，可再次按回车或点击搜索");
+                    if (searchLoadMoreView != null) {
+                        searchLoadMoreView.setEnabled(true);
+                        searchLoadMoreView.setVisibility(View.VISIBLE);
+                        searchLoadMoreView.setText("重新加载歌曲目录");
+                    }
+                    return;
+                }
                 appendUnique(searchResults, rows);
                 renderResults();
-                searchPageLoading = false;
-                String platformText = batch.attemptedSources.isEmpty()
+                String platformText = result.attemptedSources.isEmpty()
                     ? ""
-                    : "，新搜索平台 " + batch.attemptedSources.size() + " 个";
-                boolean hasMore = batch.hasMore;
+                    : "，新搜索平台 " + result.attemptedSources.size() + " 个";
+                boolean hasMore = result.hasMore;
                 searchPageStatusView.setText(
                     "已建立目录 " + searchResults.size() + " 首" + platformText
                         + (hasMore ? "；继续向下滚动或点击底部加载" : "；当前模式已加载完")
@@ -1506,7 +1549,7 @@ public class MainActivity extends Activity {
                         : "当前搜索模式已加载完");
                 }
             });
-        }).start();
+        }, "manual-catalog-search").start();
     }
 
     private void appendLocalSearch(String keyword) {
@@ -1958,7 +2001,7 @@ public class MainActivity extends Activity {
         if (!lyricMatchingSongs.add(matchKey)) return;
         final boolean bindToPlaylist = isSongInAnyPlaylist(song);
         android.util.Log.i("BabywifeLyrics", "match start key=" + song.key());
-        PlaylistLyricMatcher.matchAsync(song.title, song.artist, song.catalogJson,
+        PlaylistLyricMatcher.matchAsync(this, song.title, song.artist, song.catalogJson,
             new PlaylistLyricMatcher.Callback() {
                 @Override
                 public void onMatched(String lyric, String label) {
@@ -2018,7 +2061,7 @@ public class MainActivity extends Activity {
             toast("替换歌曲只对歌单内歌曲生效");
             return;
         }
-        SongVersionPicker.show(this, song.title, song.artist, new SongVersionPicker.Callback() {
+        SongVersionPicker.show(this, song.key(), song.title, song.artist, new SongVersionPicker.Callback() {
             @Override
             public void onStatus(String message) {
                 runOnUiThread(() -> {
@@ -2304,7 +2347,7 @@ public class MainActivity extends Activity {
         if (currentSong == song && statusView != null) {
             statusView.setText("歌曲已加入歌单，正在匹配歌词...");
         }
-        PlaylistLyricMatcher.matchAsync(song.title, song.artist, song.catalogJson,
+        PlaylistLyricMatcher.matchAsync(this, song.title, song.artist, song.catalogJson,
             new PlaylistLyricMatcher.Callback() {
                 @Override
                 public void onMatched(String lyric, String label) {
@@ -2693,17 +2736,24 @@ public class MainActivity extends Activity {
         artistView.setText(song.artist + " · " + song.source);
         updateLyricActionVisibility(song);
         statusView.setText("当前选择：" + song.title);
-        lyricHandler.post(() -> {
-            if (currentSong == song) showSongLyrics(song);
-        });
 
         if (song.isNetworkCatalog()) {
+            if (song.lyric != null && !song.lyric.trim().isEmpty()) {
+                lyricHandler.post(() -> {
+                    if (currentSong == song) showSongLyrics(song);
+                });
+            } else if (lyricView != null) {
+                lyricView.setText("正在优先寻找可播放音频，歌词将在开始播放后匹配…");
+            }
             stopPlayback();
             playButton.setText("▶");
             cacheAndPlay(song);
             return;
         }
 
+        lyricHandler.post(() -> {
+            if (currentSong == song) showSongLyrics(song);
+        });
         if (song.uri == null || song.uri.isEmpty()) {
             stopPlayback();
             playButton.setText("▶");
@@ -2714,75 +2764,90 @@ public class MainActivity extends Activity {
     }
 
     private void cacheAndPlay(Song song) {
-        String originalKey = song.key();
-        statusView.setText("正在缓存歌曲并匹配歌词...");
-        new Thread(() -> {
-            try (NetworkMediaCache.ForegroundLease foregroundLease =
-                     NetworkMediaCache.beginForegroundWork(this)) {
-                NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
-                    this,
-                    song.catalogJson,
-                    true,
-                    message -> runOnUiThread(() -> {
-                        if (currentSong == song) statusView.setText(message);
-                    })
-                );
-                runOnUiThread(() -> {
-                    if (currentSong != song) return;
-                    song.cachedUri = cached.audioUri;
-                    song.uri = cached.audioUri;
-                    if (cached.catalogJson != null && !cached.catalogJson.trim().isEmpty()) {
-                        song.catalogJson = cached.catalogJson;
-                    }
-                    if (cached.sourceCode != null && !cached.sourceCode.trim().isEmpty()) {
-                        song.source = CatalogSearch.labelForSource(cached.sourceCode);
-                    }
-                    if ((song.lyric == null || song.lyric.trim().isEmpty())
-                        && cached.lyric != null && !cached.lyric.trim().isEmpty()) {
-                        String label = song.title + " · " + song.artist + " · " + song.source;
-                        if (isSongInAnyPlaylist(song)) {
-                            bindLyricToPlaylistCopies(song, cached.lyric, label);
-                        } else {
-                            song.lyric = cached.lyric;
-                            song.lyricLabel = label;
-                        }
-                    }
-                    persistResolvedCatalogToPlaylistCopies(song, originalKey);
-                    song.autoUnavailable = false;
-                    song.manualUnavailable = false;
+        playbackResolveRequestId = System.nanoTime();
+        playbackResolveSong = song;
+        playbackResolveOriginalKey = song.key();
+        statusView.setText("正在优先寻找可播放音频；切到其他软件后仍会继续…");
+        PlaybackControlService.resolveForPlayback(
+            this,
+            playbackResolveRequestId,
+            song.title,
+            song.artist,
+            song.catalogJson
+        );
+    }
+
+    private void handlePlaybackResolveProgress(Intent intent) {
+        long requestId = intent.getLongExtra(PlaybackControlService.EXTRA_REQUEST_ID, 0L);
+        if (requestId == 0L || requestId != playbackResolveRequestId) return;
+        if (currentSong != playbackResolveSong || statusView == null) return;
+        String message = intent.getStringExtra(PlaybackControlService.EXTRA_MESSAGE);
+        if (message != null && !message.trim().isEmpty()) statusView.setText(message);
+    }
+
+    private void handlePlaybackResolveResult(Intent intent) {
+        long requestId = intent.getLongExtra(PlaybackControlService.EXTRA_REQUEST_ID, 0L);
+        if (requestId == 0L || requestId != playbackResolveRequestId) return;
+        Song song = playbackResolveSong;
+        if (song == null || currentSong != song) return;
+        boolean success = intent.getBooleanExtra(PlaybackControlService.EXTRA_SUCCESS, false);
+        if (!success) {
+            stopPlayback();
+            playButton.setText("▶");
+            showSongLyrics(song);
+            if (isSongInAnyPlaylist(song)) {
+                if (song.manualAttempt) {
+                    song.manualUnavailable = true;
                     song.manualAttempt = false;
-                    markSongUnavailable(song, false);
-                    artistView.setText(song.artist + " · " + song.source);
-                    if (cached.sourceChanged) {
-                        toast("原来源不可用，已切换并记住" + song.source + "版本");
-                        renderResults();
-                    }
-                    if (isSongInAnyPlaylist(song)) savePlaylists();
-                    showSongLyrics(song);
-                    startLocalPlayback(song);
-                });
-            } catch (Exception error) {
-                runOnUiThread(() -> {
-                    if (currentSong != song) return;
-                    stopPlayback();
-                    playButton.setText("▶");
-                    showSongLyrics(song);
-                    if (isSongInAnyPlaylist(song)) {
-                        if (song.manualAttempt) {
-                            song.manualUnavailable = true;
-                            song.manualAttempt = false;
-                        } else {
-                            song.autoUnavailable = true;
-                        }
-                        markSongUnavailable(song, song.autoUnavailable && song.manualUnavailable);
-                        savePlaylists();
-                        renderCurrentPlaylist();
-                    }
-                    statusView.setText("缓存失败：" + error.getMessage());
-                    toast("该歌曲当前无法缓存播放");
-                });
+                } else {
+                    song.autoUnavailable = true;
+                }
+                markSongUnavailable(song, song.autoUnavailable && song.manualUnavailable);
+                savePlaylists();
+                renderCurrentPlaylist();
             }
-        }).start();
+            String error = intent.getStringExtra(PlaybackControlService.EXTRA_ERROR);
+            statusView.setText("缓存失败：" + (error == null ? "歌曲资源不可用" : error));
+            toast("该歌曲当前无法缓存播放");
+            return;
+        }
+
+        String audioUri = intent.getStringExtra(PlaybackControlService.EXTRA_AUDIO_URI);
+        if (audioUri == null || audioUri.trim().isEmpty()) {
+            statusView.setText("没有取得可播放音频");
+            return;
+        }
+        song.cachedUri = audioUri;
+        song.uri = audioUri;
+        String catalogJson = intent.getStringExtra(PlaybackControlService.EXTRA_CATALOG_JSON);
+        if (catalogJson != null && !catalogJson.trim().isEmpty()) song.catalogJson = catalogJson;
+        String sourceCode = intent.getStringExtra(PlaybackControlService.EXTRA_SOURCE_CODE);
+        if (sourceCode != null && !sourceCode.trim().isEmpty()) {
+            song.source = CatalogSearch.labelForSource(sourceCode);
+        }
+        String lyric = intent.getStringExtra(PlaybackControlService.EXTRA_LYRIC);
+        if ((song.lyric == null || song.lyric.trim().isEmpty())
+            && lyric != null && !lyric.trim().isEmpty()) {
+            String label = song.title + " · " + song.artist + " · " + song.source;
+            if (isSongInAnyPlaylist(song)) bindLyricToPlaylistCopies(song, lyric, label);
+            else {
+                song.lyric = lyric;
+                song.lyricLabel = label;
+            }
+        }
+        persistResolvedCatalogToPlaylistCopies(song, playbackResolveOriginalKey);
+        song.autoUnavailable = false;
+        song.manualUnavailable = false;
+        song.manualAttempt = false;
+        markSongUnavailable(song, false);
+        artistView.setText(song.artist + " · " + song.source);
+        if (intent.getBooleanExtra(PlaybackControlService.EXTRA_SOURCE_CHANGED, false)) {
+            toast("原来源不可用，已切换并记住" + song.source + "版本");
+            renderResults();
+        }
+        if (isSongInAnyPlaylist(song)) savePlaylists();
+        showSongLyrics(song);
+        startLocalPlayback(song);
     }
 
     private String stripVisibleLyricTags(String lyric) {
