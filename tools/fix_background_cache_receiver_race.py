@@ -2,6 +2,7 @@
 from pathlib import Path
 import argparse
 
+# Triggered after the workflow was installed so GitHub Actions validates the full patch.
 
 def main() -> None:
     parser = argparse.ArgumentParser()
