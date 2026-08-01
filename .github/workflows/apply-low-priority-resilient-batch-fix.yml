@@ -1,3 +1,4 @@
+# build-trigger: 2026-08-01-2236
 name: Apply low-priority resilient batch cache fix
 
 on:
