@@ -190,6 +190,23 @@ final class NetworkMediaCache {
         }
     }
 
+    static final class ImmediatePlaybackResult {
+        final String audioUri;
+        final String catalogJson;
+        final String sourceCode;
+        final boolean sourceChanged;
+        final boolean fromCache;
+
+        ImmediatePlaybackResult(String audioUri, String catalogJson, String sourceCode,
+                                boolean sourceChanged, boolean fromCache) {
+            this.audioUri = audioUri == null ? "" : audioUri;
+            this.catalogJson = catalogJson == null ? "" : catalogJson;
+            this.sourceCode = sourceCode == null ? "" : sourceCode;
+            this.sourceChanged = sourceChanged;
+            this.fromCache = fromCache;
+        }
+    }
+
     /** Compatibility overload used by the final player source.
      * The boolean requests persistent caching; this implementation always persists selected tracks.
      */
@@ -211,6 +228,66 @@ final class NetworkMediaCache {
     static CacheResult cacheForPlayback(Context context, String catalogJson,
                                         StatusCallback callback) throws Exception {
         return cachePrivateStylePlayback(context, catalogJson, callback);
+    }
+
+    /**
+     * Resolve only enough information to start playback. No audio download,
+     * duration check, format coercion or decoder probe is performed here.
+     * Existing managed cache is preferred; otherwise the raw resolved URL is
+     * returned immediately to MediaPlayer.prepareAsync().
+     */
+    static ImmediatePlaybackResult resolveForImmediatePlayback(Context context,
+                                                               String catalogJson,
+                                                               StatusCallback callback) throws Exception {
+        checkInterrupted();
+        if (context == null) throw new IllegalArgumentException("context is required");
+        JSONObject requestedCatalog = canonicalCatalog(catalogJson);
+        String requestedSource = requestedCatalog.optString("source", "")
+            .trim().toLowerCase(Locale.ROOT);
+        String requestedId = requestedCatalog.optString("id", "").trim();
+        if (requestedSource.isEmpty() || requestedId.isEmpty()) {
+            throw new IllegalArgumentException("歌曲目录缺少来源或 ID");
+        }
+
+        String requestedKey = sha256(requestedSource + "|" + requestedId);
+        String requestedCached = CacheStorage.findAudioUri(context, requestedKey);
+        if (!requestedCached.isEmpty() && CacheStorage.exists(context, requestedCached)) {
+            status(callback, "已读取歌曲缓存");
+            return new ImmediatePlaybackResult(requestedCached, requestedCatalog.toString(),
+                requestedSource, false, true);
+        }
+
+        ResolvedChoice choice = null;
+        status(callback, "正在连接原来源...");
+        try {
+            choice = new ResolvedChoice(requestedCatalog,
+                resolvePrivateStyle(requestedCatalog.toString()));
+        } catch (Exception ignored) {
+        }
+        if (choice == null || choice.audioUrl().isEmpty()) {
+            status(callback, "原来源不可用，正在按歌名和歌手切换来源...");
+            choice = findPrivateStyleFallback(context, requestedCatalog, callback);
+        }
+        if (choice == null || choice.audioUrl().isEmpty()) {
+            throw new IllegalStateException("未找到同歌手同名的可播放版本，请手动使用替换歌曲");
+        }
+
+        JSONObject actualCatalog = canonicalCatalog(choice.catalog.toString());
+        String actualSource = actualCatalog.optString("source", "")
+            .trim().toLowerCase(Locale.ROOT);
+        String actualId = actualCatalog.optString("id", "").trim();
+        if (actualSource.isEmpty() || actualId.isEmpty()) {
+            throw new IllegalStateException("歌曲目录不完整");
+        }
+        boolean sourceChanged = !requestedSource.equals(actualSource)
+            || !requestedId.equals(actualId);
+        String actualKey = sha256(actualSource + "|" + actualId);
+        String actualCached = CacheStorage.findAudioUri(context, actualKey);
+        boolean fromCache = !actualCached.isEmpty()
+            && CacheStorage.exists(context, actualCached);
+        String audioUri = fromCache ? actualCached : choice.audioUrl();
+        return new ImmediatePlaybackResult(audioUri, actualCatalog.toString(),
+            actualSource, sourceChanged, fromCache);
     }
 
     /**
@@ -265,24 +342,35 @@ final class NetworkMediaCache {
     private static ResolvedChoice findPrivateStyleFallback(Context context,
                                                             JSONObject requestedCatalog,
                                                             StatusCallback callback) {
-        List<CatalogSearch.Track> alternatives = CatalogSearch.findExactAlternatives(
-            context, requestedCatalog.toString(), true);
-        String requestedSource = requestedCatalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
+        String requestedSource = requestedCatalog.optString("source", "")
+            .trim().toLowerCase(Locale.ROOT);
         String requestedId = requestedCatalog.optString("id", "").trim();
-        for (CatalogSearch.Track alternative : alternatives) {
+        for (String sourceToSearch : CatalogSearch.exactAlternativeSourceOrder(
+                 requestedCatalog.toString())) {
             try {
                 checkInterrupted();
-                JSONObject catalog = canonicalCatalog(alternative.rawJson);
-                String source = catalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
-                String id = catalog.optString("id", "").trim();
-                if (source.isEmpty() || id.isEmpty()) continue;
-                if (requestedSource.equals(source) && requestedId.equals(id)) continue;
-                JSONObject resolved = resolvePrivateStyle(catalog.toString());
-                ResolvedChoice choice = new ResolvedChoice(catalog, resolved);
-                if (!choice.audioUrl().isEmpty()) {
-                    status(callback, "已匹配到同歌手同名的"
-                        + CatalogSearch.labelForSource(source) + "版本");
-                    return choice;
+                status(callback, "正在尝试"
+                    + CatalogSearch.labelForSource(sourceToSearch) + "版本...");
+                List<CatalogSearch.Track> alternatives =
+                    CatalogSearch.findExactAlternativesInSource(
+                        context, requestedCatalog.toString(), sourceToSearch, true);
+                for (CatalogSearch.Track alternative : alternatives) {
+                    JSONObject catalog = canonicalCatalog(alternative.rawJson);
+                    String source = catalog.optString("source", "")
+                        .trim().toLowerCase(Locale.ROOT);
+                    String id = catalog.optString("id", "").trim();
+                    if (source.isEmpty() || id.isEmpty()) continue;
+                    if (requestedSource.equals(source) && requestedId.equals(id)) continue;
+                    try {
+                        JSONObject resolved = resolvePrivateStyle(catalog.toString());
+                        ResolvedChoice choice = new ResolvedChoice(catalog, resolved);
+                        if (!choice.audioUrl().isEmpty()) {
+                            status(callback, "已切换到"
+                                + CatalogSearch.labelForSource(source) + "版本");
+                            return choice;
+                        }
+                    } catch (Exception ignored) {
+                    }
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();

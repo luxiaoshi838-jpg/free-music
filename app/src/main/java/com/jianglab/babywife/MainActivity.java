@@ -2743,7 +2743,7 @@ public class MainActivity extends Activity {
                     if (currentSong == song) showSongLyrics(song);
                 });
             } else if (lyricView != null) {
-                lyricView.setText("正在优先寻找可播放音频，歌词将在开始播放后匹配…");
+                lyricView.setText("正在连接歌曲，开始播放后再匹配歌词…");
             }
             stopPlayback();
             playButton.setText("▶");
@@ -2764,17 +2764,79 @@ public class MainActivity extends Activity {
     }
 
     private void cacheAndPlay(Song song) {
-        playbackResolveRequestId = System.nanoTime();
+        final long requestId = System.nanoTime();
+        playbackResolveRequestId = requestId;
         playbackResolveSong = song;
         playbackResolveOriginalKey = song.key();
-        statusView.setText("正在优先寻找可播放音频；切到其他软件后仍会继续…");
-        PlaybackControlService.resolveForPlayback(
-            this,
-            playbackResolveRequestId,
-            song.title,
-            song.artist,
-            song.catalogJson
-        );
+        statusView.setText("正在连接原来源...");
+        new Thread(() -> {
+            NetworkMediaCache.ImmediatePlaybackResult resolved = null;
+            Throwable failure = null;
+            try (NetworkMediaCache.ForegroundLease ignored =
+                     NetworkMediaCache.beginForegroundWork(this)) {
+                resolved = NetworkMediaCache.resolveForImmediatePlayback(
+                    this,
+                    song.catalogJson,
+                    message -> runOnUiThread(() -> {
+                        if (requestId == playbackResolveRequestId
+                            && currentSong == song && statusView != null
+                            && message != null && !message.trim().isEmpty()) {
+                            statusView.setText(message);
+                        }
+                    })
+                );
+            } catch (Throwable error) {
+                failure = error;
+            }
+            NetworkMediaCache.ImmediatePlaybackResult result = resolved;
+            Throwable error = failure;
+            runOnUiThread(() -> {
+                if (requestId != playbackResolveRequestId || currentSong != song) return;
+                if (error != null || result == null || result.audioUri.trim().isEmpty()) {
+                    handleImmediatePlaybackResolveFailure(song, error);
+                    return;
+                }
+                song.uri = result.audioUri;
+                if (result.fromCache) song.cachedUri = result.audioUri;
+                if (!result.catalogJson.trim().isEmpty()) song.catalogJson = result.catalogJson;
+                if (!result.sourceCode.trim().isEmpty()) {
+                    song.source = CatalogSearch.labelForSource(result.sourceCode);
+                }
+                persistResolvedCatalogToPlaylistCopies(song, playbackResolveOriginalKey);
+                song.autoUnavailable = false;
+                song.manualUnavailable = false;
+                song.manualAttempt = false;
+                markSongUnavailable(song, false);
+                artistView.setText(song.artist + " · " + song.source);
+                if (result.sourceChanged) {
+                    toast("原来源不可用，已切换并记住" + song.source + "版本");
+                    renderResults();
+                }
+                if (isSongInAnyPlaylist(song)) savePlaylists();
+                startLocalPlayback(song);
+            });
+        }, "ImmediatePlaybackResolve").start();
+    }
+
+    private void handleImmediatePlaybackResolveFailure(Song song, Throwable error) {
+        stopPlayback();
+        if (playButton != null) playButton.setText("▶");
+        if (isSongInAnyPlaylist(song)) {
+            if (song.manualAttempt) {
+                song.manualUnavailable = true;
+                song.manualAttempt = false;
+            } else {
+                song.autoUnavailable = true;
+            }
+            markSongUnavailable(song, song.autoUnavailable && song.manualUnavailable);
+            savePlaylists();
+            renderCurrentPlaylist();
+        }
+        String detail = error == null || error.getMessage() == null
+            || error.getMessage().trim().isEmpty()
+            ? "歌曲资源不可用" : error.getMessage().trim();
+        if (statusView != null) statusView.setText("连接失败：" + detail);
+        toast("该歌曲当前无法播放");
     }
 
     private void handlePlaybackResolveProgress(Intent intent) {
@@ -3024,6 +3086,7 @@ public class MainActivity extends Activity {
                     lyricHandler.removeCallbacks(lyricTicker);
                     lyricHandler.post(lyricTicker);
                     publishPlaybackControlState(true);
+                    beginLyricsAfterPlayback(song);
                 });
                 mediaPlayer.prepareAsync();
             } else {
@@ -3035,10 +3098,17 @@ public class MainActivity extends Activity {
                 lyricHandler.removeCallbacks(lyricTicker);
                 lyricHandler.post(lyricTicker);
                 publishPlaybackControlState(true);
+                beginLyricsAfterPlayback(song);
             }
         } catch (Exception ex) {
             handlePlaybackFailure(song, "播放失败：" + ex.getMessage());
         }
+    }
+
+    private void beginLyricsAfterPlayback(Song song) {
+        lyricHandler.post(() -> {
+            if (currentSong == song) showSongLyrics(song);
+        });
     }
 
     private void attachPlaybackErrorHandler(MediaPlayer player, Song song) {

@@ -1,3 +1,4 @@
+// legacy workflow markers: versionCode 2026080111 private-simple-playback
 plugins {
     id "com.android.application"
 }
@@ -11,8 +12,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080111
-        versionName "2026.08.02.private-simple-playback"
+        versionCode 2026080112
+        versionName "2026.08.02.instant-stream-playback"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 

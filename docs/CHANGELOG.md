@@ -172,3 +172,13 @@
 - Retained the existing strict duration and decoder validation pipeline for one-click batch caching.
 - Kept retained replacement results, incremental loading and manual-search priority.
 - Bumped versionCode to 2026080111.
+
+
+## 2026-08-02 Instant streaming playback correction
+
+- Removed the remaining `PlaybackControlService.resolveForPlayback()` gate from search-result and playlist-song clicks.
+- Playback now resolves only the source URL and immediately calls asynchronous MediaPlayer preparation without waiting for a full download.
+- Lyrics start only after audio playback begins.
+- Exact title-and-artist fallback now searches one source at a time and stops at the first resolvable match instead of waiting for every platform.
+- Existing cache remains preferred; one-click batch caching keeps duration and decoder validation.
+- Bumped versionCode to 2026080112.

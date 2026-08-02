@@ -182,7 +182,7 @@ checks = {
         and '下拉或滚到底部' in picker
         and 'IME_ACTION_SEARCH' in main
         and 'ACTION_RESOLVE_RESULT' in main
-        and 'resolveForPlayback' in main
+        and 'resolveForImmediatePlayback' in main
         and 'cacheForPlayback' in network
         and 'cacheForAutomatic' in network
         and 'enforceRequestedMinimum' in network
@@ -204,6 +204,19 @@ checks = {
         and 'PlaybackCompatibility.isPlayable(partial)' in network
         and 'cacheForAutomatic' in network
     ),
+    'instant stream playback without pre-download gate': (
+        'ImmediatePlaybackResolve' in main
+        and 'resolveForImmediatePlayback' in main
+        and 'PlaybackControlService.resolveForPlayback(' not in main
+        and '正在优先寻找可播放音频' not in main
+        and 'beginLyricsAfterPlayback' in main
+        and 'static ImmediatePlaybackResult resolveForImmediatePlayback' in network
+        and 'No audio download' in network
+        and 'findExactAlternativesInSource' in catalog
+        and 'exactAlternativeSourceOrder' in catalog
+        and 'cacheForAutomatic' in network
+        and 'MIN_AUTOMATIC_DURATION_MS = 60_000L' in network
+    ),
     'media player error containment': (
         'attachPlaybackErrorHandler' in main
         and 'handlePlaybackFailure' in main
@@ -218,7 +231,7 @@ checks = {
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080111' in gradle,
+    'version bumped': 'versionCode 2026080112' in gradle,
     'logs synchronized': (
         '多格式缓存优先级与一分钟过滤' in project_log
         and 'Multi-format cache priority and one-minute filter' in changelog

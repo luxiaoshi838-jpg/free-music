@@ -336,6 +336,37 @@ final class CatalogSearch {
         return findExactAlternatives(context, catalogJson, false);
     }
 
+    static List<String> exactAlternativeSourceOrder(String catalogJson) {
+        List<String> sources = new ArrayList<>(ALL_SOURCES);
+        try {
+            JSONObject selected = new JSONObject(catalogJson == null ? "{}" : catalogJson);
+            String selectedSource = selected.optString("source", "")
+                .trim().toLowerCase(Locale.ROOT);
+            sources.remove(selectedSource);
+        } catch (Exception ignored) {
+        }
+        return sources;
+    }
+
+    static List<Track> findExactAlternativesInSource(Context context, String catalogJson,
+                                                      String source, boolean manualPriority) {
+        List<Track> matches = new ArrayList<>();
+        try {
+            JSONObject selected = new JSONObject(catalogJson == null ? "{}" : catalogJson);
+            String selectedTitle = selected.optString("name", "");
+            String selectedArtist = selected.optString("artist", "");
+            if (normalize(selectedTitle).isEmpty() || normalize(selectedArtist).isEmpty()) {
+                return matches;
+            }
+            String searchKeyword = selectedTitle + " " + selectedArtist;
+            for (Track track : searchOneSource(context, manualPriority, source, searchKeyword)) {
+                if (sameIdentity(selectedTitle, selectedArtist, track)) matches.add(track);
+            }
+        } catch (Exception ignored) {
+        }
+        return matches;
+    }
+
     static List<Track> findExactAlternatives(String catalogJson) {
         return findExactAlternatives(null, catalogJson, false);
     }
