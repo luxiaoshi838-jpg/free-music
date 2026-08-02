@@ -106,6 +106,8 @@ def verify(target: Path) -> None:
         "searchClearButton",
         "animateNavigationPress",
         ".scaleX(0.94f)",
+        "NetworkMediaCache.cache(",
+        "private void cacheAndPlay(Song song, int playToken)",
     ]
     missing = [marker for marker in required_main if marker not in main]
     if missing:
@@ -114,8 +116,8 @@ def verify(target: Path) -> None:
         raise RuntimeError("startup still launches PlaybackControlService")
     if "versionCode 2026080125" not in gradle or "2026.08.02.startup-anr-ui-feedback" not in gradle:
         raise RuntimeError("version markers missing")
-    if "cacheForAutomatic" not in network or "resolveForImmediatePlayback" not in network:
-        raise RuntimeError("existing playback/cache logic was not preserved")
+    if "static CacheResult cache(Context context, String catalogJson, boolean persist" not in network:
+        raise RuntimeError("current unsynced playback/cache implementation was not preserved")
     if "A real device may temporarily reject foreground-service starts." not in service:
         raise RuntimeError("service start protection missing")
 
