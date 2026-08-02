@@ -1,38 +1,35 @@
-name: Apply startup ANR and UI feedback fix
+name: Build v126 cache I/O guard APKs
 
 on:
   push:
     branches:
       - tools/fix-pr9-playback-batch-cache
     paths:
-      - tools/apply_startup_anr_ui_feedback_fix.py
-      - tools/apply_ui_responsiveness_notification_fix.py
-      - tools/startup_anr_ui_payload/**
       - .github/workflows/apply-playback-batch-fix.yml
 
 permissions:
   contents: write
 
 concurrency:
-  group: startup-anr-ui-feedback
+  group: build-v126-cache-io-guard
   cancel-in-progress: true
 
 jobs:
-  apply-build-push:
+  build-v126:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout feature branch
+      - name: Checkout verified public main commit
         uses: actions/checkout@v4
         with:
-          ref: fix/multiformat-cache-priority-60s
+          ref: 921a3dbc32a3513d521eb7f5f7f968f0739df69c
           path: repo
           fetch-depth: 0
 
-      - name: Checkout patch branch
+      - name: Checkout tools branch
         uses: actions/checkout@v4
         with:
           ref: tools/fix-pr9-playback-batch-cache
-          path: patch
+          path: tools-repo
           fetch-depth: 0
 
       - name: Set up JDK 17
@@ -47,23 +44,20 @@ jobs:
       - name: Install Android packages
         run: yes | sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
 
-      - name: Apply startup ANR and UI feedback fix
-        id: patch_sources
-        shell: bash
-        run: |
-          set +e
-          python patch/tools/apply_ui_responsiveness_notification_fix.py --root repo > patch/tools/latest_startup_anr_ui_patch.log 2>&1
-          status=$?
-          tail -n 120 patch/tools/latest_startup_anr_ui_patch.log
-          exit "$status"
-
-      - name: Run public-repo and feature checks
-        id: feature_checks
+      - name: Verify v126 source before build
+        id: source_checks
         working-directory: repo
         run: |
           python scripts/check_public_repo.py
           python scripts/check_feature_requirements.py
-          git diff --check
+          grep -q 'versionCode 2026080126' app/build.gradle
+          grep -q '2026.08.02.cache-io-guard-ui-feedback' app/build.gradle
+          grep -q 'private void refreshCachedUrisAfterMigrationAsync()' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q '"cache-uri-refresh"' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'attachSubtlePressFeedback(previous);' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'attachSubtlePressFeedback(next);' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'clearSearchButton.setText("×")' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'clearSearchButton.setVisibility(View.GONE)' app/src/main/java/com/jianglab/babywife/MainActivity.java
 
       - name: Build all four debug brands
         id: build_apks
@@ -80,49 +74,28 @@ jobs:
             sleep 5
           done
 
-      - name: Verify four APK outputs and current fix
+      - name: Verify four APK outputs
         id: verify_apks
         working-directory: repo
         run: |
           find app/build/outputs/apk -type f -name '*.apk' -print
           test "$(find app/build/outputs/apk -type f -name '*.apk' | wc -l)" -ge 4
-          grep -q 'versionCode 2026080125' app/build.gradle
-          grep -q 'startup-anr-ui-feedback' app/build.gradle
-          grep -q 'CacheUriRefreshWorker' app/src/main/java/com/jianglab/babywife/MainActivity.java
-          grep -q 'cacheUriRefreshSerial' app/src/main/java/com/jianglab/babywife/MainActivity.java
-          grep -q 'searchClearButton' app/src/main/java/com/jianglab/babywife/MainActivity.java
-          grep -q 'animateNavigationPress' app/src/main/java/com/jianglab/babywife/MainActivity.java
-          grep -q '.scaleX(0.94f)' app/src/main/java/com/jianglab/babywife/MainActivity.java
-          grep -q 'StartupPlaylistLoader' app/src/main/java/com/jianglab/babywife/MainActivity.java
-          ! grep -q 'PlaybackControlService.ensureStarted(this);' app/src/main/java/com/jianglab/babywife/MainActivity.java
-          grep -q 'A real device may temporarily reject foreground-service starts.' app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
-          grep -q 'private void cacheAndPlay(Song song, int playToken)' app/src/main/java/com/jianglab/babywife/MainActivity.java
-          grep -q 'static CacheResult cache(Context context, String catalogJson, boolean persist' app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java
 
-      - name: Push feature branch
-        id: push_feature
-        working-directory: repo
-        run: |
-          git checkout -- gradle/wrapper/gradle-wrapper.properties gradlew
-          git push origin HEAD:fix/multiformat-cache-priority-60s
-
-      - name: Upload four debug APKs
+      - name: Upload v126 debug APKs
         id: upload_apks
         uses: actions/upload-artifact@v4
         with:
-          name: startup-anr-ui-feedback-apks-${{ github.run_id }}
+          name: cache-io-guard-ui-feedback-v126-apks-${{ github.run_id }}
           path: repo/app/build/outputs/apk/*/debug/*.apk
           if-no-files-found: error
 
-      - name: Record run results
+      - name: Record v126 build results
         if: always()
-        working-directory: patch
+        working-directory: tools-repo
         env:
-          PATCH_OUTCOME: ${{ steps.patch_sources.outcome }}
-          CHECK_OUTCOME: ${{ steps.feature_checks.outcome }}
+          CHECK_OUTCOME: ${{ steps.source_checks.outcome }}
           BUILD_OUTCOME: ${{ steps.build_apks.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify_apks.outcome }}
-          PUSH_OUTCOME: ${{ steps.push_feature.outcome }}
           UPLOAD_OUTCOME: ${{ steps.upload_apks.outcome }}
         run: |
           git config user.name 'github-actions[bot]'
@@ -130,17 +103,14 @@ jobs:
           mkdir -p tools
           {
             echo "run_id=${GITHUB_RUN_ID}"
-            echo "artifact_name=startup-anr-ui-feedback-apks-${GITHUB_RUN_ID}"
-            echo "feature_commit=$(git -C ../repo rev-parse HEAD 2>/dev/null || true)"
-            echo "patch=${PATCH_OUTCOME}"
+            echo "artifact_name=cache-io-guard-ui-feedback-v126-apks-${GITHUB_RUN_ID}"
+            echo "source_commit=921a3dbc32a3513d521eb7f5f7f968f0739df69c"
             echo "checks=${CHECK_OUTCOME}"
             echo "build=${BUILD_OUTCOME}"
             echo "verify=${VERIFY_OUTCOME}"
-            echo "push=${PUSH_OUTCOME}"
             echo "upload=${UPLOAD_OUTCOME}"
-          } > tools/latest_startup_anr_ui_run.txt
-          touch tools/latest_startup_anr_ui_patch.log
-          git add tools/latest_startup_anr_ui_run.txt tools/latest_startup_anr_ui_patch.log
-          git commit -m "Record startup ANR UI build ${GITHUB_RUN_ID}" || true
+          } > tools/latest_v126_build.txt
+          git add tools/latest_v126_build.txt
+          git commit -m "Record v126 APK build ${GITHUB_RUN_ID}" || true
           git pull --rebase origin tools/fix-pr9-playback-batch-cache || true
           git push origin HEAD:tools/fix-pr9-playback-batch-cache
