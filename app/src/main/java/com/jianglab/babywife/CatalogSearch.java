@@ -104,6 +104,7 @@ final class CatalogSearch {
         final String album;
         final String sourceCode;
         final String sourceLabel;
+        final String directUrl;
         final String rawJson;
 
         Track(JSONObject object, String requestedSource) {
@@ -121,6 +122,7 @@ final class CatalogSearch {
             this.album = object.optString("album", "").trim();
             this.sourceCode = canonicalSource;
             this.sourceLabel = labelForSource(sourceCode);
+            this.directUrl = object.optString("url", "").trim();
             this.rawJson = object.toString();
         }
 

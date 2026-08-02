@@ -217,6 +217,19 @@ checks = {
         and 'cacheForAutomatic' in network
         and 'MIN_AUTOMATIC_DURATION_MS = 60_000L' in network
     ),
+    'clicked search source preserved and playlist minute rule isolated': (
+        'final String directUrl;' in catalog
+        and 'this.directUrl = object.optString("url", "").trim();' in catalog
+        and 'track.directUrl' in main
+        and 'boolean automaticPlaylist = isSongInAnyPlaylist(song) && !song.manualAttempt;' in main
+        and 'cacheImmediateAndPlay(song);' in main
+        and 'cacheAutomaticPlaylistAndPlay(song);' in main
+        and 'NetworkMediaCache.cacheForAutomatic' in main
+        and 'DirectSearchSourcePlayback' in main
+        and 'requestedDirectUrl' in network
+        and '搜索结果自带的播放源' in network
+        and 'MIN_AUTOMATIC_DURATION_MS = 60_000L' in network
+    ),
     'media player error containment': (
         'attachPlaybackErrorHandler' in main
         and 'handlePlaybackFailure' in main
@@ -231,7 +244,7 @@ checks = {
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080112' in gradle,
+    'version bumped': 'versionCode 2026080113' in gradle,
     'logs synchronized': (
         '多格式缓存优先级与一分钟过滤' in project_log
         and 'Multi-format cache priority and one-minute filter' in changelog

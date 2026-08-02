@@ -182,3 +182,12 @@
 - Exact title-and-artist fallback now searches one source at a time and stops at the first resolvable match instead of waiting for every platform.
 - Existing cache remains preferred; one-click batch caching keeps duration and decoder validation.
 - Bumped versionCode to 2026080112.
+
+
+## 2026-08-02 Direct clicked search source and isolated minute rule
+
+- Preserved the catalog row's direct URL through Track-to-Song conversion.
+- Non-playlist search clicks now use the selected row's URL/source/id before any title-and-artist fallback search.
+- Non-playlist automatic replacement and confirmed manual replacement skip the one-minute review.
+- Only automatic playlist playback/replacement uses `cacheForAutomatic` and the 60-second minimum.
+- Bumped versionCode to 2026080113.

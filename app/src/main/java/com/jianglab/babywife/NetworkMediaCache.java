@@ -257,6 +257,17 @@ final class NetworkMediaCache {
                 requestedSource, false, true);
         }
 
+        // Catalog search can already provide the selected row's playback URL.
+        // Preserve and use it before invoking Bridge.resolve or any title/artist
+        // replacement search. This is the core non-playlist click fast path.
+        String requestedDirectUrl = requestedCatalog.optString("url", "").trim();
+        if (requestedDirectUrl.startsWith("http://")
+            || requestedDirectUrl.startsWith("https://")) {
+            status(callback, "正在打开搜索结果自带的播放源...");
+            return new ImmediatePlaybackResult(requestedDirectUrl,
+                requestedCatalog.toString(), requestedSource, false, false);
+        }
+
         ResolvedChoice choice = null;
         status(callback, "正在连接原来源...");
         try {

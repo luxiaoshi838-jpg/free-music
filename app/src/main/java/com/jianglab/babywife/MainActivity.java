@@ -2764,11 +2764,24 @@ public class MainActivity extends Activity {
     }
 
     private void cacheAndPlay(Song song) {
+        // Only true playlist automation uses the one-minute validation path.
+        // Search-only songs and user-confirmed manual replacements stay on the
+        // direct-source path and never perform the one-minute review.
+        boolean automaticPlaylist = isSongInAnyPlaylist(song) && !song.manualAttempt;
+        if (automaticPlaylist) {
+            cacheAutomaticPlaylistAndPlay(song);
+            return;
+        }
+        cacheImmediateAndPlay(song);
+    }
+
+    private void cacheImmediateAndPlay(Song song) {
         final long requestId = System.nanoTime();
         playbackResolveRequestId = requestId;
         playbackResolveSong = song;
         playbackResolveOriginalKey = song.key();
-        statusView.setText("正在连接原来源...");
+        statusView.setText(song.uri != null && !song.uri.trim().isEmpty()
+            ? "正在打开所选歌曲来源..." : "正在连接所选歌曲来源...");
         new Thread(() -> {
             NetworkMediaCache.ImmediatePlaybackResult resolved = null;
             Throwable failure = null;
@@ -2815,7 +2828,68 @@ public class MainActivity extends Activity {
                 if (isSongInAnyPlaylist(song)) savePlaylists();
                 startLocalPlayback(song);
             });
-        }, "ImmediatePlaybackResolve").start();
+        }, "DirectSearchSourcePlayback").start();
+    }
+
+    private void cacheAutomaticPlaylistAndPlay(Song song) {
+        final long requestId = System.nanoTime();
+        playbackResolveRequestId = requestId;
+        playbackResolveSong = song;
+        playbackResolveOriginalKey = song.key();
+        statusView.setText("歌单歌曲正在按一分钟规则寻找可用版本...");
+        new Thread(() -> {
+            NetworkMediaCache.CacheResult cached = null;
+            Throwable failure = null;
+            try (NetworkMediaCache.ForegroundLease ignored =
+                     NetworkMediaCache.beginForegroundWork(this)) {
+                cached = NetworkMediaCache.cacheForAutomatic(
+                    this,
+                    song.catalogJson,
+                    message -> runOnUiThread(() -> {
+                        if (requestId == playbackResolveRequestId
+                            && currentSong == song && statusView != null
+                            && message != null && !message.trim().isEmpty()) {
+                            statusView.setText(message);
+                        }
+                    })
+                );
+            } catch (Throwable error) {
+                failure = error;
+            }
+            NetworkMediaCache.CacheResult result = cached;
+            Throwable error = failure;
+            runOnUiThread(() -> {
+                if (requestId != playbackResolveRequestId || currentSong != song) return;
+                if (error != null || result == null || result.audioUri.trim().isEmpty()) {
+                    song.autoUnavailable = true;
+                    markSongUnavailable(song, song.autoUnavailable && song.manualUnavailable);
+                    savePlaylists();
+                    renderCurrentPlaylist();
+                    String detail = error == null || error.getMessage() == null
+                        || error.getMessage().trim().isEmpty()
+                        ? "歌曲资源不可用" : error.getMessage().trim();
+                    statusView.setText("歌单自动寻找失败：" + detail);
+                    toast("歌单歌曲未找到符合一分钟规则的版本");
+                    return;
+                }
+                song.cachedUri = result.audioUri;
+                song.uri = result.audioUri;
+                if (!result.catalogJson.trim().isEmpty()) song.catalogJson = result.catalogJson;
+                if (!result.sourceCode.trim().isEmpty()) {
+                    song.source = CatalogSearch.labelForSource(result.sourceCode);
+                }
+                if ((song.lyric == null || song.lyric.trim().isEmpty())
+                    && result.lyric != null && !result.lyric.trim().isEmpty()) {
+                    song.lyric = result.lyric;
+                }
+                persistResolvedCatalogToPlaylistCopies(song, playbackResolveOriginalKey);
+                song.autoUnavailable = false;
+                markSongUnavailable(song, false);
+                artistView.setText(song.artist + " · " + song.source);
+                savePlaylists();
+                startLocalPlayback(song);
+            });
+        }, "AutomaticPlaylistPlayback").start();
     }
 
     private void handleImmediatePlaybackResolveFailure(Song song, Throwable error) {
@@ -4824,7 +4898,7 @@ public class MainActivity extends Activity {
                 track.artist,
                 track.sourceLabel,
                 "",
-                "",
+                track.directUrl,
                 track.rawJson,
                 ""
             );
