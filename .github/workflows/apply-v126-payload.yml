@@ -70,7 +70,7 @@ jobs:
               '"cache-uri-refresh"',
               'attachSubtlePressFeedback(previous);',
               'attachSubtlePressFeedback(next);',
-              'setScaleX(0.96f)',
+              '.scaleX(0.96f)',
               'clearSearchButton',
               'searchInput.setText("")',
               'versionCode 2026080126',
