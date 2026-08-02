@@ -92,17 +92,6 @@ def add_legacy_marker(target: Path) -> None:
         path.write_text(marker + text, encoding="utf-8")
 
 
-def patch_compile_sdk(target: Path) -> None:
-    path = target / "app/build.gradle"
-    text = path.read_text(encoding="utf-8")
-    if "compileSdkVersion 33" in text:
-        text = text.replace("compileSdkVersion 33", "compileSdkVersion 35", 1)
-    elif "compileSdkVersion 35" not in text:
-        raise RuntimeError("compileSdkVersion anchor not found")
-    # Keep targetSdkVersion 33 so this build does not opt into new runtime behavior.
-    path.write_text(text, encoding="utf-8")
-
-
 def verify(target: Path) -> None:
     main = (target / "app/src/main/java/com/jianglab/babywife/MainActivity.java").read_text(encoding="utf-8")
     gradle = (target / "app/build.gradle").read_text(encoding="utf-8")
@@ -128,8 +117,8 @@ def verify(target: Path) -> None:
         raise RuntimeError("startup still launches PlaybackControlService")
     if "versionCode 2026080125" not in gradle or "2026.08.02.startup-anr-ui-feedback" not in gradle:
         raise RuntimeError("version markers missing")
-    if "compileSdkVersion 35" not in gradle or "targetSdkVersion 33" not in gradle:
-        raise RuntimeError("compile/target SDK markers missing")
+    if "compileSdk 35" not in gradle or "targetSdk 35" not in gradle:
+        raise RuntimeError("uploaded SDK configuration was not preserved")
     if "static CacheResult cache(Context context, String catalogJson, boolean persist" not in network:
         raise RuntimeError("current unsynced playback/cache implementation was not preserved")
     if "A real device may temporarily reject foreground-service starts." not in service:
@@ -151,7 +140,6 @@ def main() -> None:
 
     patch_playback_service(target)
     add_legacy_marker(target)
-    patch_compile_sdk(target)
     verify(target)
 
     run("git", "config", "user.name", "github-actions[bot]", cwd=target)
