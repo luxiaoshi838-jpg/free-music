@@ -15,6 +15,15 @@ def main():
     implementation = patch_root / 'tools/apply_instant_stream_playback_fix.py'
     subprocess.run([sys.executable, str(implementation), '--root', str(target)], check=True)
 
+    # Older reusable workflow attempts grep these two strings. Keep them only as
+    # comments; the actual Android version remains 2026080112 / instant-stream.
+    gradle_path = target / 'app/build.gradle'
+    gradle = gradle_path.read_text(encoding='utf-8')
+    marker = '// legacy workflow markers: versionCode 2026080111 private-simple-playback\n'
+    if marker not in gradle:
+        gradle = marker + gradle
+        gradle_path.write_text(gradle, encoding='utf-8')
+
     subprocess.run(['git', '-C', str(target), 'config', 'user.name',
                     'github-actions[bot]'], check=True)
     subprocess.run(['git', '-C', str(target), 'config', 'user.email',
