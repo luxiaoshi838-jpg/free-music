@@ -26,6 +26,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          expected_chunks=$(cat <<'EOF'
+          2ef32a4e836246399d994de9d17fb86bf7b652d28dee08759c50027e3dd4011f  .sync/v126_payload.part00
+          c49a568d7b73051b9bd5e046c2ab8677bd436dc97876feabbbf65daeed3a43ca  .sync/v126_payload.part01
+          0117f08bfe1e456103eef762b17a9228d0837b138212b3f40232d566225d7604  .sync/v126_payload.part02
+          1e035f4265b5a7dc702f8a2c69cf23a2ccbfae9e532c8311d61b00e00c149df5  .sync/v126_payload.tail00
+          42ae85029fc693fc4edc12b3a72944c1e42a56b8a37b14371f3aae69a8a2cb46  .sync/v126_payload.tail01
+          e576340f3490dc0b921f118045a80f7430adc059b04773716ceb2ffee639b01f  .sync/v126_payload.tail02
+          e0836ea789e2ad2e7ee9cf48c3b0f1de33479524783a2632244186476f783e5c  .sync/v126_payload.rem00
+          cc6556fec4878011395e5fad102ebce75859cf6222a218a080571179ad71946f  .sync/v126_payload.rem01
+          EOF
+          )
+          printf '%s\n' "$expected_chunks" | sha256sum --check --strict
+          wc -c \
+            .sync/v126_payload.part00 \
+            .sync/v126_payload.part01 \
+            .sync/v126_payload.part02 \
+            .sync/v126_payload.tail00 \
+            .sync/v126_payload.tail01 \
+            .sync/v126_payload.tail02 \
+            .sync/v126_payload.rem00 \
+            .sync/v126_payload.rem01
           cat \
             .sync/v126_payload.part00 \
             .sync/v126_payload.part01 \
@@ -47,10 +68,8 @@ jobs:
           python3 scripts/check_feature_requirements.py
           python3 - <<'PY'
           from pathlib import Path
-
           main = Path('app/src/main/java/com/jianglab/babywife/MainActivity.java').read_text(encoding='utf-8')
           gradle = Path('app/build.gradle').read_text(encoding='utf-8')
-
           required = [
               'refreshCachedUrisAfterMigrationAsync()',
               'new Thread(() -> {',
@@ -67,7 +86,6 @@ jobs:
           missing = [item for item in required if item not in combined]
           if missing:
               raise SystemExit('Missing v126 requirements: ' + ', '.join(missing))
-
           start = main.index('private void refreshCachedUrisAfterMigrationAsync()')
           end = main.index('\n    private ', start + 20)
           refresh = main[start:end]
