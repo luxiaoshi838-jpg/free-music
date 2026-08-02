@@ -1,0 +1,31 @@
+name: Export apksigner
+
+on:
+  push:
+    branches:
+      - tools/export-apksigner
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install build tools
+        run: sdkmanager 'build-tools;35.0.0'
+      - name: Prepare apksigner bundle
+        run: |
+          set -euo pipefail
+          mkdir -p apksigner-bundle/lib
+          cp "$ANDROID_HOME/build-tools/35.0.0/apksigner" apksigner-bundle/
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" apksigner-bundle/lib/
+          chmod +x apksigner-bundle/apksigner
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apksigner-build-tools-35
+          path: apksigner-bundle
