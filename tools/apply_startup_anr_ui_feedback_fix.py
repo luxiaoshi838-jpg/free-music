@@ -11,8 +11,9 @@ import tempfile
 from pathlib import Path
 
 PAYLOAD_PARTS = [
-    "part_00.b64", "part_01.b64", "part_02.b64", "part_03.b64",
-    "part_04.b64", "part_05.b64", "part_06.b64", "part_07.b64",
+    "part_00.b64", "part_01.b64",
+    "part_02a.b64", "part_02b.b64", "part_02c.b64", "part_02d.b64",
+    "part_03.b64", "part_04.b64", "part_05.b64", "part_06.b64", "part_07.b64",
 ]
 OVERLAY_PATHS = [
     "PROJECT_LOG.md",
@@ -141,8 +142,6 @@ def main() -> None:
 
     run("git", "config", "user.name", "github-actions[bot]", cwd=target)
     run("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com", cwd=target)
-    # Preserve the uploaded Windows CRLF source exactly while allowing the
-    # normal whitespace check to distinguish CR-at-EOL from real trailing spaces.
     run("git", "config", "core.whitespace", "cr-at-eol", cwd=target)
     run("git", "add", *(OVERLAY_PATHS + [SERVICE_PATH]), cwd=target)
     run("git", "diff", "--cached", "--check", cwd=target)
