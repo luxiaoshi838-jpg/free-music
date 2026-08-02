@@ -78,7 +78,8 @@ final class NetworkMediaCache {
             requestedAlbum, requestedCatalog.toString());
         String requestedAudioUri = CacheStorage.findAudioUri(context, requestedKey);
         String requestedLyric = CacheStorage.readLyric(context, requestedKey);
-        if (!requestedAudioUri.isEmpty() && CacheStorage.exists(context, requestedAudioUri)) {
+        if (!requestedAudioUri.isEmpty() && CacheStorage.exists(context, requestedAudioUri)
+            && playableCachedExtension(requestedAudioUri)) {
             boolean lyricFromCache = !requestedLyric.trim().isEmpty();
             if (!lyricFromCache) {
                 status(callback, "正在按原平台读取歌词...");
@@ -128,7 +129,8 @@ final class NetworkMediaCache {
         }
 
         String existingAudioUri = CacheStorage.findAudioUri(context, key);
-        if (!existingAudioUri.isEmpty() && CacheStorage.exists(context, existingAudioUri)) {
+        if (!existingAudioUri.isEmpty() && CacheStorage.exists(context, existingAudioUri)
+            && playableCachedExtension(existingAudioUri)) {
             status(callback, sourceChanged ? "已切换并读取其他平台缓存" : "歌曲缓存已存在");
             return new CacheResult(existingAudioUri, lyric, true, lyricFromCache,
                 actualCatalog.toString(), actualSource, sourceChanged);
@@ -147,6 +149,11 @@ final class NetworkMediaCache {
             download(audioUrl, actualSource, partial, callback);
             if (partial.length() <= 0) throw new IllegalStateException("歌曲缓存为空");
             String actualExtension = detectAudioExtension(partial, hintedExtension);
+            if (!playableCachedExtension(actualExtension)) {
+                throw new IllegalStateException("当前来源返回 "
+                    + actualExtension.toUpperCase(Locale.ROOT)
+                    + "，已剔除该格式，请选择其他来源");
+            }
             File cacheSource = partial;
             if ("mp3".equals(actualExtension)) {
                 AudioTranscoder.ensureMp3(partial, mp3Partial);
@@ -157,6 +164,9 @@ final class NetworkMediaCache {
             }
             String storedUri = CacheStorage.storeAudio(context, key, actualExtension, cacheSource,
                 actualTitle, actualArtist, actualAlbum, actualCatalog.toString());
+            if (!CacheStorage.exists(context, storedUri)) {
+                throw new IllegalStateException("歌曲缓存写入后无法读取，请重新选择可写的缓存文件夹");
+            }
             status(callback, "歌曲与歌词缓存完成");
             return new CacheResult(storedUri, lyric, false, lyricFromCache,
                 actualCatalog.toString(), actualSource, sourceChanged);
@@ -237,7 +247,17 @@ final class NetworkMediaCache {
     }
 
     static boolean cachedAudioExists(Context context, String uriText) {
-        return CacheStorage.exists(context, uriText);
+        return CacheStorage.exists(context, uriText) && playableCachedExtension(uriText);
+    }
+
+    private static boolean playableCachedExtension(String value) {
+        if (value == null) return false;
+        String clean = value.trim().toLowerCase(Locale.ROOT);
+        int query = clean.indexOf('?');
+        if (query >= 0) clean = clean.substring(0, query);
+        int dot = clean.lastIndexOf('.');
+        String extension = sanitizeExtension(dot >= 0 ? clean.substring(dot + 1) : clean);
+        return "mp3".equals(extension) || "flac".equals(extension);
     }
 
     private static String catalogTitle(JSONObject catalog) {
