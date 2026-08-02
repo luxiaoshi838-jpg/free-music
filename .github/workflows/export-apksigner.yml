@@ -1,4 +1,4 @@
-name: Export apksigner
+name: Export apksigner and unsigned release
 
 on:
   push:
@@ -19,16 +19,23 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - name: Install build tools
-        run: sdkmanager 'build-tools;35.0.0'
-      - name: Prepare apksigner bundle
+      - name: Install SDK packages
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'build-tools;37.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Build unsigned babywife release
+        run: gradle --no-daemon :app:assembleBabywifeclassicRelease
+      - name: Prepare export bundle
         run: |
           set -euo pipefail
-          mkdir -p apksigner-bundle/lib
-          cp "$ANDROID_HOME/build-tools/35.0.0/apksigner" apksigner-bundle/
-          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" apksigner-bundle/lib/
-          chmod +x apksigner-bundle/apksigner
+          mkdir -p export-bundle/apksigner/lib export-bundle/apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/apksigner" export-bundle/apksigner/
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" export-bundle/apksigner/lib/
+          chmod +x export-bundle/apksigner/apksigner
+          find app/build/outputs/apk -type f -name '*babywifeclassic*release*.apk' -exec cp {} export-bundle/apk/babywifeclassic-v126-release-unsigned.apk \;
+          test -s export-bundle/apk/babywifeclassic-v126-release-unsigned.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: apksigner-build-tools-35
-          path: apksigner-bundle
+          name: v126-unsigned-release-and-apksigner
+          path: export-bundle
