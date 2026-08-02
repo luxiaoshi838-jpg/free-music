@@ -1,0 +1,4 @@
+exact_root=CacheStorage.exists content provider on main thread
+anr_blocked_ms=715176
+target_version=2026080124
+scope=startup_white_screen_only
