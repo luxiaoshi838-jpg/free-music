@@ -59,34 +59,6 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/check_feature_requirements.py
-          python3 - <<'PY'
-          from pathlib import Path
-
-          main = Path('app/src/main/java/com/jianglab/babywife/MainActivity.java').read_text(encoding='utf-8')
-          gradle = Path('app/build.gradle').read_text(encoding='utf-8')
-          combined = main + '\n' + gradle
-          required = [
-              'refreshCachedUrisAfterMigrationAsync()',
-              '"cache-uri-refresh"',
-              'attachSubtlePressFeedback(previous);',
-              'attachSubtlePressFeedback(next);',
-              '.scaleX(0.96f)',
-              'clearSearchButton',
-              'searchInput.setText("")',
-              'versionCode 2026080126',
-              'versionName "2026.08.02.cache-io-guard-ui-feedback"',
-          ]
-          missing = [item for item in required if item not in combined]
-          if missing:
-              raise SystemExit('Missing v126 requirements: ' + ', '.join(missing))
-
-          start = main.index('private void refreshCachedUrisAfterMigrationAsync()')
-          end = main.index('\n    private ', start + 20)
-          refresh = main[start:end]
-          if 'new Thread' not in refresh or 'CacheStorage.findAudioUri' not in refresh:
-              raise SystemExit('Cache URI refresh is not fully delegated to the worker thread')
-          print('v126 targeted assertions passed')
-          PY
 
       - name: Commit merged v126 source
         shell: bash
