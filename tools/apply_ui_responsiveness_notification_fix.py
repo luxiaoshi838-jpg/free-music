@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Build trigger: remove the remaining pre-download playback gate.
 from pathlib import Path
 import argparse
 import subprocess
