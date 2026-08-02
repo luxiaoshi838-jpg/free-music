@@ -1,5 +1,5 @@
-run_id=30744429501
-artifact_name=real-device-startup-safe-apks-30744429501
+run_id=30744537211
+artifact_name=real-device-startup-safe-apks-30744537211
 feature_commit=fba8b78910543ec2cf4bbad601e2664c0bdd9dd7
 patch=failure
 checks=skipped
