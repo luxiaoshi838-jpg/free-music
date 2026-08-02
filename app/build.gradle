@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080102
-        versionName "2026.08.01.remove-playlist-cache-button"
+        versionCode 2026080126
+        versionName "2026.08.02.cache-io-guard-ui-feedback"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
