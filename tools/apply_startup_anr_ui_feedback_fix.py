@@ -141,6 +141,9 @@ def main() -> None:
 
     run("git", "config", "user.name", "github-actions[bot]", cwd=target)
     run("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com", cwd=target)
+    # Preserve the uploaded Windows CRLF source exactly while allowing the
+    # normal whitespace check to distinguish CR-at-EOL from real trailing spaces.
+    run("git", "config", "core.whitespace", "cr-at-eol", cwd=target)
     run("git", "add", *(OVERLAY_PATHS + [SERVICE_PATH]), cwd=target)
     run("git", "diff", "--cached", "--check", cwd=target)
     run("git", "commit", "-m",
