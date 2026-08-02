@@ -1,0 +1,79 @@
+name: Build v126 APKs
+
+on:
+  push:
+    branches:
+      - build/v126-cache-io-guard-apks
+    paths:
+      - .github/workflows/build-v126-apks.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout v126 build branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android packages
+        run: yes | sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+
+      - name: Verify v126 fixes
+        run: |
+          python scripts/check_public_repo.py
+          python scripts/check_feature_requirements.py
+          grep -q 'versionCode 2026080126' app/build.gradle
+          grep -q '2026.08.02.cache-io-guard-ui-feedback' app/build.gradle
+          grep -q 'private void refreshCachedUrisAfterMigrationAsync()' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q '"cache-uri-refresh"' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'attachSubtlePressFeedback(previous);' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'attachSubtlePressFeedback(next);' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'clearSearchButton.setText("×")' app/src/main/java/com/jianglab/babywife/MainActivity.java
+
+      - name: Build four brands
+        run: |
+          chmod +x gradlew
+          sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Verify outputs
+        run: |
+          find app/build/outputs/apk -type f -name '*.apk' -print
+          test "$(find app/build/outputs/apk -type f -name '*.apk' | wc -l)" -ge 4
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: cache-io-guard-ui-feedback-v126-apks-${{ github.run_id }}
+          path: app/build/outputs/apk/*/debug/*.apk
+          if-no-files-found: error
+
+      - name: Record result
+        if: always()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          mkdir -p build-status
+          {
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "artifact_name=cache-io-guard-ui-feedback-v126-apks-${GITHUB_RUN_ID}"
+            echo "source_commit=921a3dbc32a3513d521eb7f5f7f968f0739df69c"
+            echo "job_status=${{ job.status }}"
+          } > build-status/v126.txt
+          git add build-status/v126.txt
+          git commit -m "Record v126 APK build ${GITHUB_RUN_ID}" || true
+          git push origin HEAD:build/v126-cache-io-guard-apks
