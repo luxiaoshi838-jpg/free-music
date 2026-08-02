@@ -1,0 +1,9 @@
+run_id=30743745510
+artifact_name=real-device-startup-safe-apks-30743745510
+feature_commit=fba8b78910543ec2cf4bbad601e2664c0bdd9dd7
+patch=failure
+checks=skipped
+build=skipped
+verify=skipped
+push=skipped
+upload=skipped
