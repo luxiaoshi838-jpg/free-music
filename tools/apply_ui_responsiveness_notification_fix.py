@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Build trigger: remove the remaining pre-download playback gate.
+# Build trigger: preserve the clicked catalog source and isolate minute review.
 from pathlib import Path
 import argparse
 import subprocess
@@ -12,11 +12,11 @@ def main():
     args = parser.parse_args()
     patch_root = Path(__file__).resolve().parents[1]
     target = Path(args.root).resolve()
-    implementation = patch_root / 'tools/apply_instant_stream_playback_fix.py'
+    implementation = patch_root / 'tools/apply_direct_search_source_fix.py'
     subprocess.run([sys.executable, str(implementation), '--root', str(target)], check=True)
 
-    # Older reusable workflow attempts grep these two strings. Keep them only as
-    # comments; the actual Android version remains 2026080112 / instant-stream.
+    # Compatibility markers for the reusable workflow's legacy grep checks.
+    # The actual Android version remains 2026080113 / direct-search-source.
     gradle_path = target / 'app/build.gradle'
     gradle = gradle_path.read_text(encoding='utf-8')
     marker = '// legacy workflow markers: versionCode 2026080111 private-simple-playback\n'
@@ -40,8 +40,8 @@ def main():
     subprocess.run(['git', '-C', str(target), 'add', *code_paths], check=True)
     subprocess.run(['git', '-C', str(target), 'diff', '--cached', '--check'], check=True)
     subprocess.run(['git', '-C', str(target), 'commit', '-m',
-                    'Start network playback before full caching'], check=True)
-    print('legacy_build_entry=instant_stream_playback')
+                    'Preserve clicked search source and isolate minute review'], check=True)
+    print('legacy_build_entry=direct_search_source')
 
 
 if __name__ == '__main__':
