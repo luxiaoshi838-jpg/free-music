@@ -1,0 +1,47 @@
+name: Restore exact v127 NetworkMediaCache bytes
+
+on:
+  push:
+    branches:
+      - agent/v127-m4a-source-support
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v127-m4a-source-support
+          fetch-depth: 0
+      - name: Restore main bytes and apply one-line M4A change
+        run: |
+          git fetch origin main
+          git show origin/main:app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java > /tmp/NetworkMediaCache.main.java
+          python3 - <<'PY'
+          from pathlib import Path
+          base = Path('/tmp/NetworkMediaCache.main.java').read_bytes()
+          old = b'return "mp3".equals(extension) || "flac".equals(extension);'
+          new = b'return "mp3".equals(extension) || "flac".equals(extension) || "m4a".equals(extension);'
+          if base.count(old) != 1:
+              raise SystemExit('Expected exactly one playable extension line in main')
+          target = Path('app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java')
+          target.write_bytes(base.replace(old, new, 1))
+          workflow = Path('.github/workflows/restore-v127-network-file.yml')
+          if workflow.exists():
+              workflow.unlink()
+          PY
+      - name: Verify requirements
+        run: python3 scripts/check_feature_requirements.py
+      - name: Commit exact-file cleanup
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'Keep only the M4A source change'
+          git push origin HEAD:agent/v127-m4a-source-support
