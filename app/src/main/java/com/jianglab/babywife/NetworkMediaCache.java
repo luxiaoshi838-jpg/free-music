@@ -257,7 +257,7 @@ final class NetworkMediaCache {
         if (query >= 0) clean = clean.substring(0, query);
         int dot = clean.lastIndexOf('.');
         String extension = sanitizeExtension(dot >= 0 ? clean.substring(dot + 1) : clean);
-        return "mp3".equals(extension) || "flac".equals(extension);
+        return "mp3".equals(extension) || "flac".equals(extension) || "m4a".equals(extension);
     }
 
     private static String catalogTitle(JSONObject catalog) {
