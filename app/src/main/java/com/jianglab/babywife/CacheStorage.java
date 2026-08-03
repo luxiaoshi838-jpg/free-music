@@ -6,6 +6,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Environment;
 import android.provider.DocumentsContract;
 
 import org.json.JSONObject;
@@ -19,6 +21,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -47,17 +50,20 @@ final class CacheStorage {
     static final class MigrationResult {
         final int copied;
         final int removedFromOldLocation;
+        final int retainedInOldLocation;
         final boolean changed;
 
         MigrationResult(int copied, int removedFromOldLocation, boolean changed) {
             this.copied = copied;
             this.removedFromOldLocation = removedFromOldLocation;
+            this.retainedInOldLocation = Math.max(0, copied - removedFromOldLocation);
             this.changed = changed;
         }
     }
 
     static MigrationResult useDocumentTree(Context context, Uri treeUri) throws Exception {
         if (context == null || treeUri == null) throw new IllegalArgumentException("缓存文件夹无效");
+        requireFileManagementPermission();
         int flags = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
         context.getContentResolver().takePersistableUriPermission(treeUri, flags);
         verifyWritableTree(context, treeUri);
@@ -71,12 +77,13 @@ final class CacheStorage {
         int copied;
         int removed;
         if (oldTree != null) {
-            List<DocumentEntry> source = listDocumentsStrict(context, oldTree, true);
+            List<DocumentEntry> source = listDocumentsStrict(context, oldTree, false);
             copied = copyDocumentsToTree(context, source, treeUri);
             saveSelectedTree(context, treeUri);
             removed = deleteDocuments(context, source);
+            if (removed == source.size()) releaseTreePermission(context, oldTree);
         } else {
-            List<File> source = listManagedInternalFiles(context);
+            List<File> source = listAllInternalFiles(context);
             copied = copyFilesToTree(context, source, treeUri);
             saveSelectedTree(context, treeUri);
             removed = deleteFiles(source);
@@ -86,15 +93,17 @@ final class CacheStorage {
 
     static MigrationResult useInternalStorage(Context context) throws Exception {
         if (context == null) return new MigrationResult(0, 0, false);
+        requireFileManagementPermission();
         Uri oldTree = selectedTree(context);
         if (oldTree == null) return new MigrationResult(0, 0, false);
 
-        List<DocumentEntry> source = listDocumentsStrict(context, oldTree, true);
+        List<DocumentEntry> source = listDocumentsStrict(context, oldTree, false);
         File root = internalRoot(context);
         if (!root.exists() && !root.mkdirs()) throw new IllegalStateException("无法创建应用内部缓存目录");
         int copied = copyDocumentsToInternal(context, source, root);
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_TREE_URI).apply();
         int removed = deleteDocuments(context, source);
+        if (removed == source.size()) releaseTreePermission(context, oldTree);
         return new MigrationResult(copied, removed, true);
     }
 
@@ -756,6 +765,65 @@ final class CacheStorage {
         return removed;
     }
 
+    private static void requireFileManagementPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+            && !Environment.isExternalStorageManager()) {
+            throw new SecurityException("请先授予文件管理权限");
+        }
+    }
+
+    private static void releaseTreePermission(Context context, Uri treeUri) {
+        if (context == null || treeUri == null) return;
+        try {
+            context.getContentResolver().releasePersistableUriPermission(treeUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void verifyDocumentDigest(Context context, Uri target,
+                                             String expected, String name) throws Exception {
+        String actual = digest(context.getContentResolver().openInputStream(target));
+        if (expected.equals(actual)) return;
+        try {
+            DocumentsContract.deleteDocument(context.getContentResolver(), target);
+        } catch (Exception ignored) {
+        }
+        throw new IllegalStateException("迁移后校验失败：" + name);
+    }
+
+    private static String copyAndDigest(InputStream input, OutputStream output) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] buffer = new byte[64 * 1024];
+        int count;
+        while ((count = input.read(buffer)) >= 0) {
+            if (count <= 0) continue;
+            output.write(buffer, 0, count);
+            digest.update(buffer, 0, count);
+        }
+        output.flush();
+        return hex(digest.digest());
+    }
+
+    private static String digest(InputStream raw) throws Exception {
+        if (raw == null) throw new IllegalStateException("无法读取迁移后的文件");
+        try (InputStream input = new BufferedInputStream(raw)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[64 * 1024];
+            int count;
+            while ((count = input.read(buffer)) >= 0) {
+                if (count > 0) digest.update(buffer, 0, count);
+            }
+            return hex(digest.digest());
+        }
+    }
+
+    private static String hex(byte[] bytes) {
+        StringBuilder text = new StringBuilder(bytes.length * 2);
+        for (byte value : bytes) text.append(String.format(Locale.ROOT, "%02x", value & 0xff));
+        return text.toString();
+    }
+
     private static void saveSelectedTree(Context context, Uri treeUri) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY_TREE_URI, treeUri.toString()).apply();
@@ -779,12 +847,14 @@ final class CacheStorage {
         int copied = 0;
         for (File file : source) {
             Uri target = createOrReplaceDocument(context, targetTree, file.getName(), mimeForName(file.getName()));
+            String sourceDigest;
             try (InputStream input = new BufferedInputStream(new FileInputStream(file));
                  OutputStream raw = context.getContentResolver().openOutputStream(target, "w");
                  OutputStream output = raw == null ? null : new BufferedOutputStream(raw)) {
                 if (output == null) throw new IllegalStateException("无法写入新缓存文件夹：" + file.getName());
-                copy(input, output);
+                sourceDigest = copyAndDigest(input, output);
             }
+            verifyDocumentDigest(context, target, sourceDigest, file.getName());
             copied++;
         }
         return copied;
@@ -794,13 +864,15 @@ final class CacheStorage {
         int copied = 0;
         for (DocumentEntry entry : source) {
             Uri target = createOrReplaceDocument(context, targetTree, entry.name, mimeForName(entry.name));
+            String sourceDigest;
             try (InputStream rawInput = context.getContentResolver().openInputStream(entry.uri);
                  InputStream input = rawInput == null ? null : new BufferedInputStream(rawInput);
                  OutputStream rawOutput = context.getContentResolver().openOutputStream(target, "w");
                  OutputStream output = rawOutput == null ? null : new BufferedOutputStream(rawOutput)) {
                 if (input == null || output == null) throw new IllegalStateException("无法迁移缓存文件：" + entry.name);
-                copy(input, output);
+                sourceDigest = copyAndDigest(input, output);
             }
+            verifyDocumentDigest(context, target, sourceDigest, entry.name);
             copied++;
         }
         return copied;
@@ -811,11 +883,17 @@ final class CacheStorage {
         for (DocumentEntry entry : source) {
             File partial = new File(root, entry.name + ".move_part");
             File target = new File(root, entry.name);
+            String sourceDigest;
             try (InputStream rawInput = context.getContentResolver().openInputStream(entry.uri);
                  InputStream input = rawInput == null ? null : new BufferedInputStream(rawInput);
                  OutputStream output = new BufferedOutputStream(new FileOutputStream(partial))) {
                 if (input == null) throw new IllegalStateException("无法读取旧缓存文件：" + entry.name);
-                copy(input, output);
+                sourceDigest = copyAndDigest(input, output);
+            }
+            String targetDigest = digest(new FileInputStream(partial));
+            if (!sourceDigest.equals(targetDigest)) {
+                partial.delete();
+                throw new IllegalStateException("迁移后校验失败：" + entry.name);
             }
             replaceFile(partial, target);
             copied++;
@@ -842,12 +920,15 @@ final class CacheStorage {
         return removed;
     }
 
-    private static List<File> listManagedInternalFiles(Context context) {
+    private static List<File> listAllInternalFiles(Context context) {
         List<File> files = new ArrayList<>();
         File[] entries = internalRoot(context).listFiles();
         if (entries == null) return files;
         for (File file : entries) {
-            if (file != null && file.isFile() && isManagedCacheName(file.getName())) files.add(file);
+            if (file == null || !file.isFile()) continue;
+            String name = file.getName();
+            if (name.endsWith(".part") || name.endsWith(".move_part")) continue;
+            files.add(file);
         }
         return files;
     }

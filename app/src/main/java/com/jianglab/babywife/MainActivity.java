@@ -1,5 +1,6 @@
 package com.jianglab.babywife;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
@@ -20,12 +21,14 @@ import android.graphics.drawable.GradientDrawable;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.text.Layout;
 import android.text.Editable;
 import android.text.SpannableString;
@@ -209,6 +212,8 @@ public class MainActivity extends Activity {
     private String pendingSongCatalogJson = "";
     private int pendingReplacementType = REPLACEMENT_NONE;
     private int pendingExportPlaylistIndex = -1;
+    private boolean pendingCacheFolderSelection = false;
+    private boolean fileManagementSettingsOpened = false;
     private final Set<String> lyricMatchingSongs = new HashSet<>();
     private int highlightedLyricIndex = -1;
     private int lyricEdgeBlankLineCount = MIN_LYRIC_EDGE_BLANK_LINES;
@@ -282,6 +287,20 @@ public class MainActivity extends Activity {
         renderPlaylists();
         renderCurrentPlaylist();
         scheduleStartupWork();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (!pendingCacheFolderSelection || !fileManagementSettingsOpened) return;
+        fileManagementSettingsOpened = false;
+        if (hasFileManagementPermission()) {
+            pendingCacheFolderSelection = false;
+            chooseCacheFolder();
+        } else {
+            pendingCacheFolderSelection = false;
+            toast("未授予文件管理权限，未更换缓存文件夹");
+        }
     }
 
     private void scheduleStartupWork() {
@@ -3605,11 +3624,49 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
             .setTitle("歌单缓存位置")
             .setMessage(CacheStorage.details(this)
-                + "\n\n更换位置时会先复制全部受管理文件，全部成功后才切换并删除旧位置文件。")
-            .setPositiveButton("选择缓存文件夹", (dialog, which) -> chooseCacheFolder())
+                + "\n\n更换位置时会迁移旧缓存文件夹内的全部普通文件。每个文件复制并校验成功后才切换位置，最后删除旧文件。"
+                + "\n需要授予文件管理权限，并在系统文件选择器中确认新的缓存文件夹。")
+            .setPositiveButton("选择缓存文件夹", (dialog, which) -> requestFileManagementThenChooseCacheFolder())
             .setNeutralButton("使用卸载时清理的位置", (dialog, which) -> migrateCacheToInternal())
             .setNegativeButton("取消", null)
             .show();
+    }
+
+    private void requestFileManagementThenChooseCacheFolder() {
+        if (hasFileManagementPermission()) {
+            chooseCacheFolder();
+            return;
+        }
+        pendingCacheFolderSelection = true;
+        new AlertDialog.Builder(this)
+            .setTitle("授予文件管理权限")
+            .setMessage("为了把旧缓存文件夹中的全部文件移动到新文件夹，并删除旧位置中的原文件，"
+                + "需要在系统设置中允许本应用管理所有文件。授权后仍会让你选择新的缓存文件夹。")
+            .setPositiveButton("前往授权", (dialog, which) -> openFileManagementSettings())
+            .setNegativeButton("取消", (dialog, which) -> pendingCacheFolderSelection = false)
+            .show();
+    }
+
+    private boolean hasFileManagementPermission() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.R
+            || Environment.isExternalStorageManager();
+    }
+
+    private void openFileManagementSettings() {
+        fileManagementSettingsOpened = true;
+        try {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception appPageUnavailable) {
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+            } catch (Exception settingsUnavailable) {
+                fileManagementSettingsOpened = false;
+                pendingCacheFolderSelection = false;
+                toast("无法打开文件管理权限设置，请在系统设置中手动授权");
+            }
+        }
     }
 
     private void chooseCacheFolder() {
@@ -3632,8 +3689,11 @@ public class MainActivity extends Activity {
                     updateCacheLocationButton();
                     updateUninstallCleanupButton();
                     statusView.setText("缓存位置已更新");
+                    String cleanup = result.retainedInOldLocation > 0
+                        ? "；旧文件夹仍有 " + result.retainedInOldLocation + " 个文件未能删除，请检查文件管理权限"
+                        : "；旧文件夹中的原文件已删除";
                     toast(result.changed
-                        ? "缓存位置已更换，已迁移 " + result.copied + " 个文件；卸载后会保留"
+                        ? "缓存位置已更换，已迁移并校验 " + result.copied + " 个文件" + cleanup + "；卸载后会保留"
                         : "当前已经是所选缓存文件夹");
                 });
             } catch (Exception error) {
@@ -3655,8 +3715,11 @@ public class MainActivity extends Activity {
                     updateCacheLocationButton();
                     updateUninstallCleanupButton();
                     statusView.setText("缓存位置已更新");
+                    String cleanup = result.retainedInOldLocation > 0
+                        ? "；外部旧文件夹仍有 " + result.retainedInOldLocation + " 个文件未能删除"
+                        : "；外部旧文件已删除";
                     toast(result.changed
-                        ? "已迁回应用内部，共迁移 " + result.copied + " 个文件；卸载时会清理"
+                        ? "已迁回应用内部，共迁移并校验 " + result.copied + " 个文件" + cleanup + "；卸载时会清理"
                         : "当前已经使用卸载时清理的位置");
                 });
             } catch (Exception error) {
@@ -3741,7 +3804,7 @@ public class MainActivity extends Activity {
                 .setTitle("卸载软件时清理缓存")
                 .setMessage("当前为开启状态，缓存位于应用内部。关闭后需要选择一个外部总文件夹，"
                     + "歌曲、歌词和歌曲信息会迁移过去，卸载软件后仍然保留。")
-                .setPositiveButton("选择保留文件夹", (dialog, which) -> chooseCacheFolder())
+                .setPositiveButton("选择保留文件夹", (dialog, which) -> requestFileManagementThenChooseCacheFolder())
                 .setNegativeButton("取消", null)
                 .show();
         } else {

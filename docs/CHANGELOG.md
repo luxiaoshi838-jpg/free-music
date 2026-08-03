@@ -230,3 +230,9 @@
 
 - v132: submitting either the song search or the current-playlist search now hides the soft keyboard and clears input focus. The playlist search field gains the same circular clear button as the song search field.
 - v132: all main button-like controls use the same subtle 96% press-and-release feedback as previous/next, including settings, broom cleanup, current playlist, search, replacement actions, playback mode, clear buttons, back buttons and other clickable controls.
+
+## 2026.08.03.full-cache-folder-migration
+
+- Changing the cache folder now moves all regular files from the previous cache folder, including friendly audio and lyric filenames.
+- Added Android all-files management permission flow for reliable old-folder cleanup.
+- Added SHA-256 copy verification and explicit reporting for old files that remain after migration.

@@ -374,3 +374,11 @@
 - v131 enforces one consistent cache basename (`title - artist`) across formats and removes older same-basename audio when the chosen format changes.
 
 - v132 closes the IME after song/playlist search submission, adds a circular clear control to playlist search, and applies consistent subtle press feedback to all main button-like controls.
+
+## 2026-08-03 - Full cache folder migration with all-files permission
+
+- Fixed cache-folder changes skipping friendly files named `歌曲名 - 歌手.扩展名`.
+- External-to-external and external-to-internal moves now enumerate every regular file in the old cache folder.
+- Each copied file is SHA-256 verified before the selected cache location changes or old files are removed.
+- Android 11+ now requests the system all-files management permission before opening the destination folder picker.
+- Migration reports any old files that could not be deleted instead of silently claiming a complete move.

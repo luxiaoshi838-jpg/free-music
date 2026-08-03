@@ -13,6 +13,7 @@ catalog = (root / 'app/src/main/java/com/jianglab/babywife/CatalogSearch.java').
 playable_resolver = (root / 'app/src/main/java/com/jianglab/babywife/PlayableAudioResolver.java').read_text(encoding='utf-8')
 playback_verifier = (root / 'app/src/main/java/com/jianglab/babywife/AudioPlaybackVerifier.java').read_text(encoding='utf-8')
 gradle = (root / 'app/build.gradle').read_text(encoding='utf-8')
+manifest = (root / 'app/src/main/AndroidManifest.xml').read_text(encoding='utf-8')
 project_log = (root / 'PROJECT_LOG.md').read_text(encoding='utf-8')
 changelog = (root / 'docs/CHANGELOG.md').read_text(encoding='utf-8')
 icon = root / 'app/src/main/res/drawable-nodpi/broom_clean_icon.webp'
@@ -194,7 +195,19 @@ checks = {
         and '.scaleX(0.96f)' in main
         and '.scaleY(0.96f)' in main
     ),
-    'version bumped': 'versionCode 2026080132' in gradle,
+    'full cache folder migration and file management permission': (
+        'android.permission.MANAGE_EXTERNAL_STORAGE' in manifest
+        and 'Environment.isExternalStorageManager()' in main
+        and 'Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION' in main
+        and 'requestFileManagementThenChooseCacheFolder()' in main
+        and 'listDocumentsStrict(context, oldTree, false)' in cache
+        and 'listAllInternalFiles(context)' in cache
+        and 'copyAndDigest' in cache
+        and 'verifyDocumentDigest' in cache
+        and 'retainedInOldLocation' in cache
+        and 'listDocumentsStrict(context, oldTree, true)' not in cache
+    ),
+    'version bumped': 'versionCode 2026080133' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog
