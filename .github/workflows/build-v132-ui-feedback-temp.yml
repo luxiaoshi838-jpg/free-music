@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/v128-m4a-decrypt
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
