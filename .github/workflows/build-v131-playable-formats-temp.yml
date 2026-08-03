@@ -30,6 +30,30 @@ jobs:
           gradle-version: '8.7'
       - name: Apply v131 patch
         run: python scripts/apply_v131_playable_formats_patch.py
+      - name: Update legacy verification paths
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/check_feature_requirements.py')
+          text = path.read_text(encoding='utf-8')
+          replacements = {
+              "'AudioMetadataWriter.apply' in network": "'AudioMetadataWriter.apply' in playable_resolver",
+              "'AudioTranscoder.ensureMp3' in network": "'AudioTranscoder.ensureMp3' in playable_resolver",
+              "'按原格式缓存' in network": "'MP3＞FLAC＞M4A＞其他' in playable_resolver",
+              "'detectAudioExtension' in network": "'detectAudioExtension' in playable_resolver",
+              "'AudioMetadataWriter.applyAndVerify' in network": "'AudioMetadataWriter.applyAndVerify' in playable_resolver",
+              "'storeAudio(context, key, actualExtension' in network": "'CacheStorage.storeAudio(context, key, best.extension' in playable_resolver",
+              "'ResolvedAudioAddress.parse' in network": "'Address.parse' in playable_resolver",
+              "'#auth=' in network": "'#auth=' in playable_resolver",
+              "'SodaM4aDecryptor.decrypt' in network": "'SodaM4aDecryptor.decrypt' in playable_resolver",
+              "'SodaM4aDecryptor.isEncryptedM4a(context, uriText)' in network": "'SodaM4aDecryptor.isEncryptedM4a(context, uriText)' in playable_resolver",
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'legacy verification token missing: {old}')
+              text = text.replace(old, new)
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Verify requirements
         run: python scripts/check_feature_requirements.py
       - name: Build four release APKs
