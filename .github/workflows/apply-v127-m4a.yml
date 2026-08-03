@@ -1,0 +1,92 @@
+name: Apply v127 M4A source support
+
+on:
+  push:
+    branches:
+      - agent/v127-m4a-source-support
+
+permissions:
+  contents: write
+
+jobs:
+  apply-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v127-m4a-source-support
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK packages
+        run: sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Apply source changes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          network_path = Path('app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java')
+          network = network_path.read_text(encoding='utf-8')
+          old = 'return "mp3".equals(extension) || "flac".equals(extension);'
+          new = 'return "mp3".equals(extension) || "flac".equals(extension) || "m4a".equals(extension);'
+          if network.count(old) != 1:
+              raise SystemExit('Expected one playableCachedExtension restriction')
+          network_path.write_text(network.replace(old, new), encoding='utf-8')
+
+          gradle_path = Path('app/build.gradle')
+          gradle = gradle_path.read_text(encoding='utf-8')
+          gradle = gradle.replace('versionCode 2026080126', 'versionCode 2026080127')
+          gradle = gradle.replace('versionName "2026.08.02.cache-io-guard-ui-feedback"',
+                                  'versionName "2026.08.03.m4a-source-support"')
+          if 'versionCode 2026080127' not in gradle or 'm4a-source-support' not in gradle:
+              raise SystemExit('Version update failed')
+          gradle_path.write_text(gradle, encoding='utf-8')
+
+          checks_path = Path('scripts/check_feature_requirements.py')
+          checks = checks_path.read_text(encoding='utf-8')
+          marker = "    'settings width and status bar':"
+          insertion = (
+              "    'm4a network source accepted': (\n"
+              "        '\"m4a\".equals(extension)' in network\n"
+              "        and 'detectAudioExtension' in network\n"
+              "        and 'return \"m4a\"' in network\n"
+              "        and 'audio/mp4' in cache\n"
+              "    ),\n"
+          )
+          if marker not in checks:
+              raise SystemExit('Feature-check insertion marker missing')
+          checks = checks.replace(marker, insertion + marker, 1)
+          checks = checks.replace("'versionCode 2026080126' in gradle", "'versionCode 2026080127' in gradle")
+          checks_path.write_text(checks, encoding='utf-8')
+
+          project_log = Path('PROJECT_LOG.md')
+          project_log.write_text(project_log.read_text(encoding='utf-8') + '''\n\n## 2026-08-03 - Accept M4A network sources\n- Added M4A to managed playable network-cache formats.\n- Kept MP3 as the preferred resolve format and FLAC/M4A as source-format fallbacks.\n- Bumped the four-brand Android build to v127.\n''', encoding='utf-8')
+
+          changelog = Path('docs/CHANGELOG.md')
+          changelog.write_text(changelog.read_text(encoding='utf-8') + '''\n\n## v127 - 2026-08-03\n- Network sources returning M4A are now accepted, cached with the original `.m4a` extension, and reused as playable cache.\n- MP3 remains preferred; unsupported formats remain rejected.\n''', encoding='utf-8')
+
+          workflow = Path('.github/workflows/apply-v127-m4a.yml')
+          if workflow.exists():
+              workflow.unlink()
+          PY
+      - name: Verify requirements
+        run: python3 scripts/check_feature_requirements.py
+      - name: Build four unsigned release APKs
+        run: gradle --no-daemon :app:assembleBabywifeclassicRelease :app:assembleLidacaizhuRelease :app:assembleJianglabRelease :app:assembleNiubiRelease
+      - name: Commit v127 source changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/build.gradle app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java scripts/check_feature_requirements.py PROJECT_LOG.md docs/CHANGELOG.md .github/workflows/apply-v127-m4a.yml
+          git commit -m 'Allow M4A as a playable network source'
+          git push origin HEAD:agent/v127-m4a-source-support
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v127-four-unsigned-release-apks
+          path: app/build/outputs/apk/*/release/*.apk
