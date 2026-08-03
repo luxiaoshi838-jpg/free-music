@@ -1,0 +1,41 @@
+name: Normalize v127 line endings
+
+on:
+  push:
+    branches:
+      - agent/v127-m4a-source-support
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v127-m4a-source-support
+          fetch-depth: 0
+      - name: Restore CRLF for NetworkMediaCache
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          target = Path('app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java')
+          text = target.read_text(encoding='utf-8').replace('\r\n', '\n').replace('\r', '\n')
+          target.write_bytes(text.replace('\n', '\r\n').encode('utf-8'))
+          workflow = Path('.github/workflows/normalize-v127-line-endings.yml')
+          if workflow.exists():
+              workflow.unlink()
+          PY
+      - name: Verify requirements
+        run: python3 scripts/check_feature_requirements.py
+      - name: Commit cleanup
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'Preserve NetworkMediaCache line endings'
+          git push origin HEAD:agent/v127-m4a-source-support
