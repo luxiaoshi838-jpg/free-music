@@ -363,3 +363,5 @@
 - Confirmed the supplied sample is CENC-encrypted AAC in an M4A container.
 - Ported the dependency library PlayAuth and AES-CTR decryption path to Android cache handling.
 - Invalidates encrypted v127 cache entries and bumps all four brands to v128.
+
+- Corrected user-visible cache filenames from `歌曲名 - 歌手 [哈希]` to `歌曲名 - 歌手`; old managed cache names migrate on the next access, with numeric suffixes only for real collisions.

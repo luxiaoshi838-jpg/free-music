@@ -63,7 +63,11 @@ checks = {
     ),
     'friendly cache filenames': (
         'friendlyBase' in cache
-        and '" - " + record.artist' in cache
+        and 'record.title + " - " + record.artist' in cache
+        and '" [" + shortKey + "]"' not in cache
+        and 'friendlyBaseForInternal' in cache
+        and 'friendlyBaseForTree' in cache
+        and 'plain + " (" + index + ")"' in cache
         and 'record.audioFile' in cache
         and 'record.lyricFile' in cache
         and 'META_PREFIX = ".babywife_"' in cache

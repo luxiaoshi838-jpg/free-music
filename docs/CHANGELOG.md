@@ -217,3 +217,5 @@
 ## v128 - 2026-08-03
 - Fixed Soda Music M4A playback by extracting PlayAuth from the resolved URL and decrypting CENC/AES-CTR audio before caching.
 - Existing encrypted M4A caches from v127 are detected as invalid and replaced on the next playback.
+
+- Cache audio and lyric files now use `歌曲名 - 歌手` without an opaque hash suffix; true name collisions use `(2)`, `(3)`, etc.

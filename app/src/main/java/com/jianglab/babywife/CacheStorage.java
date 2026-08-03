@@ -143,16 +143,17 @@ final class CacheStorage {
             MetadataRecord existing = readMetadataFromTree(context, tree, key);
             DocumentEntry audio = findDocumentAudioForKey(context, tree, key, existing);
             DocumentEntry lyric = findDocumentLyricForKey(context, tree, key, existing);
+            String friendly = friendlyBaseForTree(context, tree, record, existing);
             if (audio != null) {
                 String ext = extensionOf(audio.name);
-                String desired = friendlyBase(record) + "." + ext;
+                String desired = friendly + "." + ext;
                 if (!desired.equals(audio.name)) moveDocument(context, tree, audio, desired, audioMime(ext));
                 record.audioFile = desired;
             } else if (existing != null) {
                 record.audioFile = existing.audioFile;
             }
             if (lyric != null) {
-                String desired = friendlyBase(record) + ".lrc";
+                String desired = friendly + ".lrc";
                 if (!desired.equals(lyric.name)) moveDocument(context, tree, lyric, desired, "text/plain");
                 record.lyricFile = desired;
             } else if (existing != null) {
@@ -168,9 +169,10 @@ final class CacheStorage {
         MetadataRecord existing = readMetadataFromInternal(root, key);
         File audio = findInternalAudioForKey(root, key, existing);
         File lyric = findInternalLyricForKey(root, key, existing);
+        String friendly = friendlyBaseForInternal(root, record, existing);
         if (audio != null) {
             String ext = extensionOf(audio.getName());
-            String desired = friendlyBase(record) + "." + ext;
+            String desired = friendly + "." + ext;
             File target = new File(root, desired);
             if (!desired.equals(audio.getName())) moveFile(audio, target);
             record.audioFile = desired;
@@ -178,7 +180,7 @@ final class CacheStorage {
             record.audioFile = existing.audioFile;
         }
         if (lyric != null) {
-            String desired = friendlyBase(record) + ".lrc";
+            String desired = friendly + ".lrc";
             File target = new File(root, desired);
             if (!desired.equals(lyric.getName())) moveFile(lyric, target);
             record.lyricFile = desired;
@@ -256,8 +258,9 @@ final class CacheStorage {
         if (tree != null) {
             MetadataRecord existing = readMetadataFromTree(context, tree, key);
             if (existing != null) record.audioFile = existing.audioFile;
+            String friendly = friendlyBaseForTree(context, tree, record, existing);
             removeDocumentsForKey(context, tree, key, true, false, false);
-            String name = friendlyBase(record) + ".lrc";
+            String name = friendly + ".lrc";
             Uri outputUri = createOrReplaceDocument(context, tree, name, "text/plain");
             try (OutputStream output = context.getContentResolver().openOutputStream(outputUri, "w")) {
                 if (output == null) throw new IllegalStateException("无法写入歌词缓存");
@@ -272,8 +275,9 @@ final class CacheStorage {
         if (!root.exists() && !root.mkdirs()) throw new IllegalStateException("无法创建缓存目录");
         MetadataRecord existing = readMetadataFromInternal(root, key);
         if (existing != null) record.audioFile = existing.audioFile;
+        String friendly = friendlyBaseForInternal(root, record, existing);
         removeInternalForKey(root, key, true, false, false);
-        String name = friendlyBase(record) + ".lrc";
+        String name = friendly + ".lrc";
         File output = new File(root, name);
         File partial = new File(root, name + ".part");
         try (FileOutputStream stream = new FileOutputStream(partial)) {
@@ -291,11 +295,11 @@ final class CacheStorage {
         }
         String safeExtension = sanitizeExtension(extension);
         MetadataRecord record = metadata(key, title, artist, album, catalogJson);
-        String fileName = friendlyBase(record) + "." + safeExtension;
         Uri tree = selectedTree(context);
         if (tree != null) {
             MetadataRecord existing = readMetadataFromTree(context, tree, key);
             if (existing != null) record.lyricFile = existing.lyricFile;
+            String fileName = friendlyBaseForTree(context, tree, record, existing) + "." + safeExtension;
             removeDocumentsForKey(context, tree, key, false, true, false);
             Uri target = createOrReplaceDocument(context, tree, fileName, audioMime(safeExtension));
             try (InputStream input = new BufferedInputStream(new FileInputStream(source));
@@ -313,6 +317,7 @@ final class CacheStorage {
         if (!root.exists() && !root.mkdirs()) throw new IllegalStateException("无法创建缓存目录");
         MetadataRecord existing = readMetadataFromInternal(root, key);
         if (existing != null) record.lyricFile = existing.lyricFile;
+        String fileName = friendlyBaseForInternal(root, record, existing) + "." + safeExtension;
         removeInternalForKey(root, key, false, true, false);
         File target = new File(root, fileName);
         try (InputStream input = new BufferedInputStream(new FileInputStream(source));
@@ -382,10 +387,75 @@ final class CacheStorage {
     }
 
     private static String friendlyBase(MetadataRecord record) {
-        String shortKey = record.key.length() >= 8 ? record.key.substring(0, 8) : record.key;
-        String base = record.title + " - " + record.artist + " [" + shortKey + "]";
-        if (base.length() > 150) base = base.substring(0, 150).trim();
+        String base = record.title + " - " + record.artist;
+        if (base.length() > 140) base = base.substring(0, 140).trim();
         return base;
+    }
+
+    private static String friendlyBaseForInternal(File root, MetadataRecord record,
+                                                  MetadataRecord existing) {
+        Set<String> occupied = new HashSet<>();
+        File[] files = root == null ? null : root.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (!file.isFile()) continue;
+                String name = file.getName();
+                if (isMetadataName(name) || name.endsWith(".part") || name.endsWith(".move_part")) continue;
+                if (existing != null && (name.equals(existing.audioFile) || name.equals(existing.lyricFile))) continue;
+                occupied.add(fileBase(name).toLowerCase(Locale.ROOT));
+            }
+        }
+        return chooseFriendlyBase(record, existing, occupied);
+    }
+
+    private static String friendlyBaseForTree(Context context, Uri tree, MetadataRecord record,
+                                              MetadataRecord existing) throws Exception {
+        Set<String> occupied = new HashSet<>();
+        for (DocumentEntry entry : listDocumentsStrict(context, tree, true)) {
+            String name = entry.name;
+            if (isMetadataName(name) || name.endsWith(".part") || name.endsWith(".move_part")) continue;
+            if (existing != null && (name.equals(existing.audioFile) || name.equals(existing.lyricFile))) continue;
+            occupied.add(fileBase(name).toLowerCase(Locale.ROOT));
+        }
+        return chooseFriendlyBase(record, existing, occupied);
+    }
+
+    private static String chooseFriendlyBase(MetadataRecord record, MetadataRecord existing,
+                                             Set<String> occupied) {
+        String plain = friendlyBase(record);
+        String current = existingFriendlyBase(plain, existing);
+        if (!current.isEmpty() && !occupied.contains(current.toLowerCase(Locale.ROOT))) return current;
+        for (int index = 1; index <= 9999; index++) {
+            String candidate = index == 1 ? plain : plain + " (" + index + ")";
+            if (!occupied.contains(candidate.toLowerCase(Locale.ROOT))) return candidate;
+        }
+        throw new IllegalStateException("歌曲缓存文件名冲突过多");
+    }
+
+    private static String existingFriendlyBase(String plain, MetadataRecord existing) {
+        if (existing == null) return "";
+        String audioBase = fileBase(existing.audioFile);
+        if (isFriendlyVariant(plain, audioBase)) return audioBase;
+        String lyricBase = fileBase(existing.lyricFile);
+        return isFriendlyVariant(plain, lyricBase) ? lyricBase : "";
+    }
+
+    private static boolean isFriendlyVariant(String plain, String candidate) {
+        if (candidate == null || candidate.isEmpty()) return false;
+        if (candidate.equals(plain)) return true;
+        if (!candidate.startsWith(plain + " (") || !candidate.endsWith(")")) return false;
+        String number = candidate.substring(plain.length() + 2, candidate.length() - 1);
+        if (number.isEmpty()) return false;
+        for (int i = 0; i < number.length(); i++) {
+            if (!Character.isDigit(number.charAt(i))) return false;
+        }
+        return true;
+    }
+
+    private static String fileBase(String name) {
+        if (name == null || name.isEmpty()) return "";
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
     }
 
     private static String metadataName(String key) {
