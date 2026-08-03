@@ -1,9 +1,12 @@
 package com.jianglab.babywife;
 
+import android.content.Context;
+import android.net.Uri;
 import android.util.Base64;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -24,6 +27,40 @@ final class SodaM4aDecryptor {
     private static final long MAX_MOOV_BYTES = 32L * 1024L * 1024L;
 
     private SodaM4aDecryptor() {
+    }
+
+    static boolean isEncryptedM4a(Context context, String uriText) {
+        if (context == null || uriText == null || uriText.trim().isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(uriText);
+            if ("file".equalsIgnoreCase(uri.getScheme())) {
+                return isEncryptedM4a(new File(uri.getPath()));
+            }
+            if ("content".equalsIgnoreCase(uri.getScheme())) {
+                try (java.io.InputStream input = context.getContentResolver().openInputStream(uri)) {
+                    return input != null && streamContainsEncryptionMarkers(input);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private static boolean streamContainsEncryptionMarkers(java.io.InputStream input) throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[64 * 1024];
+        long remaining = MAX_MOOV_BYTES;
+        while (remaining > 0) {
+            int count = input.read(buffer, 0, (int) Math.min(buffer.length, remaining));
+            if (count < 0) break;
+            if (count == 0) continue;
+            output.write(buffer, 0, count);
+            remaining -= count;
+        }
+        byte[] data = output.toByteArray();
+        return indexOf(data, ascii("enca"), 0, data.length) >= 0
+            && indexOf(data, ascii("senc"), 0, data.length) >= 0
+            && indexOf(data, ascii("cenc"), 0, data.length) >= 0;
     }
 
     static boolean isEncryptedM4a(File file) {

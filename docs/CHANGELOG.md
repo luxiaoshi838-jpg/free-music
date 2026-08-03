@@ -212,3 +212,8 @@
 ## v127 - 2026-08-03
 - Network sources returning M4A are now accepted, cached with the original `.m4a` extension, and reused as playable cache.
 - MP3 remains preferred; unsupported formats remain rejected.
+
+
+## v128 - 2026-08-03
+- Fixed Soda Music M4A playback by extracting PlayAuth from the resolved URL and decrypting CENC/AES-CTR audio before caching.
+- Existing encrypted M4A caches from v127 are detected as invalid and replaced on the next playback.

@@ -78,8 +78,7 @@ final class NetworkMediaCache {
             requestedAlbum, requestedCatalog.toString());
         String requestedAudioUri = CacheStorage.findAudioUri(context, requestedKey);
         String requestedLyric = CacheStorage.readLyric(context, requestedKey);
-        if (!requestedAudioUri.isEmpty() && CacheStorage.exists(context, requestedAudioUri)
-            && playableCachedExtension(requestedAudioUri)) {
+        if (!requestedAudioUri.isEmpty() && cachedAudioExists(context, requestedAudioUri)) {
             boolean lyricFromCache = !requestedLyric.trim().isEmpty();
             if (!lyricFromCache) {
                 status(callback, "正在按原平台读取歌词...");
@@ -129,34 +128,46 @@ final class NetworkMediaCache {
         }
 
         String existingAudioUri = CacheStorage.findAudioUri(context, key);
-        if (!existingAudioUri.isEmpty() && CacheStorage.exists(context, existingAudioUri)
-            && playableCachedExtension(existingAudioUri)) {
+        if (!existingAudioUri.isEmpty() && cachedAudioExists(context, existingAudioUri)) {
             status(callback, sourceChanged ? "已切换并读取其他平台缓存" : "歌曲缓存已存在");
             return new CacheResult(existingAudioUri, lyric, true, lyricFromCache,
                 actualCatalog.toString(), actualSource, sourceChanged);
         }
 
         String audioUrl = choice.audioUrl();
+        ResolvedAudioAddress audioAddress = ResolvedAudioAddress.parse(audioUrl,
+            firstNonEmpty(choice.resolved.optString("play_auth"), choice.resolved.optString("playAuth"),
+                choice.resolved.optString("PlayAuth")));
         File tempRoot = new File(context.getCacheDir(), "network_download");
         if (!tempRoot.exists() && !tempRoot.mkdirs()) throw new IllegalStateException("无法创建下载临时目录");
-        String hintedExtension = sanitizeExtension(firstNonEmpty(choice.resolved.optString("ext"), extensionFromUrl(audioUrl)));
+        String hintedExtension = sanitizeExtension(firstNonEmpty(choice.resolved.optString("ext"), extensionFromUrl(audioAddress.url)));
         File partial = new File(tempRoot, key + "." + hintedExtension + ".part");
         File mp3Partial = new File(tempRoot, key + ".mp3.ready");
+        File decryptedPartial = new File(tempRoot, key + ".m4a.decrypted");
         status(callback, sourceChanged
             ? "原来源不可用，正在从" + CatalogSearch.labelForSource(actualSource) + "缓存歌曲..."
             : "正在缓存歌曲...");
         try {
-            download(audioUrl, actualSource, partial, callback);
+            download(audioAddress.url, actualSource, partial, callback);
             if (partial.length() <= 0) throw new IllegalStateException("歌曲缓存为空");
-            String actualExtension = detectAudioExtension(partial, hintedExtension);
+            File decodedSource = partial;
+            if (SodaM4aDecryptor.isEncryptedM4a(partial)) {
+                if (audioAddress.playAuth.isEmpty()) {
+                    throw new IllegalStateException("当前 M4A 为加密文件，但来源未返回 PlayAuth");
+                }
+                status(callback, "正在解密 M4A 音频...");
+                SodaM4aDecryptor.decrypt(partial, decryptedPartial, audioAddress.playAuth);
+                decodedSource = decryptedPartial;
+            }
+            String actualExtension = detectAudioExtension(decodedSource, hintedExtension);
             if (!playableCachedExtension(actualExtension)) {
                 throw new IllegalStateException("当前来源返回 "
                     + actualExtension.toUpperCase(Locale.ROOT)
                     + "，已剔除该格式，请选择其他来源");
             }
-            File cacheSource = partial;
+            File cacheSource = decodedSource;
             if ("mp3".equals(actualExtension)) {
-                AudioTranscoder.ensureMp3(partial, mp3Partial);
+                AudioTranscoder.ensureMp3(decodedSource, mp3Partial);
                 AudioMetadataWriter.applyAndVerify(mp3Partial, actualTitle, actualArtist, actualAlbum);
                 cacheSource = mp3Partial;
             } else {
@@ -173,6 +184,34 @@ final class NetworkMediaCache {
         } finally {
             if (partial.exists()) partial.delete();
             if (mp3Partial.exists()) mp3Partial.delete();
+            if (decryptedPartial.exists()) decryptedPartial.delete();
+        }
+    }
+
+    private static final class ResolvedAudioAddress {
+        final String url;
+        final String playAuth;
+
+        ResolvedAudioAddress(String url, String playAuth) {
+            this.url = url == null ? "" : url.trim();
+            this.playAuth = playAuth == null ? "" : playAuth.trim();
+        }
+
+        static ResolvedAudioAddress parse(String rawUrl, String explicitAuth) {
+            String raw = rawUrl == null ? "" : rawUrl.trim();
+            String auth = explicitAuth == null ? "" : explicitAuth.trim();
+            int marker = raw.indexOf("#auth=");
+            if (marker >= 0) {
+                if (auth.isEmpty()) {
+                    try {
+                        auth = java.net.URLDecoder.decode(raw.substring(marker + 6), "UTF-8");
+                    } catch (Exception ignored) {
+                        auth = raw.substring(marker + 6);
+                    }
+                }
+                raw = raw.substring(0, marker);
+            }
+            return new ResolvedAudioAddress(raw, auth);
         }
     }
 
@@ -247,7 +286,9 @@ final class NetworkMediaCache {
     }
 
     static boolean cachedAudioExists(Context context, String uriText) {
-        return CacheStorage.exists(context, uriText) && playableCachedExtension(uriText);
+        return CacheStorage.exists(context, uriText)
+            && playableCachedExtension(uriText)
+            && !SodaM4aDecryptor.isEncryptedM4a(context, uriText);
     }
 
     private static boolean playableCachedExtension(String value) {

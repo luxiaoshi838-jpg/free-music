@@ -7,6 +7,7 @@ network = (root / 'app/src/main/java/com/jianglab/babywife/NetworkMediaCache.jav
 broom = (root / 'app/src/main/java/com/jianglab/babywife/BroomIconView.java').read_text(encoding='utf-8')
 metadata = (root / 'app/src/main/java/com/jianglab/babywife/AudioMetadataWriter.java').read_text(encoding='utf-8')
 transcoder = (root / 'app/src/main/java/com/jianglab/babywife/AudioTranscoder.java').read_text(encoding='utf-8')
+soda_decryptor = (root / 'app/src/main/java/com/jianglab/babywife/SodaM4aDecryptor.java').read_text(encoding='utf-8')
 picker = (root / 'app/src/main/java/com/jianglab/babywife/SongVersionPicker.java').read_text(encoding='utf-8')
 catalog = (root / 'app/src/main/java/com/jianglab/babywife/CatalogSearch.java').read_text(encoding='utf-8')
 gradle = (root / 'app/build.gradle').read_text(encoding='utf-8')
@@ -110,6 +111,16 @@ checks = {
         and 'detectAudioExtension' in network
         and 'audio/mp4' in cache
     ),
+    'encrypted soda m4a decrypted': (
+        'ResolvedAudioAddress.parse' in network
+        and '#auth=' in network
+        and 'SodaM4aDecryptor.decrypt' in network
+        and 'SodaM4aDecryptor.isEncryptedM4a(context, uriText)' in network
+        and 'AES/CTR/NoPadding' in soda_decryptor
+        and 'PlayAuth' in soda_decryptor
+        and 'enca' in soda_decryptor and 'mp4a' in soda_decryptor
+        and 'NetworkMediaCache.cachedAudioExists(this, currentSong.cachedUri)' in main
+    ),
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'deferred flag commit after playback starts': (
         'playbackRequestSerial' in main
@@ -120,7 +131,7 @@ checks = {
     ),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080127' in gradle,
+    'version bumped': 'versionCode 2026080128' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog

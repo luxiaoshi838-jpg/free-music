@@ -3052,9 +3052,12 @@ public class MainActivity extends Activity {
         updateLyricActionVisibility(currentSong);
         showSongLyrics(currentSong);
         if (currentSong.isNetworkCatalog()) {
-            if (currentSong.cachedUri != null && !currentSong.cachedUri.trim().isEmpty()) {
+            if (currentSong.cachedUri != null && !currentSong.cachedUri.trim().isEmpty()
+                && NetworkMediaCache.cachedAudioExists(this, currentSong.cachedUri)) {
                 currentSong.uri = currentSong.cachedUri;
             } else {
+                currentSong.cachedUri = "";
+                currentSong.uri = "";
                 if (playButton != null) playButton.setText("▶");
                 statusView.setText("网络歌曲目录已恢复，点击播放时再缓存");
                 resetPlaybackProgress();

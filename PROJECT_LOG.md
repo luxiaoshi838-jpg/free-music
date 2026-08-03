@@ -357,3 +357,9 @@
 - Added M4A to managed playable network-cache formats.
 - Kept MP3 as the preferred resolve format and FLAC/M4A as source-format fallbacks.
 - Bumped the four-brand Android build to v127.
+
+
+## 2026-08-03 - Decrypt encrypted M4A before playback
+- Confirmed the supplied sample is CENC-encrypted AAC in an M4A container.
+- Ported the dependency library PlayAuth and AES-CTR decryption path to Android cache handling.
+- Invalidates encrypted v127 cache entries and bumps all four brands to v128.

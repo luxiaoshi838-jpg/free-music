@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080127
-        versionName "2026.08.03.m4a-source-support"
+        versionCode 2026080128
+        versionName "2026.08.03.m4a-decryption"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
