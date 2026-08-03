@@ -365,3 +365,5 @@
 - Invalidates encrypted v127 cache entries and bumps all four brands to v128.
 
 - Corrected user-visible cache filenames from `歌曲名 - 歌手 [哈希]` to `歌曲名 - 歌手`; old managed cache names migrate on the next access, with numeric suffixes only for real collisions.
+
+- v129 corrects remaining legacy cache names and search ordering: `miyaki米芽奇` now prioritizes tracks whose title/artist combination exactly matches both terms.

@@ -286,7 +286,7 @@ public class MainActivity extends Activity {
         Handler startupHandler = new Handler(Looper.getMainLooper());
         Runnable work = () -> {
             restoreLastSong(false);
-            normalizePlaylistCacheFilesAsync();
+            normalizeAllCacheFilesAsync();
             publishPlaybackControlState(true);
             showPendingCrashReport();
             startResponsivenessWatchdog();
@@ -296,6 +296,13 @@ public class MainActivity extends Activity {
         } else {
             startupHandler.postDelayed(work, 1500);
         }
+    }
+
+    private void normalizeAllCacheFilesAsync() {
+        new Thread(() -> {
+            CacheStorage.normalizeAllFriendlyNames(this);
+            runOnUiThread(this::normalizePlaylistCacheFilesAsync);
+        }, "cache-name-normalizer").start();
     }
 
     private void installCrashReporter() {

@@ -191,6 +191,56 @@ final class CacheStorage {
         writeMetadataToInternal(root, record);
     }
 
+
+    static int normalizeAllFriendlyNames(Context context) {
+        if (context == null) return 0;
+        Set<String> keys = new HashSet<>();
+        Uri tree = selectedTree(context);
+        if (tree != null) {
+            try {
+                for (DocumentEntry entry : listDocumentsStrict(context, tree, true)) {
+                    String key = metadataKey(entry.name);
+                    if (validKey(key)) keys.add(key);
+                }
+                int normalized = 0;
+                for (String key : keys) {
+                    try {
+                        MetadataRecord record = readMetadataFromTree(context, tree, key);
+                        if (record == null) continue;
+                        ensureFriendlyNames(context, key, record.title, record.artist,
+                            record.album, record.catalogJson);
+                        normalized++;
+                    } catch (Exception ignored) {
+                    }
+                }
+                return normalized;
+            } catch (Exception ignored) {
+                return 0;
+            }
+        }
+
+        File root = internalRoot(context);
+        File[] files = root.listFiles();
+        if (files == null) return 0;
+        for (File file : files) {
+            if (!file.isFile()) continue;
+            String key = metadataKey(file.getName());
+            if (validKey(key)) keys.add(key);
+        }
+        int normalized = 0;
+        for (String key : keys) {
+            try {
+                MetadataRecord record = readMetadataFromInternal(root, key);
+                if (record == null) continue;
+                ensureFriendlyNames(context, key, record.title, record.artist,
+                    record.album, record.catalogJson);
+                normalized++;
+            } catch (Exception ignored) {
+            }
+        }
+        return normalized;
+    }
+
     static String findAudioUri(Context context, String key) {
         if (context == null || !validKey(key)) return "";
         Uri tree = selectedTree(context);
@@ -460,6 +510,13 @@ final class CacheStorage {
 
     private static String metadataName(String key) {
         return META_PREFIX + key.toLowerCase(Locale.ROOT) + META_SUFFIX;
+    }
+
+    private static String metadataKey(String name) {
+        if (name == null || !name.startsWith(META_PREFIX) || !name.endsWith(META_SUFFIX)) return "";
+        int start = META_PREFIX.length();
+        int end = name.length() - META_SUFFIX.length();
+        return end > start ? name.substring(start, end).toLowerCase(Locale.ROOT) : "";
     }
 
     private static MetadataRecord readMetadataFromInternal(File root, String key) {

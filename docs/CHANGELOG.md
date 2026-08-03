@@ -219,3 +219,6 @@
 - Existing encrypted M4A caches from v127 are detected as invalid and replaced on the next playback.
 
 - Cache audio and lyric files now use `歌曲名 - 歌手` without an opaque hash suffix; true name collisions use `(2)`, `(3)`, etc.
+
+- v129: normalize every managed cache file at startup to `歌曲名 - 歌手`, removing legacy hash suffixes even for songs outside playlists.
+- v129: rank exact `歌名 + 歌手` matches first, split adjacent Latin/Chinese query text, and merge multi-source results by global relevance.

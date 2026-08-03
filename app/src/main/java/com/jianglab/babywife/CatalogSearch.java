@@ -30,7 +30,7 @@ import bridge.Bridge;
 final class CatalogSearch {
     private static final int DISPLAY_BATCH_SIZE = 16;
     private static final int PER_SOURCE_SLICE = 4;
-    private static final int SOURCE_GROUP_SIZE = 4;
+    private static final int SOURCE_GROUP_SIZE = 6;
 
     private static final List<String> QUICK_SOURCES = Arrays.asList(
         "netease", "qq", "kugou", "soda", "kuwo", "migu"
@@ -223,26 +223,37 @@ final class CatalogSearch {
         }
 
         private void appendVisibleSlices(List<Track> out, List<String> sourceOrder) {
-            boolean added;
-            do {
-                added = false;
+            while (out.size() < DISPLAY_BATCH_SIZE) {
+                String bestSource = null;
+                Track bestTrack = null;
+                int bestScore = Integer.MIN_VALUE;
+
                 for (String source : sourceOrder) {
-                    if (out.size() >= DISPLAY_BATCH_SIZE) return;
                     List<Track> rows = sourceRows.get(source);
                     if (rows == null || rows.isEmpty()) continue;
                     int offset = visibleOffsets.containsKey(source) ? visibleOffsets.get(source) : 0;
-                    int taken = 0;
-                    while (offset < rows.size() && taken < PER_SOURCE_SLICE && out.size() < DISPLAY_BATCH_SIZE) {
-                        Track track = rows.get(offset++);
-                        if (track != null && !track.id.isEmpty() && emittedKeys.add(track.key())) {
-                            out.add(track);
-                            taken++;
-                            added = true;
+                    while (offset < rows.size()) {
+                        Track candidate = rows.get(offset);
+                        if (candidate == null || candidate.id.isEmpty() || emittedKeys.contains(candidate.key())) {
+                            offset++;
+                            visibleOffsets.put(source, offset);
+                            continue;
                         }
+                        int candidateScore = score(candidate, keyword);
+                        if (bestTrack == null || candidateScore > bestScore) {
+                            bestSource = source;
+                            bestTrack = candidate;
+                            bestScore = candidateScore;
+                        }
+                        break;
                     }
-                    visibleOffsets.put(source, offset);
                 }
-            } while (added && out.size() < DISPLAY_BATCH_SIZE);
+
+                if (bestTrack == null || bestSource == null) return;
+                int offset = visibleOffsets.containsKey(bestSource) ? visibleOffsets.get(bestSource) : 0;
+                visibleOffsets.put(bestSource, offset + 1);
+                if (emittedKeys.add(bestTrack.key())) out.add(bestTrack);
+            }
         }
     }
 
@@ -414,18 +425,62 @@ final class CatalogSearch {
     }
 
     private static void sortByRelevance(List<Track> rows, String keyword) {
-        final String wanted = normalize(keyword);
-        Collections.sort(rows, (left, right) -> score(right, wanted) - score(left, wanted));
+        Collections.sort(rows, (left, right) ->
+            Integer.compare(score(right, keyword), score(left, keyword)));
     }
 
-    private static int score(Track track, String wanted) {
+    private static int score(Track track, String keyword) {
+        if (track == null) return 0;
+        String wanted = normalize(keyword);
         String title = normalize(track.title);
         String artist = normalize(track.artist);
-        if (title.equals(wanted)) return 1000;
-        if (title.contains(wanted)) return 800 - Math.abs(title.length() - wanted.length());
-        if (wanted.contains(title) && title.length() > 1) return 650 + title.length();
-        if (artist.contains(wanted)) return 350;
-        return 0;
+        if (wanted.isEmpty() || (title.isEmpty() && artist.isEmpty())) return 0;
+
+        String titleArtist = title + artist;
+        String artistTitle = artist + title;
+        if (wanted.equals(titleArtist) || wanted.equals(artistTitle)) return 10000;
+
+        int score = 0;
+        if (title.equals(wanted)) score += 7600;
+        else if (artist.equals(wanted)) score += 7000;
+        else if (title.contains(wanted)) score += 5600 - Math.abs(title.length() - wanted.length());
+        else if (wanted.contains(title) && title.length() > 1) score += 4700 + title.length();
+        else if (artist.contains(wanted)) score += 4300;
+
+        List<String> tokens = queryTokens(keyword);
+        boolean allMatched = !tokens.isEmpty();
+        int tokenScore = 0;
+        for (String token : tokens) {
+            if (title.equals(token)) tokenScore += 1700;
+            else if (artist.equals(token)) tokenScore += 1600;
+            else if (title.contains(token)) tokenScore += 1200;
+            else if (artist.contains(token)) tokenScore += 1100;
+            else {
+                allMatched = false;
+                tokenScore -= 600;
+            }
+        }
+        if (allMatched && tokens.size() > 1) score += 5200;
+        score += tokenScore;
+
+        if (titleArtist.contains(wanted) || artistTitle.contains(wanted)) score += 2200;
+        return Math.max(0, score);
+    }
+
+    private static List<String> queryTokens(String value) {
+        List<String> tokens = new ArrayList<>();
+        if (value == null) return tokens;
+        String prepared = value.toLowerCase(Locale.ROOT)
+            .replace("（", " ")
+            .replace("）", " ")
+            .replaceAll("[\\s\\p{Punct}《》【】\\[\\]·•]+", " ")
+            .replaceAll("(?<=[a-z0-9])(?=[\\p{IsHan}])|(?<=[\\p{IsHan}])(?=[a-z0-9])", " ")
+            .trim();
+        for (String part : prepared.split("\\s+")) {
+            String token = normalize(part);
+            if (!token.isEmpty() && !tokens.contains(token)) tokens.add(token);
+        }
+        return tokens;
     }
 
     private static String normalize(String value) {

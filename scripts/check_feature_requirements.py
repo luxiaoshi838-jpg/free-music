@@ -125,6 +125,19 @@ checks = {
         and 'enca' in soda_decryptor and 'mp4a' in soda_decryptor
         and 'NetworkMediaCache.cachedAudioExists(this, currentSong.cachedUri)' in main
     ),
+    'all managed cache names normalized on startup': (
+        'normalizeAllFriendlyNames' in cache
+        and 'metadataKey(' in cache
+        and 'normalizeAllCacheFilesAsync()' in main
+        and '"cache-name-normalizer"' in main
+    ),
+    'title and artist search priority': (
+        'wanted.equals(titleArtist)' in catalog
+        and 'wanted.equals(artistTitle)' in catalog
+        and 'queryTokens(keyword)' in catalog
+        and 'candidateScore = score(candidate, keyword)' in catalog
+        and 'SOURCE_GROUP_SIZE = 6' in catalog
+    ),
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'deferred flag commit after playback starts': (
         'playbackRequestSerial' in main
@@ -135,7 +148,7 @@ checks = {
     ),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080128' in gradle,
+    'version bumped': 'versionCode 2026080129' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog
