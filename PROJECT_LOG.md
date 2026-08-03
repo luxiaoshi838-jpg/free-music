@@ -367,3 +367,5 @@
 - Corrected user-visible cache filenames from `歌曲名 - 歌手 [哈希]` to `歌曲名 - 歌手`; old managed cache names migrate on the next access, with numeric suffixes only for real collisions.
 
 - v129 corrects remaining legacy cache names and search ordering: `miyaki米芽奇` now prioritizes tracks whose title/artist combination exactly matches both terms.
+
+- v130 fixes an accidental UI-label replacement where destructive and edit confirmation dialogs displayed “复制”. The real crash-report copy action remains unchanged.

@@ -138,6 +138,14 @@ checks = {
         and 'candidateScore = score(candidate, keyword)' in catalog
         and 'SOURCE_GROUP_SIZE = 6' in catalog
     ),
+    'dialog action labels match operations': (
+        'setTitle("删除歌曲")' in main
+        and main[main.find('private void confirmDeletePlaylistSong'):main.find('private void addSongToCurrentPlaylist')].find('setPositiveButton("\\u786e\\u5b9a"') >= 0
+        and main[main.find('private void promptText'):main.find('private void deleteCurrentPlaylist')].find('setPositiveButton("\\u786e\\u5b9a"') >= 0
+        and main[main.find('private void deleteCurrentPlaylist'):main.find('private void clearCurrentPlaylist')].find('setPositiveButton("\\u786e\\u5b9a"') >= 0
+        and main[main.find('private void mergePlaylistsIntoCurrent'):main.find('private boolean containsSong')].find('setPositiveButton("\\u5408\\u5e76"') >= 0
+        and main.count('setPositiveButton("\\u590d\\u5236"') == 1
+    ),
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'deferred flag commit after playback starts': (
         'playbackRequestSerial' in main
@@ -148,7 +156,7 @@ checks = {
     ),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080129' in gradle,
+    'version bumped': 'versionCode 2026080130' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog

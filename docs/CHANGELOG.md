@@ -222,3 +222,5 @@
 
 - v129: normalize every managed cache file at startup to `歌曲名 - 歌手`, removing legacy hash suffixes even for songs outside playlists.
 - v129: rank exact `歌名 + 歌手` matches first, split adjacent Latin/Chinese query text, and merge multi-source results by global relevance.
+
+- v130: correct dialog action labels: deleting a song, deleting a playlist, and text-entry dialogs now use “确定”; merging playlists uses “合并”.

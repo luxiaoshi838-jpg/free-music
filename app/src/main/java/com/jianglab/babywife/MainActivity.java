@@ -1301,7 +1301,7 @@ public class MainActivity extends Activity {
             .setTitle("删除歌曲")
             .setMessage("确定从当前歌单中删除《" + song.title + "》吗？")
             .setNegativeButton("取消", null)
-            .setPositiveButton("\u590d\u5236", (dialog, which) -> {
+            .setPositiveButton("\u786e\u5b9a", (dialog, which) -> {
                 int actualIndex = currentPlaylist().songs.indexOf(song);
                 if (actualIndex < 0) return;
                 currentPlaylist().songs.remove(actualIndex);
@@ -4647,7 +4647,7 @@ public class MainActivity extends Activity {
             .setTitle(title)
             .setView(input)
             .setNegativeButton("\u53d6\u6d88", null)
-            .setPositiveButton("\u590d\u5236", (dialog, which) -> {
+            .setPositiveButton("\u786e\u5b9a", (dialog, which) -> {
                 String value = input.getText().toString().trim();
                 if (value.isEmpty()) {
                     toast("\u540d\u79f0\u4e0d\u80fd\u4e3a\u7a7a");
@@ -4668,7 +4668,7 @@ public class MainActivity extends Activity {
             .setTitle("删除在线歌单")
             .setMessage("确定删除在线歌单《" + selected.name + "》及其中的 " + selected.songs.size() + " 首歌曲吗？")
             .setNegativeButton("取消", null)
-            .setPositiveButton("\u590d\u5236", (dialog, which) -> {
+            .setPositiveButton("\u786e\u5b9a", (dialog, which) -> {
                 List<Song> removedSongs = new ArrayList<>(selected.songs);
                 int removedIndex = currentPlaylistIndex;
                 playlists.remove(removedIndex);
@@ -4715,7 +4715,7 @@ public class MainActivity extends Activity {
             .setMessage("将其他 " + sourceCount + " 个在线歌单合并到《" + target.name
                 + "》。同歌名且同歌手只保留一首；本地歌单不会参与或被删除。")
             .setNegativeButton("取消", null)
-            .setPositiveButton("\u590d\u5236", (dialog, which) -> {
+            .setPositiveButton("\u5408\u5e76", (dialog, which) -> {
                 Map<String, Song> kept = new HashMap<>();
                 for (Song song : target.songs) kept.put(dedupeKey(song), song);
                 int added = 0;
