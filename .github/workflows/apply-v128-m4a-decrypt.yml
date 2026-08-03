@@ -1,0 +1,467 @@
+name: Apply v128 encrypted M4A fix
+
+on:
+  push:
+    branches:
+      - agent/v128-m4a-decrypt
+
+permissions:
+  contents: write
+
+jobs:
+  apply-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v128-m4a-decrypt
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK packages
+        run: sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Apply v128 source changes
+        run: |
+          set -euo pipefail
+          cat > app/src/main/java/com/jianglab/babywife/SodaM4aDecryptor.java <<'JAVA'
+          package com.jianglab.babywife;
+
+          import android.util.Base64;
+
+          import java.io.BufferedInputStream;
+          import java.io.BufferedOutputStream;
+          import java.io.File;
+          import java.io.FileInputStream;
+          import java.io.FileOutputStream;
+          import java.io.RandomAccessFile;
+          import java.nio.charset.StandardCharsets;
+          import java.util.ArrayList;
+          import java.util.List;
+
+          import javax.crypto.Cipher;
+          import javax.crypto.spec.IvParameterSpec;
+          import javax.crypto.spec.SecretKeySpec;
+
+          /** Decrypts Soda Music CENC M4A downloads using the PlayAuth carried in the resolved URL. */
+          final class SodaM4aDecryptor {
+              private static final long MAX_MOOV_BYTES = 32L * 1024L * 1024L;
+
+              private SodaM4aDecryptor() {
+              }
+
+              static boolean isEncryptedM4a(File file) {
+                  if (file == null || !file.isFile() || file.length() < 16) return false;
+                  try (RandomAccessFile input = new RandomAccessFile(file, "r")) {
+                      Box moov = findFileBox(input, "moov", 0L, input.length());
+                      if (moov == null || moov.size > MAX_MOOV_BYTES) return false;
+                      byte[] data = readBox(input, moov);
+                      return indexOf(data, ascii("enca"), 0, data.length) >= 0
+                          && indexOf(data, ascii("senc"), 0, data.length) >= 0
+                          && indexOf(data, ascii("cenc"), 0, data.length) >= 0;
+                  } catch (Exception ignored) {
+                      return false;
+                  }
+              }
+
+              static void decrypt(File encrypted, File output, String playAuth) throws Exception {
+                  if (encrypted == null || !encrypted.isFile() || encrypted.length() <= 0) {
+                      throw new IllegalArgumentException("加密 M4A 文件无效");
+                  }
+                  if (output == null) throw new IllegalArgumentException("解密输出文件无效");
+                  byte[] key = extractKey(playAuth);
+                  copyFile(encrypted, output);
+
+                  try (RandomAccessFile file = new RandomAccessFile(output, "rw")) {
+                      Box moov = findFileBox(file, "moov", 0L, file.length());
+                      Box mdat = findFileBox(file, "mdat", 0L, file.length());
+                      if (moov == null) throw new IllegalStateException("加密 M4A 缺少 moov");
+                      if (mdat == null) throw new IllegalStateException("加密 M4A 缺少 mdat");
+                      if (moov.size > MAX_MOOV_BYTES || moov.size > Integer.MAX_VALUE) {
+                          throw new IllegalStateException("M4A 索引区过大");
+                      }
+
+                      byte[] moovData = readBox(file, moov);
+                      Box stbl = findDescendant(moovData, "stbl", moov.headerSize, moovData.length, 0);
+                      if (stbl == null) throw new IllegalStateException("加密 M4A 缺少 stbl");
+                      Box stsz = findDescendant(moovData, "stsz", stbl.contentStart(), stbl.end(), 0);
+                      Box senc = findDescendant(moovData, "senc", moov.headerSize, moovData.length, 0);
+                      Box stsd = findDescendant(moovData, "stsd", stbl.contentStart(), stbl.end(), 0);
+                      if (stsz == null) throw new IllegalStateException("加密 M4A 缺少 stsz");
+                      if (senc == null) throw new IllegalStateException("加密 M4A 缺少 senc");
+
+                      long[] sampleSizes = parseStsz(moovData, stsz);
+                      List<byte[]> ivs = parseSenc(moovData, senc);
+                      if (sampleSizes.length == 0 || ivs.isEmpty()) {
+                          throw new IllegalStateException("加密 M4A 样本索引为空");
+                      }
+
+                      long pointer = mdat.offset + mdat.headerSize;
+                      long payloadEnd = mdat.offset + mdat.size;
+                      long processed = 0L;
+                      for (int index = 0; index < sampleSizes.length; index++) {
+                          long sizeLong = sampleSizes[index];
+                          if (sizeLong < 0 || sizeLong > Integer.MAX_VALUE || pointer + sizeLong > payloadEnd) {
+                              throw new IllegalStateException("加密 M4A 样本范围无效");
+                          }
+                          int size = (int) sizeLong;
+                          byte[] sample = new byte[size];
+                          file.seek(pointer);
+                          file.readFully(sample);
+                          if (index < ivs.size()) {
+                              byte[] iv = new byte[16];
+                              byte[] sourceIv = ivs.get(index);
+                              System.arraycopy(sourceIv, 0, iv, 0, Math.min(sourceIv.length, iv.length));
+                              Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
+                              cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
+                              byte[] decoded = cipher.doFinal(sample);
+                              file.seek(pointer);
+                              file.write(decoded);
+                          }
+                          pointer += sizeLong;
+                          processed += sizeLong;
+                      }
+                      if (processed != mdat.size - mdat.headerSize) {
+                          throw new IllegalStateException("加密 M4A 解密长度不一致");
+                      }
+
+                      if (stsd != null) {
+                          int enca = indexOf(moovData, ascii("enca"), stsd.offset, stsd.end());
+                          if (enca >= 0) {
+                              file.seek(moov.offset + enca);
+                              file.write(ascii("mp4a"));
+                          }
+                      }
+                  } catch (Exception error) {
+                      output.delete();
+                      throw error;
+                  }
+                  if (isEncryptedM4a(output)) {
+                      output.delete();
+                      throw new IllegalStateException("M4A 解密后仍包含加密标记");
+                  }
+              }
+
+              private static byte[] extractKey(String playAuth) throws Exception {
+                  if (playAuth == null || playAuth.trim().isEmpty()) {
+                      throw new IllegalStateException("汽水音乐缺少 PlayAuth，无法解密 M4A");
+                  }
+                  byte[] encoded = Base64.decode(playAuth.trim(), Base64.DEFAULT);
+                  if (encoded.length < 3) throw new IllegalStateException("PlayAuth 数据过短");
+                  int paddingLength = ((((encoded[0] & 0xff) ^ (encoded[1] & 0xff) ^ (encoded[2] & 0xff)) - 48) & 0xff);
+                  if (paddingLength < 0 || encoded.length < paddingLength + 2) {
+                      throw new IllegalStateException("PlayAuth 填充长度无效");
+                  }
+                  byte[] inner = new byte[encoded.length - paddingLength - 1];
+                  System.arraycopy(encoded, 1, inner, 0, inner.length);
+                  byte[] decoded = decryptSpadeInner(inner);
+                  if (decoded.length == 0) throw new IllegalStateException("PlayAuth 解码失败");
+                  int skip = decodeBase36(decoded[0]);
+                  int end = 1 + (encoded.length - paddingLength - 2) - skip;
+                  if (skip == 0xff || end <= 1 || end > decoded.length) {
+                      throw new IllegalStateException("PlayAuth 密钥范围无效");
+                  }
+                  String hex = new String(decoded, 1, end - 1, StandardCharsets.US_ASCII);
+                  if ((hex.length() & 1) != 0) throw new IllegalStateException("PlayAuth 密钥长度无效");
+                  byte[] key = new byte[hex.length() / 2];
+                  for (int i = 0; i < key.length; i++) {
+                      int high = Character.digit(hex.charAt(i * 2), 16);
+                      int low = Character.digit(hex.charAt(i * 2 + 1), 16);
+                      if (high < 0 || low < 0) throw new IllegalStateException("PlayAuth 密钥不是十六进制");
+                      key[i] = (byte) ((high << 4) | low);
+                  }
+                  if (key.length != 16 && key.length != 24 && key.length != 32) {
+                      throw new IllegalStateException("PlayAuth AES 密钥长度无效");
+                  }
+                  return key;
+              }
+
+              private static byte[] decryptSpadeInner(byte[] input) {
+                  byte[] result = new byte[input.length];
+                  byte[] buffer = new byte[input.length + 2];
+                  buffer[0] = (byte) 0xfa;
+                  buffer[1] = 0x55;
+                  System.arraycopy(input, 0, buffer, 2, input.length);
+                  for (int i = 0; i < result.length; i++) {
+                      int value = ((input[i] & 0xff) ^ (buffer[i] & 0xff)) - Integer.bitCount(i) - 21;
+                      while (value < 0) value += 255;
+                      result[i] = (byte) value;
+                  }
+                  return result;
+              }
+
+              private static int decodeBase36(byte value) {
+                  int c = value & 0xff;
+                  if (c >= '0' && c <= '9') return c - '0';
+                  if (c >= 'a' && c <= 'z') return c - 'a' + 10;
+                  return 0xff;
+              }
+
+              private static long[] parseStsz(byte[] data, Box box) {
+                  int start = box.contentStart();
+                  if (start + 12 > box.end()) return new long[0];
+                  long fixed = uint32(data, start + 4);
+                  long countLong = uint32(data, start + 8);
+                  if (countLong > 1_000_000L) throw new IllegalStateException("M4A 样本数量异常");
+                  int count = (int) countLong;
+                  long[] sizes = new long[count];
+                  if (fixed != 0L) {
+                      for (int i = 0; i < count; i++) sizes[i] = fixed;
+                  } else {
+                      int pointer = start + 12;
+                      for (int i = 0; i < count; i++) {
+                          if (pointer + 4 > box.end()) throw new IllegalStateException("stsz 数据不完整");
+                          sizes[i] = uint32(data, pointer);
+                          pointer += 4;
+                      }
+                  }
+                  return sizes;
+              }
+
+              private static List<byte[]> parseSenc(byte[] data, Box box) {
+                  List<byte[]> ivs = new ArrayList<>();
+                  int start = box.contentStart();
+                  if (start + 8 > box.end()) return ivs;
+                  long flags = uint32(data, start) & 0x00ffffffL;
+                  long countLong = uint32(data, start + 4);
+                  if (countLong > 1_000_000L) throw new IllegalStateException("senc 样本数量异常");
+                  int pointer = start + 8;
+                  boolean subsamples = (flags & 0x02L) != 0L;
+                  for (int i = 0; i < (int) countLong; i++) {
+                      if (pointer + 8 > box.end()) throw new IllegalStateException("senc IV 数据不完整");
+                      byte[] iv = new byte[8];
+                      System.arraycopy(data, pointer, iv, 0, 8);
+                      ivs.add(iv);
+                      pointer += 8;
+                      if (subsamples) {
+                          if (pointer + 2 > box.end()) throw new IllegalStateException("senc 子样本数据不完整");
+                          int subCount = uint16(data, pointer);
+                          pointer += 2 + subCount * 6;
+                          if (pointer > box.end()) throw new IllegalStateException("senc 子样本范围无效");
+                      }
+                  }
+                  return ivs;
+              }
+
+              private static Box findFileBox(RandomAccessFile file, String wanted, long start, long end) throws Exception {
+                  long pointer = start;
+                  while (pointer + 8L <= end) {
+                      file.seek(pointer);
+                      long size = file.readInt() & 0xffffffffL;
+                      byte[] typeBytes = new byte[4];
+                      file.readFully(typeBytes);
+                      int header = 8;
+                      if (size == 1L) {
+                          size = file.readLong();
+                          header = 16;
+                      } else if (size == 0L) {
+                          size = end - pointer;
+                      }
+                      String type = new String(typeBytes, StandardCharsets.ISO_8859_1);
+                      if (size < header || pointer + size > end) break;
+                      if (wanted.equals(type)) return new Box((int) pointer, (int) size, header, type);
+                      pointer += size;
+                  }
+                  return null;
+              }
+
+              private static Box findDescendant(byte[] data, String wanted, int start, int end, int depth) {
+                  if (depth > 8) return null;
+                  int pointer = Math.max(0, start);
+                  int safeEnd = Math.min(data.length, end);
+                  while (pointer + 8 <= safeEnd) {
+                      long sizeLong = uint32(data, pointer);
+                      int header = 8;
+                      if (sizeLong == 1L) {
+                          if (pointer + 16 > safeEnd) return null;
+                          sizeLong = uint64(data, pointer + 8);
+                          header = 16;
+                      } else if (sizeLong == 0L) {
+                          sizeLong = safeEnd - pointer;
+                      }
+                      if (sizeLong < header || sizeLong > Integer.MAX_VALUE || pointer + sizeLong > safeEnd) break;
+                      int size = (int) sizeLong;
+                      String type = new String(data, pointer + 4, 4, StandardCharsets.ISO_8859_1);
+                      Box box = new Box(pointer, size, header, type);
+                      if (wanted.equals(type)) return box;
+                      if (isContainer(type)) {
+                          Box nested = findDescendant(data, wanted, box.contentStart(), box.end(), depth + 1);
+                          if (nested != null) return nested;
+                      }
+                      pointer += size;
+                  }
+                  return null;
+              }
+
+              private static boolean isContainer(String type) {
+                  return "moov".equals(type) || "trak".equals(type) || "mdia".equals(type)
+                      || "minf".equals(type) || "stbl".equals(type) || "moof".equals(type)
+                      || "traf".equals(type) || "edts".equals(type) || "dinf".equals(type);
+              }
+
+              private static byte[] readBox(RandomAccessFile file, Box box) throws Exception {
+                  if (box.size > Integer.MAX_VALUE) throw new IllegalStateException("MP4 box 过大");
+                  byte[] data = new byte[(int) box.size];
+                  file.seek(box.offset);
+                  file.readFully(data);
+                  return data;
+              }
+
+              private static int indexOf(byte[] data, byte[] target, int start, int end) {
+                  int safeEnd = Math.min(data.length, end);
+                  for (int i = Math.max(0, start); i + target.length <= safeEnd; i++) {
+                      boolean match = true;
+                      for (int j = 0; j < target.length; j++) {
+                          if (data[i + j] != target[j]) { match = false; break; }
+                      }
+                      if (match) return i;
+                  }
+                  return -1;
+              }
+
+              private static byte[] ascii(String value) {
+                  return value.getBytes(StandardCharsets.ISO_8859_1);
+              }
+
+              private static int uint16(byte[] data, int offset) {
+                  return ((data[offset] & 0xff) << 8) | (data[offset + 1] & 0xff);
+              }
+
+              private static long uint32(byte[] data, int offset) {
+                  return ((long) (data[offset] & 0xff) << 24)
+                      | ((long) (data[offset + 1] & 0xff) << 16)
+                      | ((long) (data[offset + 2] & 0xff) << 8)
+                      | (long) (data[offset + 3] & 0xff);
+              }
+
+              private static long uint64(byte[] data, int offset) {
+                  long high = uint32(data, offset);
+                  long low = uint32(data, offset + 4);
+                  return (high << 32) | low;
+              }
+
+              private static void copyFile(File source, File target) throws Exception {
+                  File parent = target.getParentFile();
+                  if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                      throw new IllegalStateException("无法创建 M4A 解密目录");
+                  }
+                  try (BufferedInputStream input = new BufferedInputStream(new FileInputStream(source));
+                       BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(target))) {
+                      byte[] buffer = new byte[64 * 1024];
+                      int count;
+                      while ((count = input.read(buffer)) >= 0) if (count > 0) output.write(buffer, 0, count);
+                  }
+              }
+
+              private static final class Box {
+                  final int offset;
+                  final int size;
+                  final int headerSize;
+                  final String type;
+
+                  Box(int offset, int size, int headerSize, String type) {
+                      this.offset = offset;
+                      this.size = size;
+                      this.headerSize = headerSize;
+                      this.type = type;
+                  }
+
+                  int contentStart() { return offset + headerSize; }
+                  int end() { return offset + size; }
+              }
+          }
+          JAVA
+
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java')
+          data = path.read_bytes()
+
+          data, count = re.subn(
+              rb'(        String audioUrl = choice\.audioUrl\(\);\r?\n)',
+              rb'\1        ResolvedAudioAddress audioAddress = ResolvedAudioAddress.parse(audioUrl,\r\n            firstNonEmpty(choice.resolved.optString("play_auth"), choice.resolved.optString("playAuth"),\r\n                choice.resolved.optString("PlayAuth")));\r\n', data, count=1)
+          assert count == 1
+
+          data, count = re.subn(
+              rb'(        File mp3Partial = new File\(tempRoot, key \+ "\\.mp3\\.ready"\);\r?\n)',
+              rb'\1        File decryptedPartial = new File(tempRoot, key + ".m4a.decrypted");\r\n', data, count=1)
+          assert count == 1
+
+          old = re.compile(
+              rb'            download\(audioUrl, actualSource, partial, callback\);\r?\n'
+              rb'            if \(partial\.length\(\) <= 0\) throw new IllegalStateException\("歌曲缓存为空"\);\r?\n'
+              rb'            String actualExtension = detectAudioExtension\(partial, hintedExtension\);')
+          replacement = (
+              b'            download(audioAddress.url, actualSource, partial, callback);\r\n'
+              b'            if (partial.length() <= 0) throw new IllegalStateException("歌曲缓存为空");\r\n'
+              b'            File decodedSource = partial;\r\n'
+              b'            if (SodaM4aDecryptor.isEncryptedM4a(partial)) {\r\n'
+              b'                if (audioAddress.playAuth.isEmpty()) {\r\n'
+              b'                    throw new IllegalStateException("当前 M4A 为加密文件，但来源未返回 PlayAuth");\r\n'
+              b'                }\r\n'
+              b'                status(callback, "正在解密 M4A 音频...");\r\n'
+              b'                SodaM4aDecryptor.decrypt(partial, decryptedPartial, audioAddress.playAuth);\r\n'
+              b'                decodedSource = decryptedPartial;\r\n'
+              b'            }\r\n'
+              b'            String actualExtension = detectAudioExtension(decodedSource, hintedExtension);')
+          data, count = old.subn(replacement, data, count=1)
+          assert count == 1
+
+          data, count = re.subn(rb'            File cacheSource = partial;\r?\n',
+                                b'            File cacheSource = decodedSource;\r\n', data, count=1)
+          assert count == 1
+
+          data, count = re.subn(
+              rb'(            if \(mp3Partial\.exists\(\)\) mp3Partial\.delete\(\);\r?\n)',
+              rb'\1            if (decryptedPartial.exists()) decryptedPartial.delete();\r\n', data, count=1)
+          assert count == 1
+
+          marker = re.compile(rb'\r?\n    private static final class ResolvedChoice \{')
+          address_class = b'''\r\n\r\n    private static final class ResolvedAudioAddress {\r\n        final String url;\r\n        final String playAuth;\r\n\r\n        ResolvedAudioAddress(String url, String playAuth) {\r\n            this.url = url == null ? "" : url.trim();\r\n            this.playAuth = playAuth == null ? "" : playAuth.trim();\r\n        }\r\n\r\n        static ResolvedAudioAddress parse(String rawUrl, String explicitAuth) {\r\n            String raw = rawUrl == null ? "" : rawUrl.trim();\r\n            String auth = explicitAuth == null ? "" : explicitAuth.trim();\r\n            int marker = raw.indexOf("#auth=");\r\n            if (marker >= 0) {\r\n                if (auth.isEmpty()) {\r\n                    try {\r\n                        auth = java.net.URLDecoder.decode(raw.substring(marker + 6), "UTF-8");\r\n                    } catch (Exception ignored) {\r\n                        auth = raw.substring(marker + 6);\r\n                    }\r\n                }\r\n                raw = raw.substring(0, marker);\r\n            }\r\n            return new ResolvedAudioAddress(raw, auth);\r\n        }\r\n    }\r\n\r\n    private static final class ResolvedChoice {'''
+          data, count = marker.subn(address_class, data, count=1)
+          assert count == 1
+          path.write_bytes(data)
+
+          gradle = Path('app/build.gradle')
+          text = gradle.read_text(encoding='utf-8')
+          text = text.replace('versionCode 2026080127', 'versionCode 2026080128')
+          text = text.replace('versionName "2026.08.03.m4a-source-support"', 'versionName "2026.08.03.m4a-decryption"')
+          gradle.write_text(text, encoding='utf-8')
+
+          check = Path('scripts/check_feature_requirements.py')
+          text = check.read_text(encoding='utf-8')
+          text = text.replace("transcoder = (root / 'app/src/main/java/com/jianglab/babywife/AudioTranscoder.java').read_text(encoding='utf-8')",
+              "transcoder = (root / 'app/src/main/java/com/jianglab/babywife/AudioTranscoder.java').read_text(encoding='utf-8')\nsoda_decryptor = (root / 'app/src/main/java/com/jianglab/babywife/SodaM4aDecryptor.java').read_text(encoding='utf-8')")
+          text = text.replace("    'settings width and status bar':", "    'encrypted soda m4a decrypted': (\n        'ResolvedAudioAddress.parse' in network\n        and '#auth=' in network\n        and 'SodaM4aDecryptor.decrypt' in network\n        and 'AES/CTR/NoPadding' in soda_decryptor\n        and 'PlayAuth' in soda_decryptor\n        and 'enca' in soda_decryptor and 'mp4a' in soda_decryptor\n    ),\n    'settings width and status bar':")
+          text = text.replace("'versionCode 2026080127'", "'versionCode 2026080128'")
+          check.write_text(text, encoding='utf-8')
+
+          with Path('docs/CHANGELOG.md').open('a', encoding='utf-8') as out:
+              out.write('\n\n## v128 - 2026-08-03\n- Fixed Soda Music M4A playback by extracting PlayAuth from the resolved URL and decrypting CENC/AES-CTR audio before caching.\n- Added encrypted-container detection so encrypted M4A is never passed directly to Android MediaPlayer.\n')
+          with Path('PROJECT_LOG.md').open('a', encoding='utf-8') as out:
+              out.write('\n\n## 2026-08-03 - Decrypt encrypted M4A before playback\n- Confirmed the supplied sample is CENC-encrypted AAC in an M4A container.\n- Ported the dependency library PlayAuth and AES-CTR decryption path to Android cache handling.\n- Bumped all four brands to v128.\n')
+          PY
+      - name: Verify requirements
+        run: python scripts/check_feature_requirements.py
+      - name: Build four unsigned release APKs
+        run: gradle --no-daemon :app:assembleBabywifeclassicRelease :app:assembleLidacaizhuRelease :app:assembleJianglabRelease :app:assembleNiubiRelease
+      - name: Commit v128 source changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/build.gradle app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java app/src/main/java/com/jianglab/babywife/SodaM4aDecryptor.java scripts/check_feature_requirements.py docs/CHANGELOG.md PROJECT_LOG.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'Fix encrypted M4A playback with PlayAuth decryption'
+            git push origin HEAD:agent/v128-m4a-decrypt
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v128-four-unsigned-release-apks
+          path: app/build/outputs/apk/*/release/*.apk
