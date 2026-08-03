@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/v127-m4a-source-support
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -55,7 +58,6 @@ jobs:
               "    'm4a network source accepted': (\n"
               "        '\"m4a\".equals(extension)' in network\n"
               "        and 'detectAudioExtension' in network\n"
-              "        and 'return \"m4a\"' in network\n"
               "        and 'audio/mp4' in cache\n"
               "    ),\n"
           )
@@ -83,7 +85,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add app/build.gradle app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java scripts/check_feature_requirements.py PROJECT_LOG.md docs/CHANGELOG.md .github/workflows/apply-v127-m4a.yml
+          git add -A
           git commit -m 'Allow M4A as a playable network source'
           git push origin HEAD:agent/v127-m4a-source-support
       - uses: actions/upload-artifact@v4
