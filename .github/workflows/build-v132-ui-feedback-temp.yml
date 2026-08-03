@@ -28,8 +28,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
-      - name: Apply v132 patch
-        run: python scripts/apply_v132_search_keyboard_button_feedback_patch.py
+      - name: Apply v132 patch when needed
+        run: |
+          if grep -q 'versionCode 2026080132' app/build.gradle; then
+            echo 'v132 formal source already present; skipping one-time patch.'
+          else
+            python scripts/apply_v132_search_keyboard_button_feedback_patch.py
+          fi
       - name: Verify requirements
         run: python scripts/check_feature_requirements.py
       - name: Build four release APKs
