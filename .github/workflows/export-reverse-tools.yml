@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - tools/export-apksigner
+  pull_request:
+    branches:
+      - main
 
 jobs:
   export:
