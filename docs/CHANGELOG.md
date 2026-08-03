@@ -227,3 +227,6 @@
 
 - v131: remove the fixed format allowlist. Resolve candidates in MP3 > FLAC > M4A > other order, but only cache a candidate after Android MediaExtractor and MediaPlayer both verify it. Failed candidates are discarded and the next format/source is tried automatically.
 - v131: every final audio file uses the same `歌曲名 - 歌手.真实扩展名` rule. A newly selected format replaces older same-name formats instead of creating hash or numbered duplicates.
+
+- v132: submitting either the song search or the current-playlist search now hides the soft keyboard and clears input focus. The playlist search field gains the same circular clear button as the song search field.
+- v132: all main button-like controls use the same subtle 96% press-and-release feedback as previous/next, including settings, broom cleanup, current playlist, search, replacement actions, playback mode, clear buttons, back buttons and other clickable controls.

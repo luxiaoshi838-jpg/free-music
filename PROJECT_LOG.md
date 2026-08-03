@@ -372,3 +372,5 @@
 
 - v131 accepts any format that the current Android device can actually prepare for playback. Acquisition priority is MP3 > FLAC > M4A > other; unplayable downloads are deleted before becoming cache files.
 - v131 enforces one consistent cache basename (`title - artist`) across formats and removes older same-basename audio when the chosen format changes.
+
+- v132 closes the IME after song/playlist search submission, adds a circular clear control to playlist search, and applies consistent subtle press feedback to all main button-like controls.

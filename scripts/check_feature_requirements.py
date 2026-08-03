@@ -172,7 +172,29 @@ checks = {
     ),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080131' in gradle,
+    'search keyboards close after submit': (
+        'import android.view.inputmethod.InputMethodManager;' in main
+        and 'hideKeyboardAndClearFocus(searchInput);' in main
+        and 'playlistSearchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);' in main
+        and 'hideKeyboardAndClearFocus(playlistSearchInput);' in main
+    ),
+    'playlist search clear control': (
+        'TextView clearPlaylistSearchButton = new TextView(this);' in main
+        and 'clearPlaylistSearchButton.setText("×")' in main
+        and 'clearPlaylistSearchButton.setVisibility(View.GONE)' in main
+        and 'playlistSearchInput.setText("")' in main
+        and 'panel.addView(playlistSearchBox, searchParams);' in main
+    ),
+    'all main button press feedback': (
+        'attachPressFeedbackTree(shellView);' in main
+        and 'attachSubtlePressFeedback(button);' in main
+        and 'root instanceof BroomIconView' in main
+        and 'root instanceof BackChevronView' in main
+        and 'root instanceof TextView' in main
+        and '.scaleX(0.96f)' in main
+        and '.scaleY(0.96f)' in main
+    ),
+    'version bumped': 'versionCode 2026080132' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog

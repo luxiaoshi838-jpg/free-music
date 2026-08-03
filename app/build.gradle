@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080131
-        versionName "2026.08.03.playable-format-priority"
+        versionCode 2026080132
+        versionName "2026.08.03.search-keyboard-button-feedback"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 

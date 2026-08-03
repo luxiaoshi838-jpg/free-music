@@ -41,6 +41,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.AbsListView;
 import android.widget.ArrayAdapter;
 import android.widget.BaseAdapter;
@@ -274,6 +275,7 @@ public class MainActivity extends Activity {
         loadPlaylists();
         loadSavedUiSettings();
         setContentView(buildContentView());
+        attachPressFeedbackTree(shellView);
         maybeRequireJiangLabPassphrase();
         registerPlaybackControlReceiver();
         PlaybackControlService.ensureStarted(this);
@@ -662,6 +664,7 @@ public class MainActivity extends Activity {
         clearCacheButton.setBackground(rounded(Color.argb(88, 255, 255, 255), dp(999)));
         clearCacheButton.setContentDescription("清除非歌单缓存");
         clearCacheButton.setOnClickListener(view -> confirmClearTransientCache());
+        attachSubtlePressFeedback(clearCacheButton);
         LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(42), dp(42));
         clearParams.setMargins(dp(6), 0, 0, 0);
         headerBar.addView(clearCacheButton, clearParams);
@@ -797,6 +800,7 @@ public class MainActivity extends Activity {
             searchInput.setText("");
             searchInput.requestFocus();
         });
+        attachSubtlePressFeedback(clearSearchButton);
         FrameLayout.LayoutParams clearParams = new FrameLayout.LayoutParams(dp(24), dp(24));
         clearParams.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
         clearParams.setMargins(0, 0, dp(10), 0);
@@ -889,6 +893,7 @@ public class MainActivity extends Activity {
         searchLoadMoreView.setPadding(dp(12), dp(16), dp(12), dp(16));
         searchLoadMoreView.setBackground(rounded(Color.argb(86, 255, 255, 255), dp(18)));
         searchLoadMoreView.setOnClickListener(view -> loadNextSearchBatch(false));
+        attachSubtlePressFeedback(searchLoadMoreView);
         searchResultsList.addFooterView(searchLoadMoreView, null, true);
         searchResultsList.setAdapter(resultAdapter);
         searchResultsList.setOnItemClickListener((parent, view, position, id) -> {
@@ -1115,6 +1120,7 @@ public class MainActivity extends Activity {
     private void attachSubtlePressFeedback(View view) {
         if (view == null) return;
         view.setOnTouchListener((pressedView, event) -> {
+            if (!pressedView.isEnabled()) return false;
             if (event == null) return false;
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN) {
@@ -1135,6 +1141,32 @@ public class MainActivity extends Activity {
             }
             return false;
         });
+    }
+
+    private void attachPressFeedbackTree(View root) {
+        if (root == null) return;
+        boolean buttonLike = root instanceof Button
+            || root instanceof BroomIconView
+            || root instanceof BackChevronView
+            || (root instanceof TextView && !(root instanceof EditText) && root.isClickable())
+            || (root instanceof ImageView && root.isClickable())
+            || (root instanceof LinearLayout && root.isClickable());
+        if (buttonLike) attachSubtlePressFeedback(root);
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int index = 0; index < group.getChildCount(); index++) {
+                attachPressFeedbackTree(group.getChildAt(index));
+            }
+        }
+    }
+
+    private void hideKeyboardAndClearFocus(View target) {
+        View focused = target != null ? target : getCurrentFocus();
+        if (focused != null) {
+            InputMethodManager manager = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (manager != null) manager.hideSoftInputFromWindow(focused.getWindowToken(), 0);
+            focused.clearFocus();
+        }
     }
 
     private View buildPlaylistPage() {
@@ -1165,13 +1197,52 @@ public class MainActivity extends Activity {
         topRow.addView(playlistSortButton, new LinearLayout.LayoutParams(dp(58), dp(42)));
         panel.addView(topRow);
 
+        FrameLayout playlistSearchBox = new FrameLayout(this);
         playlistSearchInput = new EditText(this);
         playlistSearchInput.setSingleLine(true);
         playlistSearchInput.setHint("搜索当前歌单中的歌曲 / 歌手");
         playlistSearchInput.setTextColor(TEXT_MAIN);
         playlistSearchInput.setHintTextColor(Color.argb(185, 255, 255, 255));
         playlistSearchInput.setBackground(rounded(Color.argb(72, 255, 255, 255), dp(20)));
-        playlistSearchInput.setPadding(dp(14), 0, dp(14), 0);
+        playlistSearchInput.setPadding(dp(14), 0, dp(48), 0);
+        playlistSearchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        playlistSearchInput.setOnEditorActionListener((view, actionId, event) -> {
+            boolean keyboardSearch = actionId == EditorInfo.IME_ACTION_SEARCH
+                || actionId == EditorInfo.IME_ACTION_DONE;
+            boolean enterUp = event != null
+                && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                && event.getAction() == KeyEvent.ACTION_UP;
+            if (keyboardSearch || enterUp) {
+                applyPlaylistFilter();
+                hideKeyboardAndClearFocus(playlistSearchInput);
+                return true;
+            }
+            return false;
+        });
+        playlistSearchBox.addView(playlistSearchInput, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        TextView clearPlaylistSearchButton = new TextView(this);
+        clearPlaylistSearchButton.setText("×");
+        clearPlaylistSearchButton.setTextColor(Color.WHITE);
+        clearPlaylistSearchButton.setTextSize(17);
+        clearPlaylistSearchButton.setGravity(Gravity.CENTER);
+        clearPlaylistSearchButton.setIncludeFontPadding(false);
+        clearPlaylistSearchButton.setVisibility(View.GONE);
+        clearPlaylistSearchButton.setClickable(true);
+        clearPlaylistSearchButton.setFocusable(true);
+        clearPlaylistSearchButton.setContentDescription("清除歌单搜索文字");
+        clearPlaylistSearchButton.setBackground(rounded(Color.argb(190, 112, 112, 118), dp(12)));
+        clearPlaylistSearchButton.setOnClickListener(view -> {
+            playlistSearchInput.setText("");
+            playlistSearchInput.requestFocus();
+        });
+        attachSubtlePressFeedback(clearPlaylistSearchButton);
+        FrameLayout.LayoutParams playlistClearParams = new FrameLayout.LayoutParams(dp(24), dp(24));
+        playlistClearParams.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
+        playlistClearParams.setMargins(0, 0, dp(10), 0);
+        playlistSearchBox.addView(clearPlaylistSearchButton, playlistClearParams);
+
         playlistSearchInput.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence text, int start, int count, int after) {
@@ -1183,13 +1254,15 @@ public class MainActivity extends Activity {
 
             @Override
             public void onTextChanged(CharSequence text, int start, int before, int count) {
+                clearPlaylistSearchButton.setVisibility(
+                    text != null && text.length() > 0 ? View.VISIBLE : View.GONE);
                 applyPlaylistFilter();
             }
         });
         LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
         searchParams.setMargins(0, dp(6), 0, dp(6));
-        panel.addView(playlistSearchInput, searchParams);
+        panel.addView(playlistSearchBox, searchParams);
 
         TextView hint = new TextView(this);
         hint.setText("点击播放；长按歌曲后确认删除");
@@ -1544,6 +1617,7 @@ public class MainActivity extends Activity {
         button.setAllCaps(false);
         button.setTextColor(Color.WHITE);
         button.setBackground(rounded(primary ? ACCENT : Color.argb(78, 255, 255, 255), dp(22)));
+        attachSubtlePressFeedback(button);
         return button;
     }
 
@@ -1605,6 +1679,7 @@ public class MainActivity extends Activity {
     }
 
     private void performSearch() {
+        hideKeyboardAndClearFocus(searchInput);
         String keyword = searchInput.getText().toString().trim();
         if (keyword.isEmpty()) {
             toast("请输入歌曲名或歌手");
@@ -4110,6 +4185,7 @@ public class MainActivity extends Activity {
             selectBuiltInBackground(mode);
             if (holder[0] != null) holder[0].dismiss();
         });
+        attachSubtlePressFeedback(preview);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(178));
         params.setMargins(0, dp(4), 0, dp(10));
@@ -4153,6 +4229,7 @@ public class MainActivity extends Activity {
             switchLauncherIcon(mode);
             if (holder[0] != null) holder[0].dismiss();
         });
+        attachSubtlePressFeedback(column);
         return column;
     }
 
