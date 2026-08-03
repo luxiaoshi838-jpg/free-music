@@ -38,6 +38,11 @@ jobs:
           text = text.replace("network_path.write_text(network, encoding='utf-8', newline='')", "network_path.open('w', encoding='utf-8', newline='').write(network)")
           text = text.replace("main = main_path.read_text(encoding='utf-8', newline='')", "main = main_path.open('r', encoding='utf-8', newline='').read()")
           text = text.replace("main_path.write_text(main, encoding='utf-8', newline='')", "main_path.open('w', encoding='utf-8', newline='').write(main)")
+          old = '''def replace_once(text: str, old: str, new: str, label: str) -> str:\n    count = text.count(old)\n    if count != 1:\n        raise SystemExit(f'{label}: expected one match, found {count}')\n    return text.replace(old, new, 1)\n'''
+          new = '''def replace_once(text: str, old: str, new: str, label: str) -> str:\n    count = text.count(old)\n    if count == 1:\n        return text.replace(old, new, 1)\n    pattern = r'\\r?\\n'.join(re.escape(part) for part in old.split('\\n'))\n    matches = list(re.finditer(pattern, text))\n    if len(matches) != 1:\n        raise SystemExit(f'{label}: expected one flexible match, found {len(matches)}')\n    match = matches[0]\n    newline = '\\r\\n' if '\\r\\n' in match.group(0) else '\\n'\n    replacement = new.replace('\\n', newline)\n    return text[:match.start()] + replacement + text[match.end():]\n'''
+          if old not in text:
+              raise SystemExit('replace_once helper not found')
+          text = text.replace(old, new, 1)
           path.write_text(text, encoding='utf-8')
           PY
           python scripts/apply_v128_m4a_patch.py
