@@ -1,0 +1,57 @@
+name: Build v128 encrypted M4A release
+
+on:
+  push:
+    branches:
+      - agent/v128-m4a-decrypt
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v128-m4a-decrypt
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Apply source patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply_v128_m4a_patch.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace("network = network_path.read_text(encoding='utf-8', newline='')", "network = network_path.open('r', encoding='utf-8', newline='').read()")
+          text = text.replace("network_path.write_text(network, encoding='utf-8', newline='')", "network_path.open('w', encoding='utf-8', newline='').write(network)")
+          text = text.replace("main = main_path.read_text(encoding='utf-8', newline='')", "main = main_path.open('r', encoding='utf-8', newline='').read()")
+          text = text.replace("main_path.write_text(main, encoding='utf-8', newline='')", "main_path.open('w', encoding='utf-8', newline='').write(main)")
+          path.write_text(text, encoding='utf-8')
+          PY
+          python scripts/apply_v128_m4a_patch.py
+      - name: Verify requirements
+        run: python scripts/check_feature_requirements.py
+      - name: Build four release APKs
+        run: gradle --no-daemon :app:assembleBabywifeclassicRelease :app:assembleLidacaizhuRelease :app:assembleJianglabRelease :app:assembleNiubiRelease
+      - name: Commit formal source changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add PROJECT_LOG.md app/build.gradle app/src/main/java/com/jianglab/babywife/MainActivity.java app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java app/src/main/java/com/jianglab/babywife/SodaM4aDecryptor.java docs/CHANGELOG.md scripts/check_feature_requirements.py
+          if ! git diff --cached --quiet; then
+            git commit -m 'Fix encrypted M4A playback with PlayAuth decryption'
+            git push origin HEAD:agent/v128-m4a-decrypt
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v128-four-unsigned-release-apks
+          path: app/build/outputs/apk/*/release/*.apk
