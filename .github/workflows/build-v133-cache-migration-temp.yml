@@ -1,0 +1,56 @@
+name: Build v133 full cache folder migration
+
+on:
+  push:
+    branches:
+      - agent/v128-m4a-decrypt
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v128-m4a-decrypt
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Apply v133 patch when needed
+        run: |
+          if grep -q 'versionCode 2026080133' app/build.gradle; then
+            echo 'v133 source already present'
+          else
+            python scripts/apply_v133_full_cache_folder_migration_patch.py
+          fi
+      - name: Verify requirements
+        run: python scripts/check_feature_requirements.py
+      - name: Build four release APKs
+        run: gradle --no-daemon :app:assembleBabywifeclassicRelease :app:assembleLidacaizhuRelease :app:assembleJianglabRelease :app:assembleNiubiRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v133-four-unsigned-release-apks
+          path: app/build/outputs/apk/*/release/*.apk
+      - name: Commit formal source changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add PROJECT_LOG.md app/build.gradle app/src/main/AndroidManifest.xml app/src/main/java/com/jianglab/babywife/MainActivity.java app/src/main/java/com/jianglab/babywife/CacheStorage.java docs/CHANGELOG.md scripts/check_feature_requirements.py
+          if ! git diff --cached --quiet; then
+            git commit -m 'Fix full cache folder migration [skip ci]'
+            git fetch origin agent/v128-m4a-decrypt
+            git rebase origin/agent/v128-m4a-decrypt
+            git push origin HEAD:agent/v128-m4a-decrypt
+          fi
