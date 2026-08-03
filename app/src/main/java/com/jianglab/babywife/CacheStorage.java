@@ -349,8 +349,10 @@ final class CacheStorage {
         if (tree != null) {
             MetadataRecord existing = readMetadataFromTree(context, tree, key);
             if (existing != null) record.lyricFile = existing.lyricFile;
-            String fileName = friendlyBaseForTree(context, tree, record, existing) + "." + safeExtension;
+            String baseName = friendlyBase(record);
             removeDocumentsForKey(context, tree, key, false, true, false);
+            removeTreeAudioWithBase(context, tree, baseName);
+            String fileName = baseName + "." + safeExtension;
             Uri target = createOrReplaceDocument(context, tree, fileName, audioMime(safeExtension));
             try (InputStream input = new BufferedInputStream(new FileInputStream(source));
                  OutputStream raw = context.getContentResolver().openOutputStream(target, "w");
@@ -367,8 +369,10 @@ final class CacheStorage {
         if (!root.exists() && !root.mkdirs()) throw new IllegalStateException("无法创建缓存目录");
         MetadataRecord existing = readMetadataFromInternal(root, key);
         if (existing != null) record.lyricFile = existing.lyricFile;
-        String fileName = friendlyBaseForInternal(root, record, existing) + "." + safeExtension;
+        String baseName = friendlyBase(record);
         removeInternalForKey(root, key, false, true, false);
+        removeInternalAudioWithBase(root, baseName);
+        String fileName = baseName + "." + safeExtension;
         File target = new File(root, fileName);
         try (InputStream input = new BufferedInputStream(new FileInputStream(source));
              OutputStream output = new BufferedOutputStream(new FileOutputStream(target))) {
@@ -440,6 +444,32 @@ final class CacheStorage {
         String base = record.title + " - " + record.artist;
         if (base.length() > 140) base = base.substring(0, 140).trim();
         return base;
+    }
+
+    private static void removeInternalAudioWithBase(File root, String baseName) {
+        File[] files = root == null ? null : root.listFiles();
+        if (files == null) return;
+        for (File file : files) {
+            if (!file.isFile()) continue;
+            String name = file.getName();
+            if (isMetadataName(name) || isLyricName(name)
+                || name.endsWith(".part") || name.endsWith(".move_part")) continue;
+            if (fileBase(name).equalsIgnoreCase(baseName)) deleteFile(file);
+        }
+    }
+
+    private static void removeTreeAudioWithBase(Context context, Uri tree,
+                                                String baseName) throws Exception {
+        for (DocumentEntry entry : listDocumentsStrict(context, tree, false)) {
+            String name = entry.name;
+            if (isMetadataName(name) || isLyricName(name)
+                || name.endsWith(".part") || name.endsWith(".move_part")) continue;
+            if (!fileBase(name).equalsIgnoreCase(baseName)) continue;
+            try {
+                DocumentsContract.deleteDocument(context.getContentResolver(), entry.uri);
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     private static String friendlyBaseForInternal(File root, MetadataRecord record,
@@ -980,18 +1010,14 @@ final class CacheStorage {
 
     private static String extensionOf(String name) {
         int dot = name == null ? -1 : name.lastIndexOf('.');
-        return sanitizeExtension(dot < 0 ? "mp3" : name.substring(dot + 1));
+        return sanitizeExtension(dot < 0 ? "audio" : name.substring(dot + 1));
     }
 
     private static String sanitizeExtension(String value) {
         String extension = value == null ? "" : value.toLowerCase(Locale.ROOT)
             .replaceAll("[^a-z0-9]", "");
-        if (extension.equals("flac") || extension.equals("m4a") || extension.equals("aac")
-            || extension.equals("ogg") || extension.equals("opus") || extension.equals("wav")
-            || extension.equals("wma") || extension.equals("mp3") || extension.equals("webm")) {
-            return extension;
-        }
-        return "mp3";
+        if (extension.isEmpty()) return "audio";
+        return extension.length() > 12 ? extension.substring(0, 12) : extension;
     }
 
     private static String safeNamePart(String value, String fallback, int maxLength) {
@@ -1051,12 +1077,21 @@ final class CacheStorage {
     }
 
     private static String audioMime(String extension) {
+        if ("mp3".equals(extension)) return "audio/mpeg";
         if ("flac".equals(extension)) return "audio/flac";
-        if ("m4a".equals(extension) || "aac".equals(extension) || "mp4".equals(extension)) return "audio/mp4";
-        if ("ogg".equals(extension) || "opus".equals(extension)) return "audio/ogg";
+        if ("m4a".equals(extension) || "mp4".equals(extension)) return "audio/mp4";
+        if ("aac".equals(extension)) return "audio/aac";
+        if ("ogg".equals(extension)) return "audio/ogg";
+        if ("opus".equals(extension)) return "audio/opus";
         if ("wav".equals(extension)) return "audio/wav";
         if ("webm".equals(extension)) return "audio/webm";
-        return "audio/mpeg";
+        if ("amr".equals(extension)) return "audio/amr";
+        if ("aiff".equals(extension) || "aif".equals(extension)) return "audio/aiff";
+        if ("mid".equals(extension) || "midi".equals(extension)) return "audio/midi";
+        if ("wma".equals(extension)) return "audio/x-ms-wma";
+        if ("ac3".equals(extension)) return "audio/ac3";
+        if ("eac3".equals(extension)) return "audio/eac3";
+        return "application/octet-stream";
     }
 
     private static final class DocumentEntry {

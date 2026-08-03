@@ -68,7 +68,9 @@ final class NetworkMediaCache {
         JSONObject requestedCatalog = canonicalCatalog(catalogJson);
         String requestedSource = requestedCatalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
         String requestedId = requestedCatalog.optString("id", "").trim();
-        if (requestedSource.isEmpty() || requestedId.isEmpty()) throw new IllegalArgumentException("歌曲目录缺少来源或 ID");
+        if (requestedSource.isEmpty() || requestedId.isEmpty()) {
+            throw new IllegalArgumentException("歌曲目录缺少来源或 ID");
+        }
 
         String requestedKey = sha256(requestedSource + "|" + requestedId);
         String requestedTitle = catalogTitle(requestedCatalog);
@@ -76,116 +78,57 @@ final class NetworkMediaCache {
         String requestedAlbum = catalogAlbum(requestedCatalog);
         CacheStorage.ensureFriendlyNames(context, requestedKey, requestedTitle, requestedArtist,
             requestedAlbum, requestedCatalog.toString());
+
         String requestedAudioUri = CacheStorage.findAudioUri(context, requestedKey);
         String requestedLyric = CacheStorage.readLyric(context, requestedKey);
-        if (!requestedAudioUri.isEmpty() && cachedAudioExists(context, requestedAudioUri)) {
+        if (!requestedAudioUri.isEmpty()
+            && PlayableAudioResolver.cachedAudioExists(context, requestedAudioUri)) {
             boolean lyricFromCache = !requestedLyric.trim().isEmpty();
             if (!lyricFromCache) {
                 status(callback, "正在按原平台读取歌词...");
                 requestedLyric = fetchLyrics(requestedCatalog.toString());
-                if (!requestedLyric.trim().isEmpty()) CacheStorage.writeLyric(context, requestedKey, requestedLyric, requestedTitle, requestedArtist, requestedAlbum, requestedCatalog.toString());
+                if (!requestedLyric.trim().isEmpty()) {
+                    CacheStorage.writeLyric(context, requestedKey, requestedLyric,
+                        requestedTitle, requestedArtist, requestedAlbum, requestedCatalog.toString());
+                }
             }
-            status(callback, "已读取歌曲缓存");
+            status(callback, "已读取并验证可播放的歌曲缓存");
             return new CacheResult(requestedAudioUri, requestedLyric, true, lyricFromCache,
                 requestedCatalog.toString(), requestedSource, false);
         }
-
-        status(callback, "正在按原平台解析歌曲地址...");
-        ResolvedChoice choice;
-        Exception primaryError;
-        try {
-            choice = new ResolvedChoice(requestedCatalog, resolve(requestedCatalog.toString()));
-            primaryError = null;
-        } catch (Exception error) {
-            primaryError = error;
-            choice = null;
+        if (!requestedAudioUri.isEmpty()) {
+            CacheStorage.deleteKey(context, requestedKey);
+            status(callback, "旧缓存无法播放，已删除并重新获取...");
         }
 
-        if (choice == null || choice.audioUrl().isEmpty()) {
-            status(callback, "原来源不可用，正在查找同歌手同名的其他平台版本...");
-            choice = findFallback(requestedCatalog, callback);
-        }
-        if (choice == null || choice.audioUrl().isEmpty()) {
-            throw new IllegalStateException("未找到同歌手同名的可播放版本，请手动使用替换歌曲");
-        }
-
-        JSONObject actualCatalog = canonicalCatalog(choice.catalog.toString());
+        PlayableAudioResolver.Result prepared =
+            PlayableAudioResolver.prepare(context, requestedCatalog, callback);
+        JSONObject actualCatalog = canonicalCatalog(prepared.catalogJson);
         String actualSource = actualCatalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
         String actualId = actualCatalog.optString("id", "").trim();
         boolean sourceChanged = !requestedSource.equals(actualSource) || !requestedId.equals(actualId);
-        String key = sha256(actualSource + "|" + actualId);
+        String actualKey = sha256(actualSource + "|" + actualId);
         String actualTitle = catalogTitle(actualCatalog);
         String actualArtist = catalogArtist(actualCatalog);
         String actualAlbum = catalogAlbum(actualCatalog);
-        CacheStorage.ensureFriendlyNames(context, key, actualTitle, actualArtist,
+
+        CacheStorage.ensureFriendlyNames(context, actualKey, actualTitle, actualArtist,
             actualAlbum, actualCatalog.toString());
-        String lyric = CacheStorage.readLyric(context, key);
+        String lyric = CacheStorage.readLyric(context, actualKey);
         boolean lyricFromCache = !lyric.trim().isEmpty();
         if (!lyricFromCache) {
-            status(callback, sourceChanged ? "正在从实际平台读取匹配歌词..." : "正在按原平台读取歌词...");
+            status(callback, sourceChanged
+                ? "正在从实际平台读取匹配歌词..." : "正在按原平台读取歌词...");
             lyric = fetchLyrics(actualCatalog.toString());
-            if (!lyric.trim().isEmpty()) CacheStorage.writeLyric(context, key, lyric, actualTitle, actualArtist, actualAlbum, actualCatalog.toString());
+            if (!lyric.trim().isEmpty()) {
+                CacheStorage.writeLyric(context, actualKey, lyric, actualTitle, actualArtist,
+                    actualAlbum, actualCatalog.toString());
+            }
         }
-
-        String existingAudioUri = CacheStorage.findAudioUri(context, key);
-        if (!existingAudioUri.isEmpty() && cachedAudioExists(context, existingAudioUri)) {
-            status(callback, sourceChanged ? "已切换并读取其他平台缓存" : "歌曲缓存已存在");
-            return new CacheResult(existingAudioUri, lyric, true, lyricFromCache,
-                actualCatalog.toString(), actualSource, sourceChanged);
-        }
-
-        String audioUrl = choice.audioUrl();
-        ResolvedAudioAddress audioAddress = ResolvedAudioAddress.parse(audioUrl,
-            firstNonEmpty(choice.resolved.optString("play_auth"), choice.resolved.optString("playAuth"),
-                choice.resolved.optString("PlayAuth")));
-        File tempRoot = new File(context.getCacheDir(), "network_download");
-        if (!tempRoot.exists() && !tempRoot.mkdirs()) throw new IllegalStateException("无法创建下载临时目录");
-        String hintedExtension = sanitizeExtension(firstNonEmpty(choice.resolved.optString("ext"), extensionFromUrl(audioAddress.url)));
-        File partial = new File(tempRoot, key + "." + hintedExtension + ".part");
-        File mp3Partial = new File(tempRoot, key + ".mp3.ready");
-        File decryptedPartial = new File(tempRoot, key + ".m4a.decrypted");
-        status(callback, sourceChanged
-            ? "原来源不可用，正在从" + CatalogSearch.labelForSource(actualSource) + "缓存歌曲..."
-            : "正在缓存歌曲...");
-        try {
-            download(audioAddress.url, actualSource, partial, callback);
-            if (partial.length() <= 0) throw new IllegalStateException("歌曲缓存为空");
-            File decodedSource = partial;
-            if (SodaM4aDecryptor.isEncryptedM4a(partial)) {
-                if (audioAddress.playAuth.isEmpty()) {
-                    throw new IllegalStateException("当前 M4A 为加密文件，但来源未返回 PlayAuth");
-                }
-                status(callback, "正在解密 M4A 音频...");
-                SodaM4aDecryptor.decrypt(partial, decryptedPartial, audioAddress.playAuth);
-                decodedSource = decryptedPartial;
-            }
-            String actualExtension = detectAudioExtension(decodedSource, hintedExtension);
-            if (!playableCachedExtension(actualExtension)) {
-                throw new IllegalStateException("当前来源返回 "
-                    + actualExtension.toUpperCase(Locale.ROOT)
-                    + "，已剔除该格式，请选择其他来源");
-            }
-            File cacheSource = decodedSource;
-            if ("mp3".equals(actualExtension)) {
-                AudioTranscoder.ensureMp3(decodedSource, mp3Partial);
-                AudioMetadataWriter.applyAndVerify(mp3Partial, actualTitle, actualArtist, actualAlbum);
-                cacheSource = mp3Partial;
-            } else {
-                status(callback, "未取得 MP3，按原格式缓存 " + actualExtension.toUpperCase(Locale.ROOT));
-            }
-            String storedUri = CacheStorage.storeAudio(context, key, actualExtension, cacheSource,
-                actualTitle, actualArtist, actualAlbum, actualCatalog.toString());
-            if (!CacheStorage.exists(context, storedUri)) {
-                throw new IllegalStateException("歌曲缓存写入后无法读取，请重新选择可写的缓存文件夹");
-            }
-            status(callback, "歌曲与歌词缓存完成");
-            return new CacheResult(storedUri, lyric, false, lyricFromCache,
-                actualCatalog.toString(), actualSource, sourceChanged);
-        } finally {
-            if (partial.exists()) partial.delete();
-            if (mp3Partial.exists()) mp3Partial.delete();
-            if (decryptedPartial.exists()) decryptedPartial.delete();
-        }
+        status(callback, prepared.fromCache
+            ? "已读取可播放缓存" : "歌曲已通过实际播放校验并完成缓存");
+        return new CacheResult(prepared.audioUri, lyric, prepared.fromCache, lyricFromCache,
+            actualCatalog.toString(), actualSource, sourceChanged);
     }
 
     private static final class ResolvedAudioAddress {
@@ -286,19 +229,7 @@ final class NetworkMediaCache {
     }
 
     static boolean cachedAudioExists(Context context, String uriText) {
-        return CacheStorage.exists(context, uriText)
-            && playableCachedExtension(uriText)
-            && !SodaM4aDecryptor.isEncryptedM4a(context, uriText);
-    }
-
-    private static boolean playableCachedExtension(String value) {
-        if (value == null) return false;
-        String clean = value.trim().toLowerCase(Locale.ROOT);
-        int query = clean.indexOf('?');
-        if (query >= 0) clean = clean.substring(0, query);
-        int dot = clean.lastIndexOf('.');
-        String extension = sanitizeExtension(dot >= 0 ? clean.substring(dot + 1) : clean);
-        return "mp3".equals(extension) || "flac".equals(extension) || "m4a".equals(extension);
+        return PlayableAudioResolver.cachedAudioExists(context, uriText);
     }
 
     private static String catalogTitle(JSONObject catalog) {

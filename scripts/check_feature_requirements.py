@@ -10,6 +10,8 @@ transcoder = (root / 'app/src/main/java/com/jianglab/babywife/AudioTranscoder.ja
 soda_decryptor = (root / 'app/src/main/java/com/jianglab/babywife/SodaM4aDecryptor.java').read_text(encoding='utf-8')
 picker = (root / 'app/src/main/java/com/jianglab/babywife/SongVersionPicker.java').read_text(encoding='utf-8')
 catalog = (root / 'app/src/main/java/com/jianglab/babywife/CatalogSearch.java').read_text(encoding='utf-8')
+playable_resolver = (root / 'app/src/main/java/com/jianglab/babywife/PlayableAudioResolver.java').read_text(encoding='utf-8')
+playback_verifier = (root / 'app/src/main/java/com/jianglab/babywife/AudioPlaybackVerifier.java').read_text(encoding='utf-8')
 gradle = (root / 'app/build.gradle').read_text(encoding='utf-8')
 project_log = (root / 'PROJECT_LOG.md').read_text(encoding='utf-8')
 changelog = (root / 'docs/CHANGELOG.md').read_text(encoding='utf-8')
@@ -76,7 +78,7 @@ checks = {
         'object.put("title", title)' in cache
         and 'object.put("artist", artist)' in cache
         and 'object.put("album", album)' in cache
-        and 'AudioMetadataWriter.apply' in network
+        and 'AudioMetadataWriter.apply' in playable_resolver
         and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata
     ),
     'copy-first cache migration': (
@@ -101,25 +103,39 @@ checks = {
     'jianglab flavor gate': 'REQUIRE_FIRST_RUN_PASSPHRASE' in gradle and 'signingCertificateCommonName' in main,
     'mp3 source preference with source-format fallback': (
         'format", "mp3' in network
-        and 'AudioTranscoder.ensureMp3' in network
-        and '按原格式缓存' in network
-        and 'detectAudioExtension' in network
+        and 'AudioTranscoder.ensureMp3' in playable_resolver
+        and 'MP3＞FLAC＞M4A＞其他' in playable_resolver
+        and 'detectAudioExtension' in playable_resolver
         and 'ffmpeg-kit' not in gradle.lower()
         and 'FFmpegKit' not in transcoder
         and 'libmp3lame' not in transcoder
     ),
-    'verified mp3 metadata': ('AudioMetadataWriter.applyAndVerify' in network and 'MP3 歌曲信息写入校验失败' in metadata and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata),
-    'managed cache source formats': ('受管理歌曲缓存必须是 MP3' not in cache and 'storeAudio(context, key, actualExtension' in network),
-    'm4a network source accepted': (
-        '"m4a".equals(extension)' in network
-        and 'detectAudioExtension' in network
-        and 'audio/mp4' in cache
+    'verified mp3 metadata': ('AudioMetadataWriter.applyAndVerify' in playable_resolver and 'MP3 歌曲信息写入校验失败' in metadata and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata),
+    'managed cache source formats': ('受管理歌曲缓存必须是 MP3' not in cache and 'CacheStorage.storeAudio(context, key, best.extension' in playable_resolver),
+    'all formats require real playback verification': (
+        'PlayableAudioResolver.prepare' in network
+        and 'PlayableAudioResolver.cachedAudioExists' in network
+        and 'REQUEST_FORMATS = {"mp3", "flac", "m4a", ""}' in playable_resolver
+        and 'formatPriority' in playable_resolver
+        and 'MP3＞FLAC＞M4A＞其他' in playable_resolver
+        and 'AudioPlaybackVerifier.probeFile' in playable_resolver
+        and 'AudioPlaybackVerifier.isPlayableUri' in playable_resolver
+        and 'MediaExtractor' in playback_verifier
+        and 'MediaPlayer' in playback_verifier
+        and 'playableCachedExtension' not in network
+    ),
+    'consistent filenames across formats': (
+        'String baseName = friendlyBase(record);' in cache
+        and 'removeInternalAudioWithBase' in cache
+        and 'removeTreeAudioWithBase' in cache
+        and 'String fileName = baseName + "." + safeExtension;' in cache
+        and 'return "mp3";' not in cache[cache.find('private static String sanitizeExtension'):cache.find('private static String safeNamePart')]
     ),
     'encrypted soda m4a decrypted': (
-        'ResolvedAudioAddress.parse' in network
-        and '#auth=' in network
-        and 'SodaM4aDecryptor.decrypt' in network
-        and 'SodaM4aDecryptor.isEncryptedM4a(context, uriText)' in network
+        'Address.parse' in playable_resolver
+        and '#auth=' in playable_resolver
+        and 'SodaM4aDecryptor.decrypt' in playable_resolver
+        and 'SodaM4aDecryptor.isEncryptedM4a(context, uriText)' in playable_resolver
         and 'AES/CTR/NoPadding' in soda_decryptor
         and 'PlayAuth' in soda_decryptor
         and 'enca' in soda_decryptor and 'mp4a' in soda_decryptor
@@ -156,7 +172,7 @@ checks = {
     ),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080130' in gradle,
+    'version bumped': 'versionCode 2026080131' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog

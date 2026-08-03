@@ -369,3 +369,6 @@
 - v129 corrects remaining legacy cache names and search ordering: `miyaki米芽奇` now prioritizes tracks whose title/artist combination exactly matches both terms.
 
 - v130 fixes an accidental UI-label replacement where destructive and edit confirmation dialogs displayed “复制”. The real crash-report copy action remains unchanged.
+
+- v131 accepts any format that the current Android device can actually prepare for playback. Acquisition priority is MP3 > FLAC > M4A > other; unplayable downloads are deleted before becoming cache files.
+- v131 enforces one consistent cache basename (`title - artist`) across formats and removes older same-basename audio when the chosen format changes.

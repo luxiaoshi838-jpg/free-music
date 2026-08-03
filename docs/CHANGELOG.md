@@ -224,3 +224,6 @@
 - v129: rank exact `歌名 + 歌手` matches first, split adjacent Latin/Chinese query text, and merge multi-source results by global relevance.
 
 - v130: correct dialog action labels: deleting a song, deleting a playlist, and text-entry dialogs now use “确定”; merging playlists uses “合并”.
+
+- v131: remove the fixed format allowlist. Resolve candidates in MP3 > FLAC > M4A > other order, but only cache a candidate after Android MediaExtractor and MediaPlayer both verify it. Failed candidates are discarded and the next format/source is tried automatically.
+- v131: every final audio file uses the same `歌曲名 - 歌手.真实扩展名` rule. A newly selected format replaces older same-name formats instead of creating hash or numbered duplicates.
