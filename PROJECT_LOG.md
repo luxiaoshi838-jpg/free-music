@@ -351,3 +351,9 @@
 - Output fixed-name APKs were written to `E:\脚本\大宝贝儿老婆_apk\apk-output`.
 - Verified all four outputs have `versionCode 2026080114` and signing certificate SHA-256 `4cc298f33101b8c4c41866294e2739cd6f3b741e5a9f7aa01cb55983482d6b5d`.
 - ZIP packaging was not produced in this pass because the compression command was blocked by the execution safety layer.
+
+
+## 2026-08-03 - Accept M4A network sources
+- Added M4A to managed playable network-cache formats.
+- Kept MP3 as the preferred resolve format and FLAC/M4A as source-format fallbacks.
+- Bumped the four-brand Android build to v127.

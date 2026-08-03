@@ -207,3 +207,8 @@
 - Wrote fixed-name APK outputs to `E:\脚本\大宝贝儿老婆_apk\apk-output`.
 - Verified package metadata, `versionCode 2026080114`, labels, and release signing certificate SHA-256 `4cc298f33101b8c4c41866294e2739cd6f3b741e5a9f7aa01cb55983482d6b5d`.
 - ZIP packaging was not produced because the compression command was blocked by the execution safety layer.
+
+
+## v127 - 2026-08-03
+- Network sources returning M4A are now accepted, cached with the original `.m4a` extension, and reused as playable cache.
+- MP3 remains preferred; unsupported formats remain rejected.
