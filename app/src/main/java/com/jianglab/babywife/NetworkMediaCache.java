@@ -110,15 +110,7 @@ final class NetworkMediaCache {
             }
             String lyric = CacheStorage.readLyric(context, match.key);
             boolean lyricFromCache = !lyric.trim().isEmpty();
-            if (!lyricFromCache) {
-                status(callback, "已有音频缓存，正在补充歌词...");
-                lyric = fetchLyrics(matchedCatalog.toString());
-                if (!lyric.trim().isEmpty()) {
-                    CacheStorage.writeLyric(context, match.key, lyric,
-                        requestedTitle, requestedArtist, requestedAlbum, matchedCatalog.toString());
-                }
-            }
-            CacheStorage.deleteOtherSongCaches(context, requestedTitle, requestedArtist, match.key);
+            cleanupDuplicateSongCachesAsync(context, requestedTitle, requestedArtist, match.key);
             boolean sourceChanged = !requestedSource.equals(matchedSource)
                 || !requestedId.equals(matchedId);
             status(callback, "已找到同歌名和歌手的现有缓存，直接播放");
@@ -156,24 +148,22 @@ final class NetworkMediaCache {
             actualAlbum, actualCatalog.toString());
         String lyric = CacheStorage.readLyric(context, actualKey);
         boolean lyricFromCache = !lyric.trim().isEmpty();
-        if (!lyricFromCache) {
-            status(callback, sourceChanged
-                ? "正在从实际平台读取匹配歌词..." : "正在按原平台读取歌词...");
-            lyric = fetchLyrics(actualCatalog.toString());
-            if (!lyric.trim().isEmpty()) {
-                CacheStorage.writeLyric(context, actualKey, lyric, actualTitle, actualArtist,
-                    actualAlbum, actualCatalog.toString());
-            }
-        }
-        CacheStorage.deleteOtherSongCaches(context, requestedTitle, requestedArtist, actualKey);
+        cleanupDuplicateSongCachesAsync(context, requestedTitle, requestedArtist, actualKey);
         if (!CacheStorage.logicalIdentity(requestedTitle, requestedArtist).equals(
             CacheStorage.logicalIdentity(actualTitle, actualArtist))) {
-            CacheStorage.deleteOtherSongCaches(context, actualTitle, actualArtist, actualKey);
+            cleanupDuplicateSongCachesAsync(context, actualTitle, actualArtist, actualKey);
         }
         status(callback, prepared.fromCache
             ? "已读取唯一可播放缓存" : "唯一正式缓存已完成，其他来源候选已清理");
         return new CacheResult(prepared.audioUri, lyric, prepared.fromCache, lyricFromCache,
             actualCatalog.toString(), actualSource, sourceChanged);
+    }
+
+    static void cleanupDuplicateSongCachesAsync(Context context, String title,
+                                                     String artist, String keepKey) {
+        if (context == null) return;
+        new Thread(() -> CacheStorage.deleteOtherSongCaches(context, title, artist, keepKey),
+            "duplicate-cache-cleanup").start();
     }
 
     private static Object[] createCacheLocks() {

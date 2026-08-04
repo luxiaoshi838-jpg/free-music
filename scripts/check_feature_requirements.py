@@ -207,14 +207,21 @@ checks = {
         and 'retainedInOldLocation' in cache
         and 'listDocumentsStrict(context, oldTree, true)' not in cache
     ),
-    'single logical cache per song and clear search flow': (
+    'playlist playback reads existing cache before network search': (
+        'playPlaylistSongFromCacheFirst(song, playToken)' in main
+        and '正在读取歌单已有缓存' in main
+        and 'CacheStorage.findAudioUri(this, exactKey)' in main
+        and 'CacheStorage.findAudioMatches(this, song.title, song.artist)' in main
+        and '已读取歌单缓存，正在启动播放' in main
+        and '歌单没有可播放缓存，开始寻找可用来源' in main
+        and '"playlist-cache-lookup"' in main
+    ),
+    'search candidates write only one formal cache': (
         'static final class AudioMatch' in cache
         and 'logicalIdentity(String title, String artist)' in cache
         and 'findAudioMatches(Context context, String title, String artist)' in cache
-        and 'deleteOtherSongCaches' in cache
         and 'CACHE_LOCKS = createCacheLocks()' in network
         and 'cacheLocked(context, requestedCatalog, callback)' in network
-        and '已找到同歌名和歌手的现有缓存，直接播放' in network
         and '唯一正式缓存已完成，其他来源候选已清理' in network
         and '尚未写入正式缓存' in playable_resolver
         and '候选下载进度' in playable_resolver
@@ -222,7 +229,16 @@ checks = {
         and 'CacheStorage.findAudioUri(context, key)' not in playable_resolver[playable_resolver.find('for (JSONObject catalog : catalogs)'):playable_resolver.find('if (best == null')]
         and '播放请求已切换，停止旧候选下载' in main
     ),
-    'version bumped': 'versionCode 2026080134' in gradle,
+    'cached audio starts without waiting for lyrics or cleanup': (
+        'cleanupDuplicateSongCachesAsync' in network
+        and '"duplicate-cache-cleanup"' in network
+        and '缓存已就绪，正在启动播放' in main
+        and 'mediaPlayer.prepareAsync();' in main
+        and 'mediaPlayer.prepare();' not in main[main.find('private void startLocalPlayback'):main.find('private void onPlaybackStarted')]
+        and 'fetchLyrics(matchedCatalog.toString())' not in network
+        and 'fetchLyrics(actualCatalog.toString())' not in network
+    ),
+    'version bumped': 'versionCode 2026080135' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog

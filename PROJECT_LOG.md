@@ -390,3 +390,11 @@
 - Source and format downloads remain temporary candidates until one final playable winner is selected.
 - Only the winner is written to the user cache folder; other same-song source caches and temporary candidates are removed.
 - Status text now distinguishes candidate download, candidate verification, final selection, and final cache completion.
+
+## 2026-08-04 - Playlist cache lookup and immediate playback are independent
+
+- Playlist playback now has a dedicated cache-first path: recorded URI, exact source key, then normalized title+artist cache.
+- Network source search starts only when all three playlist cache checks fail.
+- Search result format/source trials remain temporary and still produce only one formal cache.
+- Audio cache completion no longer waits for lyric network requests or duplicate cache cleanup.
+- File/content MediaPlayer preparation now uses prepareAsync so a completed cache starts without blocking the main thread.

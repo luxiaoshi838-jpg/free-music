@@ -3203,18 +3203,13 @@ public class MainActivity extends Activity {
         publishPlaybackControlState(true);
 
         if (song.isNetworkCatalog()) {
-            if (song.cachedUri != null && !song.cachedUri.trim().isEmpty()) {
-                song.uri = song.cachedUri;
-                startLocalPlayback(song, playToken, null, () -> {
-                    song.cachedUri = "";
-                    song.uri = "";
-                    cacheAndPlay(song, playToken);
-                });
-                return;
-            }
             stopPlayback();
             playButton.setText("▶");
-            cacheAndPlay(song, playToken);
+            if (!playingSearchQueue && isSongInAnyPlaylist(song)) {
+                playPlaylistSongFromCacheFirst(song, playToken);
+            } else {
+                cacheAndPlay(song, playToken);
+            }
             return;
         }
 
@@ -3225,6 +3220,88 @@ public class MainActivity extends Activity {
             return;
         }
         startLocalPlayback(song, playToken, null, null);
+    }
+
+    private void playPlaylistSongFromCacheFirst(Song song, int playToken) {
+        statusView.setText("正在读取歌单已有缓存...");
+        new Thread(() -> {
+            String playableUri = "";
+            String matchedKey = "";
+            String matchedCatalog = "";
+
+            String recorded = song.cachedUri == null ? "" : song.cachedUri.trim();
+            if (NetworkMediaCache.cachedAudioExists(this, recorded)) {
+                playableUri = recorded;
+                matchedKey = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
+                matchedCatalog = song.catalogJson;
+            }
+
+            if (playableUri.isEmpty()) {
+                String exactKey = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
+                String exactUri = exactKey.isEmpty() ? "" : CacheStorage.findAudioUri(this, exactKey);
+                if (NetworkMediaCache.cachedAudioExists(this, exactUri)) {
+                    playableUri = exactUri;
+                    matchedKey = exactKey;
+                    matchedCatalog = song.catalogJson;
+                }
+            }
+
+            if (playableUri.isEmpty()) {
+                for (CacheStorage.AudioMatch match :
+                    CacheStorage.findAudioMatches(this, song.title, song.artist)) {
+                    if (!NetworkMediaCache.cachedAudioExists(this, match.audioUri)) {
+                        CacheStorage.deleteKey(this, match.key);
+                        continue;
+                    }
+                    playableUri = match.audioUri;
+                    matchedKey = match.key;
+                    matchedCatalog = match.catalogJson;
+                    break;
+                }
+            }
+
+            String finalPlayableUri = playableUri;
+            String finalMatchedKey = matchedKey;
+            String finalMatchedCatalog = matchedCatalog;
+            runOnUiThread(() -> {
+                if (currentSong != song || playToken != playbackRequestSerial) return;
+                if (finalPlayableUri.isEmpty()) {
+                    song.cachedUri = "";
+                    song.uri = "";
+                    statusView.setText("歌单没有可播放缓存，开始寻找可用来源...");
+                    cacheAndPlay(song, playToken);
+                    return;
+                }
+
+                String originalKey = song.key();
+                song.cachedUri = finalPlayableUri;
+                song.uri = finalPlayableUri;
+                if (finalMatchedCatalog != null && !finalMatchedCatalog.trim().isEmpty()) {
+                    try {
+                        JSONObject catalog = new JSONObject(finalMatchedCatalog);
+                        String sourceCode = catalog.optString("source", "").trim();
+                        if (!sourceCode.isEmpty()) song.source = CatalogSearch.labelForSource(sourceCode);
+                        song.catalogJson = finalMatchedCatalog;
+                    } catch (Exception ignored) {
+                    }
+                }
+                persistResolvedCatalogToPlaylistCopies(song, originalKey);
+                song.cacheFailed = false;
+                song.unavailable = false;
+                song.autoUnavailable = false;
+                savePlaylists();
+                renderCurrentPlaylist();
+                statusView.setText("已读取歌单缓存，正在启动播放...");
+                NetworkMediaCache.cleanupDuplicateSongCachesAsync(
+                    this, song.title, song.artist, finalMatchedKey);
+                startLocalPlayback(song, playToken, null, () -> {
+                    song.cachedUri = "";
+                    song.uri = "";
+                    statusView.setText("歌单缓存无法播放，开始寻找可用来源...");
+                    cacheAndPlay(song, playToken);
+                });
+            });
+        }, "playlist-cache-lookup").start();
     }
 
     private void cacheAndPlay(Song song, int playToken) {
@@ -3459,26 +3536,21 @@ public class MainActivity extends Activity {
                 }
                 return true;
             });
-            if (song.uri.startsWith("http://") || song.uri.startsWith("https://")) {
-                statusView.setText("正在打开在线音频...");
-                mediaPlayer.setOnPreparedListener(player -> {
-                    try {
-                        if (currentSong != song || playToken != playbackRequestSerial) return;
-                        player.start();
-                        onPlaybackStarted(song, onStarted);
-                    } catch (Exception error) {
-                        stopPlayback();
-                        playButton.setText("▶");
-                        statusView.setText("播放失败：" + error.getMessage());
-                        if (onFailed != null) onFailed.run();
-                    }
-                });
-                mediaPlayer.prepareAsync();
-            } else {
-                mediaPlayer.prepare();
-                mediaPlayer.start();
-                onPlaybackStarted(song, onStarted);
-            }
+            boolean online = song.uri.startsWith("http://") || song.uri.startsWith("https://");
+            statusView.setText(online ? "正在打开在线音频..." : "缓存已就绪，正在启动播放...");
+            mediaPlayer.setOnPreparedListener(player -> {
+                try {
+                    if (currentSong != song || playToken != playbackRequestSerial) return;
+                    player.start();
+                    onPlaybackStarted(song, onStarted);
+                } catch (Exception error) {
+                    stopPlayback();
+                    playButton.setText("▶");
+                    statusView.setText("播放失败：" + error.getMessage());
+                    if (onFailed != null) onFailed.run();
+                }
+            });
+            mediaPlayer.prepareAsync();
         } catch (Exception ex) {
             stopPlayback();
             playButton.setText("▶");

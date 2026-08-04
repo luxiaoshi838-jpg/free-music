@@ -244,3 +244,11 @@
 - Candidate FLAC/MP3/M4A files stay in the app temporary directory and are deleted after comparison.
 - The selected winner is the only formal cache; duplicate same-song source caches are cleaned.
 - Reworded progress messages so a downloaded candidate is never reported as a completed cache.
+
+## 2026.08.04.playlist-cache-immediate-play
+
+- Fixed playlist songs searching for a source even though a playable cache already existed.
+- Kept search candidate deduplication as a separate flow from playlist cache lookup.
+- Started cached audio immediately after final verification; lyrics continue asynchronously.
+- Moved duplicate same-song cache cleanup to a background thread.
+- Changed local/content playback from synchronous prepare to prepareAsync.
