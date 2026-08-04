@@ -1,0 +1,67 @@
+name: Build v137 no playback cache scan
+
+on:
+  push:
+    branches:
+      - agent/v128-m4a-decrypt
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v128-m4a-decrypt
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Apply v137 patch when needed
+        run: |
+          if grep -q 'versionCode 2026080137' app/build.gradle; then
+            echo 'v137 source already present'
+          else
+            python scripts/apply_v137_no_playback_cache_scan_patch.py
+          fi
+      - name: Verify no-scan playback requirements
+        run: python scripts/check_feature_requirements.py
+      - name: Assert forbidden playback scans absent
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          main = Path('app/src/main/java/com/jianglab/babywife/MainActivity.java').read_text(encoding='utf-8')
+          network = Path('app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java').read_text(encoding='utf-8')
+          play = main[main.index('private void playSong(Song song)'):main.index('private String stripVisibleLyricTags')]
+          cache = network[network.index('private static CacheResult cacheLocked'):network.index('private static Object[] createCacheLocks')]
+          forbidden = ['findAudioUri(', 'findAudioMatches(', 'metadataKeys(']
+          for token in forbidden:
+              if token in play or token in cache:
+                  raise SystemExit(f'forbidden playback scan remains: {token}')
+          print('No cache-folder scan remains in playback path')
+          PY
+      - name: Build four release APKs
+        run: gradle --no-daemon :app:assembleBabywifeclassicRelease :app:assembleLidacaizhuRelease :app:assembleJianglabRelease :app:assembleNiubiRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v137-four-unsigned-release-apks
+          path: app/build/outputs/apk/*/release/*.apk
+      - name: Commit formal source changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add PROJECT_LOG.md app/build.gradle app/src/main/java/com/jianglab/babywife/MainActivity.java app/src/main/java/com/jianglab/babywife/NetworkMediaCache.java docs/CHANGELOG.md scripts/check_feature_requirements.py
+          if ! git diff --cached --quiet; then
+            git commit -m 'Remove cache scans from playback [skip ci]'
+            git fetch origin agent/v128-m4a-decrypt
+            git rebase origin/agent/v128-m4a-decrypt
+            git push origin HEAD:agent/v128-m4a-decrypt
+          fi
