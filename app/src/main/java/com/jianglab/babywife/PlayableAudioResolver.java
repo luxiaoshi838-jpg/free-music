@@ -22,9 +22,9 @@ import java.util.Set;
 
 import bridge.Bridge;
 
-/** Resolves, downloads and validates audio using MP3 > FLAC > M4A > other priority. */
+/** Resolves sources in order and stops at the first candidate that passes real playback validation. */
 final class PlayableAudioResolver {
-    private static final String[] REQUEST_FORMATS = {"mp3", "flac", "m4a", ""};
+    private static final String[] REQUEST_FORMATS = {""};
     private static final int MAX_CATALOG_CANDIDATES = 8;
     private static final int CONNECT_TIMEOUT_MS = 12000;
     private static final int READ_TIMEOUT_MS = 30000;
@@ -48,13 +48,11 @@ final class PlayableAudioResolver {
     private static final class Candidate {
         final JSONObject catalog;
         final String extension;
-        final int priority;
         final String mimeType;
 
-        Candidate(JSONObject catalog, String extension, int priority, String mimeType) {
+        Candidate(JSONObject catalog, String extension, String mimeType) {
             this.catalog = catalog;
             this.extension = extension;
-            this.priority = priority;
             this.mimeType = mimeType == null ? "" : mimeType;
         }
     }
@@ -108,9 +106,8 @@ final class PlayableAudioResolver {
         try {
             outer:
             for (String requestedFormat : REQUEST_FORMATS) {
-                String formatLabel = requestedFormat.isEmpty()
-                    ? "其他格式" : requestedFormat.toUpperCase(Locale.ROOT);
-                status(callback, "正在按优先级尝试 " + formatLabel + "...");
+                String formatLabel = "自动格式";
+                status(callback, "正在按来源顺序寻找第一个可播放资源...");
 
                 for (JSONObject catalog : catalogs) {
                     String source = source(catalog);
@@ -157,19 +154,16 @@ final class PlayableAudioResolver {
                         AudioPlaybackVerifier.Probe probe = AudioPlaybackVerifier.probeFile(decodedSource);
                         String actualExtension = detectAudioExtension(decodedSource,
                             hintedExtension, probe.mimeType);
-                        int priority = formatPriority(actualExtension);
                         status(callback, "候选可播放：" + displayFormat(actualExtension)
-                            + "（" + Math.max(0L, probe.durationMs / 1000L) + " 秒），继续比较优先级");
+                            + "（" + Math.max(0L, probe.durationMs / 1000L) + " 秒），立即使用");
 
-                        if (best == null || priority < best.priority) {
-                            if (bestFile.exists() && !bestFile.delete()) {
-                                throw new IllegalStateException("无法替换更优格式候选");
-                            }
-                            copyFile(decodedSource, bestFile);
-                            best = new Candidate(new JSONObject(catalog.toString()),
-                                actualExtension, priority, probe.mimeType);
+                        if (bestFile.exists() && !bestFile.delete()) {
+                            throw new IllegalStateException("无法保存已通过校验的候选");
                         }
-                        if (priority == 0) break outer;
+                        copyFile(decodedSource, bestFile);
+                        best = new Candidate(new JSONObject(catalog.toString()),
+                            actualExtension, probe.mimeType);
+                        break outer;
                     } catch (Exception error) {
                         lastError = error;
                         status(callback, "候选不可播放，临时文件已删除；继续下一格式或来源");
@@ -202,8 +196,8 @@ final class PlayableAudioResolver {
                 cacheSource = mp3Ready;
             }
 
-            status(callback, "已选定 " + displayFormat(best.extension)
-                + "，正在写入唯一正式缓存；优先级 MP3＞FLAC＞M4A＞其他");
+            status(callback, "已找到第一个可播放资源：" + displayFormat(best.extension)
+                + "，正在写入唯一正式缓存");
             String storedUri = CacheStorage.storeAudio(context, key, best.extension, cacheSource,
                 title, artist, album, catalog.toString());
             if (!CacheStorage.exists(context, storedUri)
@@ -303,14 +297,6 @@ final class PlayableAudioResolver {
 
     private static String album(JSONObject catalog) {
         return firstNonEmpty(catalog.optString("album"), catalog.optString("albumName"), "未知专辑");
-    }
-
-    private static int formatPriority(String extension) {
-        String value = sanitizeExtension(extension);
-        if ("mp3".equals(value)) return 0;
-        if ("flac".equals(value)) return 1;
-        if ("m4a".equals(value) || "mp4".equals(value)) return 2;
-        return 3;
     }
 
     private static String displayFormat(String extension) {

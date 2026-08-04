@@ -280,3 +280,11 @@
 - Local lyric cache is now resolved by stable song identity as well as exact source ID.
 - Existing lyrics are migrated to the retained source before duplicate cache cleanup.
 - Online lyric matching starts only after audio playback and resolved-source commit.
+
+
+## 2026.08.04.first-playable-source
+
+- Search playback no longer downloads every format before choosing a result.
+- Sources are tried in order and the first candidate that really plays is used immediately.
+- Removed MP3/FLAC/M4A format priority and all later candidate downloads after success.
+- Real playback verification and the single-formal-cache rule remain enabled.

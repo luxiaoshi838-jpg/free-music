@@ -430,3 +430,12 @@
 - Added a lightweight title+artist lyric-key index so source fallback does not orphan an existing local LRC.
 - Duplicate source cache cleanup migrates an existing lyric to the retained source key before deleting old files.
 - Startup cache normalization rebuilds the lyric-key index for previously saved LRC files.
+
+
+## 2026-08-04 - Stop at the first playable search source
+
+- Removed MP3, FLAC, M4A and other-format priority rounds from search playback.
+- Each catalog source is now resolved and downloaded only once using its default playable response.
+- The first downloaded candidate that passes real playback validation is immediately selected.
+- Remaining sources are not resolved or downloaded after a playable candidate is found.
+- The selected file is still the only file written to formal cache.

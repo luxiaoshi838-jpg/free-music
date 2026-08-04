@@ -102,23 +102,22 @@ checks = {
     'delayed red marking': 'autoUnavailable && song.manualUnavailable' in main,
     'csv import/export': '歌名,歌手,专辑,时长秒,平台,平台代码,歌曲ID,歌词版本' in main,
     'jianglab flavor gate': 'REQUIRE_FIRST_RUN_PASSPHRASE' in gradle and 'signingCertificateCommonName' in main,
-    'mp3 source preference with source-format fallback': (
-        'format", "mp3' in network
-        and 'AudioTranscoder.ensureMp3' in playable_resolver
-        and 'MP3＞FLAC＞M4A＞其他' in playable_resolver
-        and 'detectAudioExtension' in playable_resolver
-        and 'ffmpeg-kit' not in gradle.lower()
-        and 'FFmpegKit' not in transcoder
-        and 'libmp3lame' not in transcoder
+    'first playable source stops further downloads': (
+        'REQUEST_FORMATS = {""}' in playable_resolver
+        and '正在按来源顺序寻找第一个可播放资源' in playable_resolver
+        and '候选可播放：' in playable_resolver
+        and '，立即使用' in playable_resolver
+        and 'break outer;' in playable_resolver
+        and 'formatPriority' not in playable_resolver
+        and 'MP3＞FLAC＞M4A＞其他' not in playable_resolver
+        and '继续比较优先级' not in playable_resolver
     ),
     'verified mp3 metadata': ('AudioMetadataWriter.applyAndVerify' in playable_resolver and 'MP3 歌曲信息写入校验失败' in metadata and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata),
     'managed cache source formats': ('受管理歌曲缓存必须是 MP3' not in cache and 'CacheStorage.storeAudio(context, key, best.extension' in playable_resolver),
-    'all formats require real playback verification': (
+    'first returned format requires real playback verification': (
         'PlayableAudioResolver.prepare' in network
         and 'PlayableAudioResolver.cachedAudioExists' in network
-        and 'REQUEST_FORMATS = {"mp3", "flac", "m4a", ""}' in playable_resolver
-        and 'formatPriority' in playable_resolver
-        and 'MP3＞FLAC＞M4A＞其他' in playable_resolver
+        and 'REQUEST_FORMATS = {""}' in playable_resolver
         and 'AudioPlaybackVerifier.probeFile' in playable_resolver
         and 'AudioPlaybackVerifier.isPlayableUri' in playable_resolver
         and 'MediaExtractor' in playback_verifier
@@ -277,7 +276,7 @@ checks = {
         and main[main.find('private void cacheAndPlay'):main.find('private String stripVisibleLyricTags')].count('showSongLyrics(song);') == 0
         and '音频未开始播放，未启动在线歌词匹配' in main
     ),
-    'version bumped': 'versionCode 2026080140' in gradle,
+    'version bumped': 'versionCode 2026080141' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog
