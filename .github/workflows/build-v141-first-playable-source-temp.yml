@@ -1,0 +1,82 @@
+name: Build v141 first playable source
+
+on:
+  push:
+    branches:
+      - agent/v128-m4a-decrypt
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v128-m4a-decrypt
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Apply v141 patch when needed
+        run: |
+          if grep -q 'versionCode 2026080141' app/build.gradle; then
+            echo 'v141 source already present'
+          else
+            python scripts/apply_v141_first_playable_source_patch.py
+          fi
+      - name: Verify all feature requirements
+        run: python scripts/check_feature_requirements.py
+      - name: Assert first playable resource behavior
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          resolver = Path('app/src/main/java/com/jianglab/babywife/PlayableAudioResolver.java').read_text(encoding='utf-8')
+          assert 'REQUEST_FORMATS = {""}' in resolver
+          assert 'formatPriority' not in resolver
+          assert 'MP3＞FLAC＞M4A＞其他' not in resolver
+          assert '继续比较优先级' not in resolver
+          assert '正在按来源顺序寻找第一个可播放资源' in resolver
+          assert '候选可播放：' in resolver and '，立即使用' in resolver
+          candidate_start = resolver.index('AudioPlaybackVerifier.Probe probe')
+          candidate_end = resolver.index('} catch (Exception error)', candidate_start)
+          candidate_block = resolver[candidate_start:candidate_end]
+          assert 'break outer;' in candidate_block
+          assert candidate_block.index('AudioPlaybackVerifier.probeFile') < candidate_block.index('break outer;')
+          assert resolver.count('CacheStorage.storeAudio(') == 1
+          print('v141 first playable source assertions passed')
+          PY
+      - name: Build four release APKs
+        run: |
+          gradle --no-daemon \
+            :app:assembleBabywifeclassicRelease \
+            :app:assembleJianglabRelease \
+            :app:assembleLidacaizhuRelease \
+            :app:assembleNiubiRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v141-four-unsigned-release-apks
+          path: app/build/outputs/apk/*/release/*.apk
+          if-no-files-found: error
+      - name: Commit formal source changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/build.gradle \
+            app/src/main/java/com/jianglab/babywife/PlayableAudioResolver.java \
+            scripts/check_feature_requirements.py PROJECT_LOG.md docs/CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo 'No formal source changes to commit'
+          else
+            git commit -m 'Use first playable source without format priority [skip ci]'
+            git fetch origin agent/v128-m4a-decrypt
+            git rebase origin/agent/v128-m4a-decrypt
+            git push origin HEAD:agent/v128-m4a-decrypt
+          fi
