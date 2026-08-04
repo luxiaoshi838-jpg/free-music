@@ -35,6 +35,8 @@ jobs:
           else
             python scripts/apply_v142_nonblocking_media_source_patch.py
           fi
+      - name: Update v142 async playback checks
+        run: python scripts/fix_v142_feature_checks.py
       - name: Verify all feature requirements
         run: python scripts/check_feature_requirements.py
       - name: Assert first playable and nonblocking playback
