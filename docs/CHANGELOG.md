@@ -236,3 +236,11 @@
 - Changing the cache folder now moves all regular files from the previous cache folder, including friendly audio and lyric filenames.
 - Added Android all-files management permission flow for reliable old-folder cleanup.
 - Added SHA-256 copy verification and explicit reporting for old files that remain after migration.
+
+## 2026.08.04.single-cache-search-flow
+
+- Fixed playlist tracks searching again even when the same title and artist already had a playable cache from another source.
+- Prevented concurrent duplicate downloads for the same song.
+- Candidate FLAC/MP3/M4A files stay in the app temporary directory and are deleted after comparison.
+- The selected winner is the only formal cache; duplicate same-song source caches are cleaned.
+- Reworded progress messages so a downloaded candidate is never reported as a completed cache.

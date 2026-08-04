@@ -116,21 +116,6 @@ final class PlayableAudioResolver {
                     String source = source(catalog);
                     String id = catalog.optString("id", "").trim();
                     if (source.isEmpty() || id.isEmpty()) continue;
-                    String key = sha256(source + "|" + id);
-                    String title = title(catalog);
-                    String artist = artist(catalog);
-                    String album = album(catalog);
-                    CacheStorage.ensureFriendlyNames(context, key, title, artist, album,
-                        catalog.toString());
-
-                    String existing = CacheStorage.findAudioUri(context, key);
-                    if (!existing.isEmpty()) {
-                        if (cachedAudioExists(context, existing)) {
-                            return new Result(catalog.toString(), existing, true);
-                        }
-                        CacheStorage.deleteKey(context, key);
-                    }
-
                     JSONObject resolved;
                     try {
                         resolved = resolveForFormat(catalog, requestedFormat);
@@ -152,8 +137,8 @@ final class PlayableAudioResolver {
                     File partial = new File(tempRoot, requestedKey + ".try" + attempt + ".part");
                     File decrypted = new File(tempRoot, requestedKey + ".try" + attempt + ".decrypted");
                     try {
-                        status(callback, "正在获取" + CatalogSearch.labelForSource(source)
-                            + "的 " + formatLabel + " 候选...");
+                        status(callback, "正在下载候选：" + CatalogSearch.labelForSource(source)
+                            + " / " + formatLabel + "（尚未写入正式缓存）");
                         download(address.url, source, partial, callback);
                         if (partial.length() <= 0) {
                             throw new IllegalStateException("歌曲候选文件为空");
@@ -173,8 +158,8 @@ final class PlayableAudioResolver {
                         String actualExtension = detectAudioExtension(decodedSource,
                             hintedExtension, probe.mimeType);
                         int priority = formatPriority(actualExtension);
-                        status(callback, "已验证可播放：" + displayFormat(actualExtension)
-                            + "（" + Math.max(0L, probe.durationMs / 1000L) + " 秒）");
+                        status(callback, "候选可播放：" + displayFormat(actualExtension)
+                            + "（" + Math.max(0L, probe.durationMs / 1000L) + " 秒），继续比较优先级");
 
                         if (best == null || priority < best.priority) {
                             if (bestFile.exists() && !bestFile.delete()) {
@@ -187,7 +172,7 @@ final class PlayableAudioResolver {
                         if (priority == 0) break outer;
                     } catch (Exception error) {
                         lastError = error;
-                        status(callback, "该候选无法播放，继续尝试下一格式或来源");
+                        status(callback, "候选不可播放，临时文件已删除；继续下一格式或来源");
                     } finally {
                         if (partial.exists()) partial.delete();
                         if (decrypted.exists()) decrypted.delete();
@@ -205,9 +190,9 @@ final class PlayableAudioResolver {
             String source = source(catalog);
             String id = catalog.optString("id", "").trim();
             String key = sha256(source + "|" + id);
-            String title = title(catalog);
-            String artist = artist(catalog);
-            String album = album(catalog);
+            String title = title(requestedCatalog);
+            String artist = artist(requestedCatalog);
+            String album = firstNonEmpty(album(requestedCatalog), album(catalog));
             File cacheSource = bestFile;
 
             if ("mp3".equals(best.extension)) {
@@ -217,8 +202,8 @@ final class PlayableAudioResolver {
                 cacheSource = mp3Ready;
             }
 
-            status(callback, "最终采用 " + displayFormat(best.extension)
-                + "，获取优先级为 MP3＞FLAC＞M4A＞其他");
+            status(callback, "已选定 " + displayFormat(best.extension)
+                + "，正在写入唯一正式缓存；优先级 MP3＞FLAC＞M4A＞其他");
             String storedUri = CacheStorage.storeAudio(context, key, best.extension, cacheSource,
                 title, artist, album, catalog.toString());
             if (!CacheStorage.exists(context, storedUri)
@@ -226,6 +211,7 @@ final class PlayableAudioResolver {
                 CacheStorage.deleteKey(context, key);
                 throw new IllegalStateException("文件写入缓存后未通过实际播放校验，已自动删除");
             }
+            status(callback, "唯一正式缓存写入完成，所有临时候选已清理");
             return new Result(catalog.toString(), storedUri, false);
         } finally {
             if (bestFile.exists()) bestFile.delete();
@@ -438,7 +424,7 @@ final class PlayableAudioResolver {
                         int percent = (int) Math.min(100, written * 100 / total);
                         if (percent >= lastPercent + 10) {
                             lastPercent = percent;
-                            status(callback, "正在缓存歌曲：" + percent + "%");
+                            status(callback, "候选下载进度：" + percent + "%");
                         }
                     }
                 }

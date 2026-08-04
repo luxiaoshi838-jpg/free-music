@@ -26,6 +26,7 @@ final class NetworkMediaCache {
     private static final int CONNECT_TIMEOUT_MS = 12000;
     private static final int READ_TIMEOUT_MS = 30000;
     private static final long MAX_AUDIO_BYTES = 512L * 1024L * 1024L;
+    private static final Object[] CACHE_LOCKS = createCacheLocks();
 
     private NetworkMediaCache() {
     }
@@ -66,6 +67,15 @@ final class NetworkMediaCache {
     static CacheResult cache(Context context, String catalogJson, StatusCallback callback) throws Exception {
         if (context == null) throw new IllegalArgumentException("context is required");
         JSONObject requestedCatalog = canonicalCatalog(catalogJson);
+        String identity = CacheStorage.logicalIdentity(catalogTitle(requestedCatalog), catalogArtist(requestedCatalog));
+        Object lock = CACHE_LOCKS[Math.floorMod(identity.hashCode(), CACHE_LOCKS.length)];
+        synchronized (lock) {
+            return cacheLocked(context, requestedCatalog, callback);
+        }
+    }
+
+    private static CacheResult cacheLocked(Context context, JSONObject requestedCatalog,
+                                           StatusCallback callback) throws Exception {
         String requestedSource = requestedCatalog.optString("source", "").trim().toLowerCase(Locale.ROOT);
         String requestedId = requestedCatalog.optString("id", "").trim();
         if (requestedSource.isEmpty() || requestedId.isEmpty()) {
@@ -76,29 +86,59 @@ final class NetworkMediaCache {
         String requestedTitle = catalogTitle(requestedCatalog);
         String requestedArtist = catalogArtist(requestedCatalog);
         String requestedAlbum = catalogAlbum(requestedCatalog);
-        CacheStorage.ensureFriendlyNames(context, requestedKey, requestedTitle, requestedArtist,
-            requestedAlbum, requestedCatalog.toString());
 
-        String requestedAudioUri = CacheStorage.findAudioUri(context, requestedKey);
-        String requestedLyric = CacheStorage.readLyric(context, requestedKey);
-        if (!requestedAudioUri.isEmpty()
-            && PlayableAudioResolver.cachedAudioExists(context, requestedAudioUri)) {
-            boolean lyricFromCache = !requestedLyric.trim().isEmpty();
+        status(callback, "正在检查这首歌是否已有可播放缓存...");
+        for (CacheStorage.AudioMatch match :
+            CacheStorage.findAudioMatches(context, requestedTitle, requestedArtist)) {
+            if (!PlayableAudioResolver.cachedAudioExists(context, match.audioUri)) {
+                CacheStorage.deleteKey(context, match.key);
+                continue;
+            }
+            JSONObject matchedCatalog;
+            try {
+                matchedCatalog = canonicalCatalog(match.catalogJson);
+            } catch (Exception ignored) {
+                matchedCatalog = requestedCatalog;
+            }
+            String matchedSource = matchedCatalog.optString("source", "")
+                .trim().toLowerCase(Locale.ROOT);
+            String matchedId = matchedCatalog.optString("id", "").trim();
+            if (matchedSource.isEmpty() || matchedId.isEmpty()) {
+                matchedCatalog = requestedCatalog;
+                matchedSource = requestedSource;
+                matchedId = requestedId;
+            }
+            String lyric = CacheStorage.readLyric(context, match.key);
+            boolean lyricFromCache = !lyric.trim().isEmpty();
             if (!lyricFromCache) {
-                status(callback, "正在按原平台读取歌词...");
-                requestedLyric = fetchLyrics(requestedCatalog.toString());
-                if (!requestedLyric.trim().isEmpty()) {
-                    CacheStorage.writeLyric(context, requestedKey, requestedLyric,
-                        requestedTitle, requestedArtist, requestedAlbum, requestedCatalog.toString());
+                status(callback, "已有音频缓存，正在补充歌词...");
+                lyric = fetchLyrics(matchedCatalog.toString());
+                if (!lyric.trim().isEmpty()) {
+                    CacheStorage.writeLyric(context, match.key, lyric,
+                        requestedTitle, requestedArtist, requestedAlbum, matchedCatalog.toString());
                 }
             }
-            status(callback, "已读取并验证可播放的歌曲缓存");
-            return new CacheResult(requestedAudioUri, requestedLyric, true, lyricFromCache,
-                requestedCatalog.toString(), requestedSource, false);
+            CacheStorage.deleteOtherSongCaches(context, requestedTitle, requestedArtist, match.key);
+            boolean sourceChanged = !requestedSource.equals(matchedSource)
+                || !requestedId.equals(matchedId);
+            status(callback, "已找到同歌名和歌手的现有缓存，直接播放");
+            return new CacheResult(match.audioUri, lyric, true, lyricFromCache,
+                matchedCatalog.toString(), matchedSource, sourceChanged);
         }
+
+        CacheStorage.ensureFriendlyNames(context, requestedKey, requestedTitle, requestedArtist,
+            requestedAlbum, requestedCatalog.toString());
+        String requestedAudioUri = CacheStorage.findAudioUri(context, requestedKey);
         if (!requestedAudioUri.isEmpty()) {
+            if (PlayableAudioResolver.cachedAudioExists(context, requestedAudioUri)) {
+                String requestedLyric = CacheStorage.readLyric(context, requestedKey);
+                boolean lyricFromCache = !requestedLyric.trim().isEmpty();
+                status(callback, "已找到原来源缓存，直接播放");
+                return new CacheResult(requestedAudioUri, requestedLyric, true, lyricFromCache,
+                    requestedCatalog.toString(), requestedSource, false);
+            }
             CacheStorage.deleteKey(context, requestedKey);
-            status(callback, "旧缓存无法播放，已删除并重新获取...");
+            status(callback, "原有缓存不可播放，已清理；开始寻找唯一可用版本...");
         }
 
         PlayableAudioResolver.Result prepared =
@@ -125,10 +165,21 @@ final class NetworkMediaCache {
                     actualAlbum, actualCatalog.toString());
             }
         }
+        CacheStorage.deleteOtherSongCaches(context, requestedTitle, requestedArtist, actualKey);
+        if (!CacheStorage.logicalIdentity(requestedTitle, requestedArtist).equals(
+            CacheStorage.logicalIdentity(actualTitle, actualArtist))) {
+            CacheStorage.deleteOtherSongCaches(context, actualTitle, actualArtist, actualKey);
+        }
         status(callback, prepared.fromCache
-            ? "已读取可播放缓存" : "歌曲已通过实际播放校验并完成缓存");
+            ? "已读取唯一可播放缓存" : "唯一正式缓存已完成，其他来源候选已清理");
         return new CacheResult(prepared.audioUri, lyric, prepared.fromCache, lyricFromCache,
             actualCatalog.toString(), actualSource, sourceChanged);
+    }
+
+    private static Object[] createCacheLocks() {
+        Object[] locks = new Object[32];
+        for (int index = 0; index < locks.length; index++) locks[index] = new Object();
+        return locks;
     }
 
     private static final class ResolvedAudioAddress {

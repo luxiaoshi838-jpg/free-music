@@ -207,7 +207,22 @@ checks = {
         and 'retainedInOldLocation' in cache
         and 'listDocumentsStrict(context, oldTree, true)' not in cache
     ),
-    'version bumped': 'versionCode 2026080133' in gradle,
+    'single logical cache per song and clear search flow': (
+        'static final class AudioMatch' in cache
+        and 'logicalIdentity(String title, String artist)' in cache
+        and 'findAudioMatches(Context context, String title, String artist)' in cache
+        and 'deleteOtherSongCaches' in cache
+        and 'CACHE_LOCKS = createCacheLocks()' in network
+        and 'cacheLocked(context, requestedCatalog, callback)' in network
+        and '已找到同歌名和歌手的现有缓存，直接播放' in network
+        and '唯一正式缓存已完成，其他来源候选已清理' in network
+        and '尚未写入正式缓存' in playable_resolver
+        and '候选下载进度' in playable_resolver
+        and '唯一正式缓存写入完成' in playable_resolver
+        and 'CacheStorage.findAudioUri(context, key)' not in playable_resolver[playable_resolver.find('for (JSONObject catalog : catalogs)'):playable_resolver.find('if (best == null')]
+        and '播放请求已切换，停止旧候选下载' in main
+    ),
+    'version bumped': 'versionCode 2026080134' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog

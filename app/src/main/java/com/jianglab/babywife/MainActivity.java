@@ -3229,16 +3229,23 @@ public class MainActivity extends Activity {
 
     private void cacheAndPlay(Song song, int playToken) {
         String originalKey = song.key();
-        statusView.setText("正在缓存歌曲并匹配歌词...");
+        statusView.setText("正在检查已有缓存...");
         new Thread(() -> {
             try {
                 NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
                     this,
                     song.catalogJson,
                     true,
-                    message -> runOnUiThread(() -> {
-                        if (currentSong == song && playToken == playbackRequestSerial) statusView.setText(message);
-                    })
+                    message -> {
+                        if (currentSong != song || playToken != playbackRequestSerial) {
+                            throw new IllegalStateException("播放请求已切换，停止旧候选下载");
+                        }
+                        runOnUiThread(() -> {
+                            if (currentSong == song && playToken == playbackRequestSerial) {
+                                statusView.setText(message);
+                            }
+                        });
+                    }
                 );
                 runOnUiThread(() -> {
                     if (currentSong != song || playToken != playbackRequestSerial) return;

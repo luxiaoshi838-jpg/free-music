@@ -382,3 +382,11 @@
 - Each copied file is SHA-256 verified before the selected cache location changes or old files are removed.
 - Android 11+ now requests the system all-files management permission before opening the destination folder picker.
 - Migration reports any old files that could not be deleted instead of silently claiming a complete move.
+
+## 2026-08-04 - Single logical cache per song and deterministic search flow
+
+- Cache reuse is now keyed first by normalized song title and artist, not only by source platform and catalog ID.
+- Same-song playback/cache requests are serialized to stop repeated taps from downloading multiple source candidates concurrently.
+- Source and format downloads remain temporary candidates until one final playable winner is selected.
+- Only the winner is written to the user cache folder; other same-song source caches and temporary candidates are removed.
+- Status text now distinguishes candidate download, candidate verification, final selection, and final cache completion.

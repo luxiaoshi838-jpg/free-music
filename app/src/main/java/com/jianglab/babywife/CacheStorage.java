@@ -22,6 +22,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -58,6 +59,18 @@ final class CacheStorage {
             this.removedFromOldLocation = removedFromOldLocation;
             this.retainedInOldLocation = Math.max(0, copied - removedFromOldLocation);
             this.changed = changed;
+        }
+    }
+
+    static final class AudioMatch {
+        final String key;
+        final String audioUri;
+        final String catalogJson;
+
+        AudioMatch(String key, String audioUri, String catalogJson) {
+            this.key = key == null ? "" : key;
+            this.audioUri = audioUri == null ? "" : audioUri;
+            this.catalogJson = catalogJson == null ? "" : catalogJson;
         }
     }
 
@@ -273,6 +286,89 @@ final class CacheStorage {
         }
         File fallback = findInternalAudioForKey(root, key, record);
         return fallback == null ? "" : Uri.fromFile(fallback).toString();
+    }
+
+    static List<AudioMatch> findAudioMatches(Context context, String title, String artist) {
+        List<AudioMatch> matches = new ArrayList<>();
+        if (context == null) return matches;
+        String wanted = logicalIdentity(title, artist);
+        if (wanted.isEmpty()) return matches;
+        Set<String> keys = metadataKeys(context);
+        for (String key : keys) {
+            MetadataRecord record = metadataRecord(context, key);
+            if (record == null || !wanted.equals(logicalIdentity(record.title, record.artist))) continue;
+            String uri = findAudioUri(context, key);
+            if (!uri.isEmpty()) matches.add(new AudioMatch(key, uri, record.catalogJson));
+        }
+        return matches;
+    }
+
+    static int deleteOtherSongCaches(Context context, String title, String artist, String keepKey) {
+        if (context == null) return 0;
+        String wanted = logicalIdentity(title, artist);
+        if (wanted.isEmpty()) return 0;
+        List<String> remove = new ArrayList<>();
+        for (String key : metadataKeys(context)) {
+            if (key.equalsIgnoreCase(keepKey == null ? "" : keepKey)) continue;
+            MetadataRecord record = metadataRecord(context, key);
+            if (record != null && wanted.equals(logicalIdentity(record.title, record.artist))) {
+                remove.add(key);
+            }
+        }
+        int removed = 0;
+        for (String key : remove) removed += deleteKey(context, key);
+        return removed;
+    }
+
+    static String logicalIdentity(String title, String artist) {
+        String normalizedTitle = normalizeIdentityPart(title);
+        String normalizedArtist = normalizeIdentityPart(artist);
+        if (normalizedTitle.isEmpty() || normalizedArtist.isEmpty()) return "";
+        return normalizedTitle + "|" + normalizedArtist;
+    }
+
+    private static String normalizeIdentityPart(String value) {
+        String raw = value == null ? "" : Normalizer.normalize(value, Normalizer.Form.NFKC)
+            .toLowerCase(Locale.ROOT);
+        StringBuilder normalized = new StringBuilder(raw.length());
+        for (int offset = 0; offset < raw.length();) {
+            int codePoint = raw.codePointAt(offset);
+            if (Character.isLetterOrDigit(codePoint)) normalized.appendCodePoint(codePoint);
+            offset += Character.charCount(codePoint);
+        }
+        return normalized.toString();
+    }
+
+    private static Set<String> metadataKeys(Context context) {
+        Set<String> keys = new HashSet<>();
+        Uri tree = selectedTree(context);
+        if (tree != null) {
+            try {
+                for (DocumentEntry entry : listDocumentsStrict(context, tree, true)) {
+                    String key = metadataKey(entry.name);
+                    if (validKey(key)) keys.add(key);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        File[] files = internalRoot(context).listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (!file.isFile()) continue;
+                String key = metadataKey(file.getName());
+                if (validKey(key)) keys.add(key);
+            }
+        }
+        return keys;
+    }
+
+    private static MetadataRecord metadataRecord(Context context, String key) {
+        Uri tree = selectedTree(context);
+        if (tree != null) {
+            MetadataRecord record = readMetadataFromTree(context, tree, key);
+            if (record != null) return record;
+        }
+        return readMetadataFromInternal(internalRoot(context), key);
     }
 
     static String readLyric(Context context, String key) {
