@@ -35,6 +35,22 @@ jobs:
           else
             python scripts/apply_v140_stable_local_lyric_cache_patch.py
           fi
+      - name: Repair generated verification syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/check_feature_requirements.py')
+          text = path.read_text(encoding='utf-8')
+          broken = '''        and 'artistView.setText(song.artist + " · " + song.source);
+                              showSongLyrics(song);
+                              startLocalPlayback' not in main
+          '''
+          fixed = '''        and main[main.find('private void cacheAndPlay'):main.find('private String stripVisibleLyricTags')].count('showSongLyrics(song);') == 0
+          '''
+          if broken not in text:
+              raise SystemExit('generated v140 verification syntax target missing')
+          path.write_text(text.replace(broken, fixed, 1), encoding='utf-8')
+          PY
       - name: Verify feature requirements
         run: python scripts/check_feature_requirements.py
       - name: Assert stable local lyric cache path
@@ -51,7 +67,7 @@ jobs:
           cache_start = main.index('private void cacheAndPlay')
           cache_end = main.index('private String stripVisibleLyricTags', cache_start)
           cache_block = main[cache_start:cache_end]
-          assert 'showSongLyrics(song);\n                    startLocalPlayback' not in cache_block
+          assert cache_block.count('showSongLyrics(song);') == 0
           assert 'readLyricForSong(Context context, String preferredKey' in cache
           assert 'LYRIC_INDEX_PREFS = "lyric_cache_index"' in cache
           assert 'writeLyric(context, keepKey, oldLyric' in cache
