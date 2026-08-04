@@ -1,1 +1,1 @@
-Trigger v137 no playback cache scan build after enabling PR workflow.
+Trigger v137 no playback cache scan build after replacing the obsolete v135 scan requirement.
