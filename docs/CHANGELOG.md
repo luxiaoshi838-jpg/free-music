@@ -252,3 +252,10 @@
 - Started cached audio immediately after final verification; lyrics continue asynchronously.
 - Moved duplicate same-song cache cleanup to a background thread.
 - Changed local/content playback from synchronous prepare to prepareAsync.
+
+## 2026.08.04.no-playback-cache-scan
+
+- Removed all cache-folder scanning from the click-to-play path.
+- Playlist and search playback now use only their already-recorded cache URI.
+- Missing or stale recorded URIs fall back immediately to audio retrieval.
+- Lyrics no longer run before audio playback begins.

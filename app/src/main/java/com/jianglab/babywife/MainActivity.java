@@ -3199,7 +3199,17 @@ public class MainActivity extends Activity {
         artistView.setText(song.artist + " · " + song.source);
         updateLyricActionVisibility(song);
         statusView.setText("当前选择：" + song.title);
-        showSongLyrics(song);
+        if (song.isNetworkCatalog()) {
+            lyricLines.clear();
+            highlightedLyricIndex = -1;
+            if (song.lyric != null && !song.lyric.trim().isEmpty()) {
+                applyLyricText(song.lyric);
+            } else {
+                lyricView.setText("正在准备音频，播放开始后再匹配歌词...");
+            }
+        } else {
+            showSongLyrics(song);
+        }
         publishPlaybackControlState(true);
 
         if (song.isNetworkCatalog()) {
@@ -3207,7 +3217,17 @@ public class MainActivity extends Activity {
             playButton.setText("▶");
             if (!playingSearchQueue && isSongInAnyPlaylist(song)) {
                 playPlaylistSongFromCacheFirst(song, playToken);
+            } else if (song.cachedUri != null && !song.cachedUri.trim().isEmpty()) {
+                song.uri = song.cachedUri;
+                statusView.setText("已读取本次搜索缓存，正在启动播放...");
+                startLocalPlayback(song, playToken, null, () -> {
+                    song.cachedUri = "";
+                    song.uri = "";
+                    statusView.setText("本次搜索缓存无法播放，立即重新获取音频...");
+                    cacheAndPlay(song, playToken);
+                });
             } else {
+                statusView.setText("未记录缓存，立即获取音频...");
                 cacheAndPlay(song, playToken);
             }
             return;
@@ -3223,85 +3243,20 @@ public class MainActivity extends Activity {
     }
 
     private void playPlaylistSongFromCacheFirst(Song song, int playToken) {
-        statusView.setText("正在读取歌单已有缓存...");
-        new Thread(() -> {
-            String playableUri = "";
-            String matchedKey = "";
-            String matchedCatalog = "";
-
-            String recorded = song.cachedUri == null ? "" : song.cachedUri.trim();
-            if (NetworkMediaCache.cachedAudioExists(this, recorded)) {
-                playableUri = recorded;
-                matchedKey = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
-                matchedCatalog = song.catalogJson;
-            }
-
-            if (playableUri.isEmpty()) {
-                String exactKey = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
-                String exactUri = exactKey.isEmpty() ? "" : CacheStorage.findAudioUri(this, exactKey);
-                if (NetworkMediaCache.cachedAudioExists(this, exactUri)) {
-                    playableUri = exactUri;
-                    matchedKey = exactKey;
-                    matchedCatalog = song.catalogJson;
-                }
-            }
-
-            if (playableUri.isEmpty()) {
-                for (CacheStorage.AudioMatch match :
-                    CacheStorage.findAudioMatches(this, song.title, song.artist)) {
-                    if (!NetworkMediaCache.cachedAudioExists(this, match.audioUri)) {
-                        CacheStorage.deleteKey(this, match.key);
-                        continue;
-                    }
-                    playableUri = match.audioUri;
-                    matchedKey = match.key;
-                    matchedCatalog = match.catalogJson;
-                    break;
-                }
-            }
-
-            String finalPlayableUri = playableUri;
-            String finalMatchedKey = matchedKey;
-            String finalMatchedCatalog = matchedCatalog;
-            runOnUiThread(() -> {
-                if (currentSong != song || playToken != playbackRequestSerial) return;
-                if (finalPlayableUri.isEmpty()) {
-                    song.cachedUri = "";
-                    song.uri = "";
-                    statusView.setText("歌单没有可播放缓存，开始寻找可用来源...");
-                    cacheAndPlay(song, playToken);
-                    return;
-                }
-
-                String originalKey = song.key();
-                song.cachedUri = finalPlayableUri;
-                song.uri = finalPlayableUri;
-                if (finalMatchedCatalog != null && !finalMatchedCatalog.trim().isEmpty()) {
-                    try {
-                        JSONObject catalog = new JSONObject(finalMatchedCatalog);
-                        String sourceCode = catalog.optString("source", "").trim();
-                        if (!sourceCode.isEmpty()) song.source = CatalogSearch.labelForSource(sourceCode);
-                        song.catalogJson = finalMatchedCatalog;
-                    } catch (Exception ignored) {
-                    }
-                }
-                persistResolvedCatalogToPlaylistCopies(song, originalKey);
-                song.cacheFailed = false;
-                song.unavailable = false;
-                song.autoUnavailable = false;
-                savePlaylists();
-                renderCurrentPlaylist();
-                statusView.setText("已读取歌单缓存，正在启动播放...");
-                NetworkMediaCache.cleanupDuplicateSongCachesAsync(
-                    this, song.title, song.artist, finalMatchedKey);
-                startLocalPlayback(song, playToken, null, () -> {
-                    song.cachedUri = "";
-                    song.uri = "";
-                    statusView.setText("歌单缓存无法播放，开始寻找可用来源...");
-                    cacheAndPlay(song, playToken);
-                });
-            });
-        }, "playlist-cache-lookup").start();
+        String recorded = song.cachedUri == null ? "" : song.cachedUri.trim();
+        if (recorded.isEmpty()) {
+            statusView.setText("歌单没有记录缓存，立即获取音频...");
+            cacheAndPlay(song, playToken);
+            return;
+        }
+        song.uri = recorded;
+        statusView.setText("已读取歌单记录缓存，正在启动播放...");
+        startLocalPlayback(song, playToken, null, () -> {
+            song.cachedUri = "";
+            song.uri = "";
+            statusView.setText("歌单记录缓存无法播放，立即重新获取音频...");
+            cacheAndPlay(song, playToken);
+        });
     }
 
     private void cacheAndPlay(Song song, int playToken) {
@@ -3351,7 +3306,17 @@ public class MainActivity extends Activity {
                     showSongLyrics(song);
                     startLocalPlayback(song, playToken,
                         () -> commitResolvedPlayback(song, commit, playToken),
-                        () -> markPlaybackFailure(song, true));
+                        () -> {
+                            if (cached.audioFromCache) {
+                                NetworkMediaCache.deleteCatalogCache(this, cached.catalogJson);
+                                song.cachedUri = "";
+                                song.uri = "";
+                                statusView.setText("记录缓存无法播放，立即重新获取音频...");
+                                cacheAndPlay(song, playToken);
+                            } else {
+                                markPlaybackFailure(song, true);
+                            }
+                        });
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
@@ -3566,6 +3531,7 @@ public class MainActivity extends Activity {
         lyricHandler.removeCallbacks(lyricTicker);
         lyricHandler.post(lyricTicker);
         statusView.setText("当前播放：" + song.title);
+        if (song.isNetworkCatalog()) showSongLyrics(song);
         if (onStarted != null) onStarted.run();
         publishPlaybackControlState(true);
     }

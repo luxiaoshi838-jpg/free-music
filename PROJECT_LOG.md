@@ -398,3 +398,11 @@
 - Search result format/source trials remain temporary and still produce only one formal cache.
 - Audio cache completion no longer waits for lyric network requests or duplicate cache cleanup.
 - File/content MediaPlayer preparation now uses prepareAsync so a completed cache starts without blocking the main thread.
+
+## 2026-08-04 - Remove all cache-folder scans from playback
+
+- Removed the v135 same-title scan and the proposed exact-key document-tree lookup from the playback path.
+- Playlist playback now uses only the URI already stored in the playlist record; a missing record immediately starts retrieval.
+- Search replay uses only the URI held by the current search result; otherwise retrieval starts immediately.
+- No `findAudioUri`, `findAudioMatches`, or metadata directory enumeration is allowed before playback.
+- Lyrics start only after MediaPlayer has actually started audio.

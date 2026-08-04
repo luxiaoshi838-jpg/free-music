@@ -207,14 +207,15 @@ checks = {
         and 'retainedInOldLocation' in cache
         and 'listDocumentsStrict(context, oldTree, true)' not in cache
     ),
-    'playlist playback reads existing cache before network search': (
+    'playlist playback uses recorded URI without folder scan': (
         'playPlaylistSongFromCacheFirst(song, playToken)' in main
-        and '正在读取歌单已有缓存' in main
-        and 'CacheStorage.findAudioUri(this, exactKey)' in main
-        and 'CacheStorage.findAudioMatches(this, song.title, song.artist)' in main
-        and '已读取歌单缓存，正在启动播放' in main
-        and '歌单没有可播放缓存，开始寻找可用来源' in main
-        and '"playlist-cache-lookup"' in main
+        and '已读取歌单记录缓存，正在启动播放' in main
+        and '歌单没有记录缓存，立即获取音频' in main
+        and '歌单记录缓存无法播放，立即重新获取音频' in main
+        and '"playlist-cache-lookup"' not in main
+        and '"playlist-exact-cache-lookup"' not in main
+        and 'CacheStorage.findAudioUri(this, exactKey)' not in main
+        and 'CacheStorage.findAudioMatches(this, song.title, song.artist)' not in main
     ),
     'search candidates write only one formal cache': (
         'static final class AudioMatch' in cache
@@ -238,7 +239,19 @@ checks = {
         and 'fetchLyrics(matchedCatalog.toString())' not in network
         and 'fetchLyrics(actualCatalog.toString())' not in network
     ),
-    'version bumped': 'versionCode 2026080135' in gradle,
+    'no cache-folder scan in playback path': (
+        'playPlaylistSongFromCacheFirst' in main
+        and 'playPlaylistSongFromExactCache' not in main
+        and '歌单没有记录缓存，立即获取音频' in main
+        and '本次搜索缓存' in main
+        and '正在准备音频，播放开始后再匹配歌词' in main
+        and 'if (song.isNetworkCatalog()) showSongLyrics(song);' in main
+        and '未使用播放前缓存扫描，立即获取可播放音频' in network
+        and 'findAudioMatches(context, requestedTitle, requestedArtist)' not in network[network.find('private static CacheResult cacheLocked'):network.find('private static Object[] createCacheLocks')]
+        and 'CacheStorage.findAudioUri(context, requestedKey)' not in network[network.find('private static CacheResult cacheLocked'):network.find('private static Object[] createCacheLocks')]
+        and 'CacheStorage.findAudioUri(this, exactKey)' not in main
+    ),
+    'version bumped': 'versionCode 2026080137' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog
