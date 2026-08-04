@@ -259,3 +259,9 @@
 - Playlist and search playback now use only their already-recorded cache URI.
 - Missing or stale recorded URIs fall back immediately to audio retrieval.
 - Lyrics no longer run before audio playback begins.
+
+## 2026.08.04.restore-search-add-playlist
+
+- Restored the `加入当前歌单` option for songs opened from search results.
+- Existing matches in other playlists no longer hide the option.
+- Duplicate detection still prevents duplicate entries in the selected target playlist.

@@ -2543,9 +2543,10 @@ public class MainActivity extends Activity {
     private void updateLyricActionVisibility(Song song) {
         boolean existsInPlaylist = song != null && isSongInAnyPlaylist(song);
         boolean playlistContext = existsInPlaylist && !playingSearchQueue;
-        boolean fromSearchOnly = song != null && playingSearchQueue && !existsInPlaylist;
+        boolean fromSearch = song != null && playingSearchQueue;
         if (addCurrentButton != null) {
-            addCurrentButton.setVisibility(fromSearchOnly ? View.VISIBLE : View.GONE);
+            addCurrentButton.setText("加入当前歌单");
+            addCurrentButton.setVisibility(fromSearch ? View.VISIBLE : View.GONE);
         }
         if (songVersionButton != null) {
             songVersionButton.setVisibility(playlistContext ? View.VISIBLE : View.GONE);

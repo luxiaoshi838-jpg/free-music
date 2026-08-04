@@ -251,7 +251,14 @@ checks = {
         and 'CacheStorage.findAudioUri(context, requestedKey)' not in network[network.find('private static CacheResult cacheLocked'):network.find('private static Object[] createCacheLocks')]
         and 'CacheStorage.findAudioUri(this, exactKey)' not in main
     ),
-    'version bumped': 'versionCode 2026080137' in gradle,
+    'search result always exposes add-to-playlist action': (
+        'boolean fromSearch = song != null && playingSearchQueue;' in main
+        and 'addCurrentButton.setText("加入当前歌单");' in main
+        and 'addCurrentButton.setVisibility(fromSearch ? View.VISIBLE : View.GONE);' in main
+        and 'fromSearchOnly' not in main
+        and 'searchResultsList.setOnItemLongClickListener' in main
+    ),
+    'version bumped': 'versionCode 2026080138' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog

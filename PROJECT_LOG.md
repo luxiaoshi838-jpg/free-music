@@ -406,3 +406,10 @@
 - Search replay uses only the URI held by the current search result; otherwise retrieval starts immediately.
 - No `findAudioUri`, `findAudioMatches`, or metadata directory enumeration is allowed before playback.
 - Lyrics start only after MediaPlayer has actually started audio.
+
+## 2026-08-04 - Restore add-to-playlist action for every search result
+
+- Restored the visible `加入当前歌单` action whenever the player was opened from search results.
+- The action is no longer hidden merely because a matching title/artist exists in any playlist.
+- Duplicate handling remains inside the actual target-playlist insertion logic.
+- Long-pressing a search result still adds it to the target playlist.
