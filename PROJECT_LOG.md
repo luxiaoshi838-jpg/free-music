@@ -439,3 +439,12 @@
 - The first downloaded candidate that passes real playback validation is immediately selected.
 - Remaining sources are not resolved or downloaded after a playable candidate is found.
 - The selected file is still the only file written to formal cache.
+
+
+## 2026-08-04 - Prevent external content URI playback from blocking the UI
+
+- Moved MediaPlayer data-source opening for file/content/http URIs to a worker thread.
+- Main thread now only receives the prepared MediaPlayer object and calls prepareAsync.
+- Removed the dormant synchronous last-song cache validation and MediaPlayer.prepare path.
+- Responsiveness watchdog now runs only while the activity is resumed, focused and the device is interactive.
+- Added lifecycle state to no-response reports to distinguish foreground ANRs from screen/background suspension.

@@ -139,7 +139,7 @@ checks = {
         and 'AES/CTR/NoPadding' in soda_decryptor
         and 'PlayAuth' in soda_decryptor
         and 'enca' in soda_decryptor and 'mp4a' in soda_decryptor
-        and 'NetworkMediaCache.cachedAudioExists(this, currentSong.cachedUri)' in main
+        and 'SodaM4aDecryptor.isEncryptedM4a(partial)' in playable_resolver
     ),
     'all managed cache names normalized on startup': (
         'normalizeAllFriendlyNames' in cache
@@ -232,7 +232,7 @@ checks = {
     'cached audio starts without waiting for lyrics or cleanup': (
         'cleanupDuplicateSongCachesAsync' in network
         and '"duplicate-cache-cleanup"' in network
-        and '缓存已就绪，正在启动播放' in main
+        and '缓存已就绪，正在异步打开音频' in main
         and 'mediaPlayer.prepareAsync();' in main
         and 'mediaPlayer.prepare();' not in main[main.find('private void startLocalPlayback'):main.find('private void onPlaybackStarted')]
         and 'fetchLyrics(matchedCatalog.toString())' not in network
@@ -276,7 +276,24 @@ checks = {
         and main[main.find('private void cacheAndPlay'):main.find('private String stripVisibleLyricTags')].count('showSongLyrics(song);') == 0
         and '音频未开始播放，未启动在线歌词匹配' in main
     ),
-    'version bumped': 'versionCode 2026080141' in gradle,
+    'content uri data source opens off main thread': (
+        '"media-source-open"' in main
+        and 'preparedPlayer.setDataSource(this, Uri.parse(playbackUri));' in main
+        and main.find('new Thread(() -> {', main.find('private void startLocalPlayback'))
+            < main.find('preparedPlayer.setDataSource(this, Uri.parse(playbackUri));', main.find('private void startLocalPlayback'))
+        and 'mediaPlayer.setDataSource(this, Uri.parse(song.uri));' not in main
+        and 'mediaPlayer.prepare();' not in main[main.find('private void prepareLastSong'):main.find('private void playSong')]
+        and 'NetworkMediaCache.cachedAudioExists(this, currentSong.cachedUri)' not in main[main.find('private void prepareLastSong'):main.find('private void playSong')]
+    ),
+    'watchdog only monitors interactive foreground window': (
+        'activityResumed = false' in main
+        and 'windowFocused = false' in main
+        and 'protected void onPause()' in main
+        and 'onWindowFocusChanged(boolean hasFocus)' in main
+        and '!activityResumed || !windowFocused || !isDeviceInteractive()' in main
+        and 'deviceInteractive=' in main
+    ),
+    'version bumped': 'versionCode 2026080142' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog

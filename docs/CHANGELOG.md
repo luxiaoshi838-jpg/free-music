@@ -288,3 +288,12 @@
 - Sources are tried in order and the first candidate that really plays is used immediately.
 - Removed MP3/FLAC/M4A format priority and all later candidate downloads after success.
 - Real playback verification and the single-formal-cache rule remain enabled.
+
+
+## 2026.08.04.nonblocking-media-source
+
+- Fixed possible long UI freezes when opening cached audio through Android document-provider content URIs.
+- Opening the MediaPlayer data source now happens off the main thread.
+- Removed synchronous restored-song preparation.
+- No-response monitoring pauses while the app is backgrounded, unfocused or the screen is not interactive.
+- Includes first-playable-source search behavior from v141.

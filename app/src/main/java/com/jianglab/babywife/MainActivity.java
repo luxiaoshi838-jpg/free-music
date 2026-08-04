@@ -226,6 +226,8 @@ public class MainActivity extends Activity {
     private volatile boolean responsivenessWatchdogRunning = false;
     private volatile boolean noResponseReportWritten = false;
     private volatile long lastUiHeartbeatMs = 0L;
+    private volatile boolean activityResumed = false;
+    private volatile boolean windowFocused = false;
     private long lastPublishedPlaybackSecond = -1L;
     private boolean lastPublishedPlaying = false;
     private String lastPublishedSongKey = "";
@@ -266,7 +268,8 @@ public class MainActivity extends Activity {
         public void run() {
             lastUiHeartbeatMs = System.currentTimeMillis();
             noResponseReportWritten = false;
-            if (responsivenessWatchdogRunning) {
+            if (responsivenessWatchdogRunning && activityResumed
+                && windowFocused && isDeviceInteractive()) {
                 responsivenessHandler.postDelayed(this, UI_HEARTBEAT_INTERVAL_MS);
             }
         }
@@ -292,6 +295,13 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        activityResumed = true;
+        lastUiHeartbeatMs = System.currentTimeMillis();
+        noResponseReportWritten = false;
+        if (responsivenessWatchdogRunning && windowFocused && isDeviceInteractive()) {
+            responsivenessHandler.removeCallbacks(responsivenessHeartbeat);
+            responsivenessHandler.post(responsivenessHeartbeat);
+        }
         if (!pendingCacheFolderSelection || !fileManagementSettingsOpened) return;
         fileManagementSettingsOpened = false;
         if (hasFileManagementPermission()) {
@@ -300,6 +310,29 @@ public class MainActivity extends Activity {
         } else {
             pendingCacheFolderSelection = false;
             toast("未授予文件管理权限，未更换缓存文件夹");
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        activityResumed = false;
+        windowFocused = false;
+        lastUiHeartbeatMs = System.currentTimeMillis();
+        noResponseReportWritten = false;
+        responsivenessHandler.removeCallbacks(responsivenessHeartbeat);
+        super.onPause();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        windowFocused = hasFocus;
+        lastUiHeartbeatMs = System.currentTimeMillis();
+        noResponseReportWritten = false;
+        responsivenessHandler.removeCallbacks(responsivenessHeartbeat);
+        if (hasFocus && activityResumed && responsivenessWatchdogRunning
+            && isDeviceInteractive()) {
+            responsivenessHandler.post(responsivenessHeartbeat);
         }
     }
 
@@ -391,6 +424,9 @@ public class MainActivity extends Activity {
             .append(Build.MODEL).append(" / Android ").append(Build.VERSION.RELEASE)
             .append(" sdk=").append(Build.VERSION.SDK_INT).append('\n');
         report.append("thread=").append(threadName == null ? "" : threadName).append('\n');
+        report.append("activityResumed=").append(activityResumed).append('\n');
+        report.append("windowFocused=").append(windowFocused).append('\n');
+        report.append("deviceInteractive=").append(isDeviceInteractive()).append('\n');
         report.append("playContext=").append(playingSearchQueue ? "search" : "playlist").append('\n');
         report.append("playlistIndex=").append(currentPlaylistIndex).append('\n');
         report.append("songIndex=").append(currentSongIndex).append('\n');
@@ -420,7 +456,9 @@ public class MainActivity extends Activity {
         if (responsivenessWatchdogRunning) return;
         responsivenessWatchdogRunning = true;
         lastUiHeartbeatMs = System.currentTimeMillis();
-        responsivenessHandler.post(responsivenessHeartbeat);
+        if (activityResumed && windowFocused && isDeviceInteractive()) {
+            responsivenessHandler.post(responsivenessHeartbeat);
+        }
         Thread watchdog = new Thread(() -> {
             while (responsivenessWatchdogRunning) {
                 try {
@@ -429,7 +467,13 @@ public class MainActivity extends Activity {
                     Thread.currentThread().interrupt();
                     return;
                 }
-                long gap = System.currentTimeMillis() - lastUiHeartbeatMs;
+                long now = System.currentTimeMillis();
+                if (!activityResumed || !windowFocused || !isDeviceInteractive()) {
+                    lastUiHeartbeatMs = now;
+                    noResponseReportWritten = false;
+                    continue;
+                }
+                long gap = now - lastUiHeartbeatMs;
                 if (gap >= NO_RESPONSE_THRESHOLD_MS && !noResponseReportWritten) {
                     noResponseReportWritten = true;
                     persistNoResponseReport(gap);
@@ -438,6 +482,15 @@ public class MainActivity extends Activity {
         }, "ui-responsiveness-watchdog");
         watchdog.setDaemon(true);
         watchdog.start();
+    }
+
+    private boolean isDeviceInteractive() {
+        try {
+            PowerManager manager = (PowerManager) getSystemService(POWER_SERVICE);
+            return manager == null || manager.isInteractive();
+        } catch (Exception ignored) {
+            return true;
+        }
     }
 
     private String trimForReport(String value, int maxLength) {
@@ -3195,38 +3248,13 @@ public class MainActivity extends Activity {
             return;
         }
         updateLyricActionVisibility(currentSong);
-        showSongLyrics(currentSong);
         if (currentSong.isNetworkCatalog()) {
-            if (currentSong.cachedUri != null && !currentSong.cachedUri.trim().isEmpty()
-                && NetworkMediaCache.cachedAudioExists(this, currentSong.cachedUri)) {
-                currentSong.uri = currentSong.cachedUri;
-            } else {
-                currentSong.cachedUri = "";
-                currentSong.uri = "";
-                if (playButton != null) playButton.setText("▶");
-                statusView.setText("网络歌曲目录已恢复，点击播放时再缓存");
-                resetPlaybackProgress();
-                return;
-            }
+            String recorded = currentSong.cachedUri == null ? "" : currentSong.cachedUri.trim();
+            currentSong.uri = recorded;
         }
-        if (currentSong.uri == null || currentSong.uri.isEmpty()) {
-            if (playButton != null) playButton.setText("▶");
-            resetPlaybackProgress();
-            return;
-        }
-        try {
-            stopPlayback();
-            mediaPlayer = createWakefulMediaPlayer();
-            mediaPlayer.setDataSource(this, Uri.parse(currentSong.uri));
-            mediaPlayer.setOnCompletionListener(player -> playAfterCompletion());
-            mediaPlayer.prepare();
-            if (position > 0) mediaPlayer.seekTo(position);
-            updatePlaybackProgress();
-            playButton.setText("▶");
-        } catch (Exception ignored) {
-            stopPlayback();
-            playButton.setText("▶");
-        }
+        if (playButton != null) playButton.setText("▶");
+        resetPlaybackProgress();
+        statusView.setText("已恢复上次歌曲，点击播放时再异步打开音频");
     }
 
     private void playSong(Song song) {
@@ -3529,42 +3557,73 @@ public class MainActivity extends Activity {
     }
 
     private void startLocalPlayback(Song song, int playToken, Runnable onStarted, Runnable onFailed) {
-        try {
-            stopPlayback();
-            mediaPlayer = createWakefulMediaPlayer();
-            mediaPlayer.setDataSource(this, Uri.parse(song.uri));
-            mediaPlayer.setOnCompletionListener(player -> playAfterCompletion());
-            mediaPlayer.setOnErrorListener((player, what, extra) -> {
-                if (currentSong == song && playToken == playbackRequestSerial) {
-                    stopPlayback();
-                    playButton.setText("▶");
-                    statusView.setText("播放失败：当前来源不可用");
-                    if (onFailed != null) onFailed.run();
-                    publishPlaybackControlState(true);
+        stopPlayback();
+        String playbackUri = song.uri == null ? "" : song.uri.trim();
+        boolean online = playbackUri.startsWith("http://") || playbackUri.startsWith("https://");
+        statusView.setText(online ? "正在异步打开在线音频..." : "缓存已就绪，正在异步打开音频...");
+        new Thread(() -> {
+            MediaPlayer preparedPlayer = null;
+            try {
+                preparedPlayer = createWakefulMediaPlayer();
+                preparedPlayer.setDataSource(this, Uri.parse(playbackUri));
+                MediaPlayer readyPlayer = preparedPlayer;
+                runOnUiThread(() -> {
+                    if (currentSong != song || playToken != playbackRequestSerial) {
+                        try {
+                            readyPlayer.release();
+                        } catch (Exception ignored) {
+                        }
+                        return;
+                    }
+                    mediaPlayer = readyPlayer;
+                    mediaPlayer.setOnCompletionListener(player -> playAfterCompletion());
+                    mediaPlayer.setOnErrorListener((player, what, extra) -> {
+                        if (currentSong == song && playToken == playbackRequestSerial) {
+                            stopPlayback();
+                            playButton.setText("▶");
+                            statusView.setText("播放失败：当前来源不可用");
+                            if (onFailed != null) onFailed.run();
+                            publishPlaybackControlState(true);
+                        }
+                        return true;
+                    });
+                    mediaPlayer.setOnPreparedListener(player -> {
+                        try {
+                            if (currentSong != song || playToken != playbackRequestSerial) return;
+                            player.start();
+                            onPlaybackStarted(song, onStarted);
+                        } catch (Exception error) {
+                            stopPlayback();
+                            playButton.setText("▶");
+                            statusView.setText("播放失败：" + error.getMessage());
+                            if (onFailed != null) onFailed.run();
+                        }
+                    });
+                    try {
+                        mediaPlayer.prepareAsync();
+                    } catch (Exception error) {
+                        stopPlayback();
+                        playButton.setText("▶");
+                        statusView.setText("播放失败：" + error.getMessage());
+                        if (onFailed != null) onFailed.run();
+                    }
+                });
+            } catch (Exception ex) {
+                if (preparedPlayer != null) {
+                    try {
+                        preparedPlayer.release();
+                    } catch (Exception ignored) {
+                    }
                 }
-                return true;
-            });
-            boolean online = song.uri.startsWith("http://") || song.uri.startsWith("https://");
-            statusView.setText(online ? "正在打开在线音频..." : "缓存已就绪，正在启动播放...");
-            mediaPlayer.setOnPreparedListener(player -> {
-                try {
+                runOnUiThread(() -> {
                     if (currentSong != song || playToken != playbackRequestSerial) return;
-                    player.start();
-                    onPlaybackStarted(song, onStarted);
-                } catch (Exception error) {
                     stopPlayback();
                     playButton.setText("▶");
-                    statusView.setText("播放失败：" + error.getMessage());
+                    statusView.setText("打开音频失败：" + ex.getMessage());
                     if (onFailed != null) onFailed.run();
-                }
-            });
-            mediaPlayer.prepareAsync();
-        } catch (Exception ex) {
-            stopPlayback();
-            playButton.setText("▶");
-            if (onFailed != null) onFailed.run();
-            toast("播放失败：" + ex.getMessage());
-        }
+                });
+            }
+        }, "media-source-open").start();
     }
 
     private void onPlaybackStarted(Song song, Runnable onStarted) {
