@@ -39,6 +39,8 @@ import java.util.Set;
  */
 final class CacheStorage {
     private static final String PREFS = "cache_storage";
+    private static final String LYRIC_INDEX_PREFS = "lyric_cache_index";
+    private static final String LYRIC_INDEX_PREFIX = "song|";
     private static final String KEY_TREE_URI = "tree_uri";
     private static final String INTERNAL_FOLDER = "network_music";
     private static final String META_PREFIX = ".babywife_";
@@ -229,6 +231,9 @@ final class CacheStorage {
                     try {
                         MetadataRecord record = readMetadataFromTree(context, tree, key);
                         if (record == null) continue;
+                        if (!record.lyricFile.isEmpty()) {
+                            rememberLyricKey(context, record.title, record.artist, key);
+                        }
                         ensureFriendlyNames(context, key, record.title, record.artist,
                             record.album, record.catalogJson);
                         normalized++;
@@ -254,6 +259,9 @@ final class CacheStorage {
             try {
                 MetadataRecord record = readMetadataFromInternal(root, key);
                 if (record == null) continue;
+                if (!record.lyricFile.isEmpty()) {
+                    rememberLyricKey(context, record.title, record.artist, key);
+                }
                 ensureFriendlyNames(context, key, record.title, record.artist,
                     record.album, record.catalogJson);
                 normalized++;
@@ -315,6 +323,30 @@ final class CacheStorage {
                 remove.add(key);
             }
         }
+
+        String preservedLyric = validKey(keepKey) ? readLyric(context, keepKey) : "";
+        if (preservedLyric.trim().isEmpty() && validKey(keepKey)) {
+            for (String oldKey : remove) {
+                String oldLyric = readLyric(context, oldKey);
+                if (oldLyric.trim().isEmpty()) continue;
+                MetadataRecord keepRecord = metadataRecord(context, keepKey);
+                String keepTitle = keepRecord == null ? title : keepRecord.title;
+                String keepArtist = keepRecord == null ? artist : keepRecord.artist;
+                String keepAlbum = keepRecord == null ? "" : keepRecord.album;
+                String keepCatalog = keepRecord == null ? "" : keepRecord.catalogJson;
+                try {
+                    writeLyric(context, keepKey, oldLyric, keepTitle, keepArtist,
+                        keepAlbum, keepCatalog);
+                    preservedLyric = oldLyric;
+                } catch (Exception ignored) {
+                }
+                break;
+            }
+        }
+        if (!preservedLyric.trim().isEmpty() && validKey(keepKey)) {
+            rememberLyricKey(context, title, artist, keepKey);
+        }
+
         int removed = 0;
         for (String key : remove) removed += deleteKey(context, key);
         return removed;
@@ -325,6 +357,28 @@ final class CacheStorage {
         String normalizedArtist = normalizeIdentityPart(artist);
         if (normalizedTitle.isEmpty() || normalizedArtist.isEmpty()) return "";
         return normalizedTitle + "|" + normalizedArtist;
+    }
+
+    private static String lyricIndexEntry(String title, String artist) {
+        String identity = logicalIdentity(title, artist);
+        return identity.isEmpty() ? "" : LYRIC_INDEX_PREFIX + identity;
+    }
+
+    private static void rememberLyricKey(Context context, String title, String artist, String key) {
+        if (context == null || !validKey(key)) return;
+        String entry = lyricIndexEntry(title, artist);
+        if (entry.isEmpty()) return;
+        context.getSharedPreferences(LYRIC_INDEX_PREFS, Context.MODE_PRIVATE)
+            .edit().putString(entry, key.toLowerCase(Locale.ROOT)).apply();
+    }
+
+    private static String indexedLyricKey(Context context, String title, String artist) {
+        if (context == null) return "";
+        String entry = lyricIndexEntry(title, artist);
+        if (entry.isEmpty()) return "";
+        String key = context.getSharedPreferences(LYRIC_INDEX_PREFS, Context.MODE_PRIVATE)
+            .getString(entry, "");
+        return validKey(key) ? key : "";
     }
 
     private static String normalizeIdentityPart(String value) {
@@ -405,6 +459,29 @@ final class CacheStorage {
         }
     }
 
+    static String readLyricForSong(Context context, String preferredKey,
+                                         String title, String artist) {
+        String direct = readLyric(context, preferredKey);
+        if (!direct.trim().isEmpty()) {
+            rememberLyricKey(context, title, artist, preferredKey);
+            return direct;
+        }
+        String indexedKey = indexedLyricKey(context, title, artist);
+        if (indexedKey.isEmpty() || indexedKey.equalsIgnoreCase(preferredKey)) return "";
+        String fallback = readLyric(context, indexedKey);
+        if (fallback.trim().isEmpty()) return "";
+
+        MetadataRecord preferred = metadataRecord(context, preferredKey);
+        if (preferred != null && validKey(preferredKey)) {
+            try {
+                writeLyric(context, preferredKey, fallback, preferred.title, preferred.artist,
+                    preferred.album, preferred.catalogJson);
+            } catch (Exception ignored) {
+            }
+        }
+        return fallback;
+    }
+
     static void writeLyric(Context context, String key, String text, String title, String artist,
                            String album, String catalogJson) throws Exception {
         if (context == null || !validKey(key) || text == null || text.trim().isEmpty()) return;
@@ -423,6 +500,7 @@ final class CacheStorage {
             }
             record.lyricFile = name;
             writeMetadataToTree(context, tree, record);
+            rememberLyricKey(context, record.title, record.artist, key);
             return;
         }
 
@@ -441,6 +519,7 @@ final class CacheStorage {
         replaceFile(partial, output);
         record.lyricFile = name;
         writeMetadataToInternal(root, record);
+        rememberLyricKey(context, record.title, record.artist, key);
     }
 
     static String storeAudio(Context context, String key, String extension, File source, String title,

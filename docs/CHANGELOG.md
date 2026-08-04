@@ -272,3 +272,11 @@
 - Unmatched search results show `加入当前歌单`.
 - Matching playlist songs show `替换歌曲` and `替换歌词`.
 - Replacement actions now update the actual playlist entry and no longer fail because the search result is a separate object.
+
+
+## 2026.08.04.stable-local-lyric-cache
+
+- Fixed cached lyrics being ignored after a song switched to another source.
+- Local lyric cache is now resolved by stable song identity as well as exact source ID.
+- Existing lyrics are migrated to the retained source before duplicate cache cleanup.
+- Online lyric matching starts only after audio playback and resolved-source commit.

@@ -264,7 +264,20 @@ checks = {
         and 'switchPlaybackToPlaylistSong(target);' in main
         and 'addCurrentButton.setVisibility(fromSearch ? View.VISIBLE : View.GONE);' not in main
     ),
-    'version bumped': 'versionCode 2026080139' in gradle,
+    'stable local lyric cache across source changes': (
+        'LYRIC_INDEX_PREFS = "lyric_cache_index"' in cache
+        and 'readLyricForSong(Context context, String preferredKey' in cache
+        and 'rememberLyricKey(context, record.title, record.artist, key);' in cache
+        and 'writeLyric(context, keepKey, oldLyric' in cache
+        and 'CacheStorage.readLyricForSong(context, actualKey' in network
+        and 'CacheStorage.readLyricForSong(this, key, song.title, song.artist)' in main
+        and main.find('if (onStarted != null) onStarted.run();')
+            < main.find('if (song.isNetworkCatalog()) showSongLyrics(song);',
+                main.find('private void onPlaybackStarted'))
+        and main[main.find('private void cacheAndPlay'):main.find('private String stripVisibleLyricTags')].count('showSongLyrics(song);') == 0
+        and '音频未开始播放，未启动在线歌词匹配' in main
+    ),
+    'version bumped': 'versionCode 2026080140' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog

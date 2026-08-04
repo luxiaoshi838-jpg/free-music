@@ -2822,7 +2822,7 @@ public class MainActivity extends Activity {
         if (song.lyric != null && !song.lyric.trim().isEmpty()) return;
         String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
         if (key.isEmpty()) return;
-        String cachedLyric = CacheStorage.readLyric(this, key);
+        String cachedLyric = CacheStorage.readLyricForSong(this, key, song.title, song.artist);
         if (cachedLyric != null && !cachedLyric.trim().isEmpty()) {
             song.lyric = cachedLyric;
             if (song.lyricLabel == null || song.lyricLabel.trim().isEmpty()) {
@@ -3347,7 +3347,6 @@ public class MainActivity extends Activity {
                         song.lyricLabel = song.title + " · " + song.artist + " · " + resolvedSourceLabel;
                     }
                     artistView.setText(song.artist + " · " + song.source);
-                    showSongLyrics(song);
                     startLocalPlayback(song, playToken,
                         () -> commitResolvedPlayback(song, commit, playToken),
                         () -> {
@@ -3367,7 +3366,7 @@ public class MainActivity extends Activity {
                     if (currentSong != song || playToken != playbackRequestSerial) return;
                     stopPlayback();
                     playButton.setText("▶");
-                    showSongLyrics(song);
+                    lyricView.setText("音频未开始播放，未启动在线歌词匹配");
                     markPlaybackFailure(song, false);
                     statusView.setText("缓存失败：" + error.getMessage());
                     toast("该歌曲当前无法缓存播放");
@@ -3575,8 +3574,8 @@ public class MainActivity extends Activity {
         lyricHandler.removeCallbacks(lyricTicker);
         lyricHandler.post(lyricTicker);
         statusView.setText("当前播放：" + song.title);
-        if (song.isNetworkCatalog()) showSongLyrics(song);
         if (onStarted != null) onStarted.run();
+        if (song.isNetworkCatalog()) showSongLyrics(song);
         publishPlaybackControlState(true);
     }
 

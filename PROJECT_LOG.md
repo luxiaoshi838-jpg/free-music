@@ -421,3 +421,12 @@
 - A search result matching an existing playlist song by normalized title and artist hides the add action and shows `替换歌曲` plus `替换歌词`.
 - Replacement previews and confirmations bind to the real playlist song object rather than the temporary search-result object.
 - Confirmed song replacement switches playback to the updated playlist entry.
+
+
+## 2026-08-04 - Restore stable local lyric cache reads
+
+- Removed the remaining pre-playback lyric matching call from the audio cache completion path.
+- Playback now commits the resolved source/catalog before reading local lyrics or starting online matching.
+- Added a lightweight title+artist lyric-key index so source fallback does not orphan an existing local LRC.
+- Duplicate source cache cleanup migrates an existing lyric to the retained source key before deleting old files.
+- Startup cache normalization rebuilds the lyric-key index for previously saved LRC files.

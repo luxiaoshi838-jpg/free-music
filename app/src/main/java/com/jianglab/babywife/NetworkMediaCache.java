@@ -101,7 +101,8 @@ final class NetworkMediaCache {
 
         CacheStorage.ensureFriendlyNames(context, actualKey, actualTitle, actualArtist,
             actualAlbum, actualCatalog.toString());
-        String lyric = CacheStorage.readLyric(context, actualKey);
+        String lyric = CacheStorage.readLyricForSong(context, actualKey,
+            actualTitle, actualArtist);
         boolean lyricFromCache = !lyric.trim().isEmpty();
         cleanupDuplicateSongCachesAsync(context, requestedTitle, requestedArtist, actualKey);
         if (!CacheStorage.logicalIdentity(requestedTitle, requestedArtist).equals(
