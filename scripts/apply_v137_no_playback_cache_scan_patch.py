@@ -146,6 +146,30 @@ replace_once(
 )
 
 check = check_path.read_text(encoding='utf-8')
+old_playlist_check = '''    'playlist playback reads existing cache before network search': (
+        'playPlaylistSongFromCacheFirst(song, playToken)' in main
+        and '正在读取歌单已有缓存' in main
+        and 'CacheStorage.findAudioUri(this, exactKey)' in main
+        and 'CacheStorage.findAudioMatches(this, song.title, song.artist)' in main
+        and '已读取歌单缓存，正在启动播放' in main
+        and '歌单没有可播放缓存，开始寻找可用来源' in main
+        and '"playlist-cache-lookup"' in main
+    ),
+'''
+new_playlist_check = '''    'playlist playback uses recorded URI without folder scan': (
+        'playPlaylistSongFromCacheFirst(song, playToken)' in main
+        and '已读取歌单记录缓存，正在启动播放' in main
+        and '歌单没有记录缓存，立即获取音频' in main
+        and '歌单记录缓存无法播放，立即重新获取音频' in main
+        and '"playlist-cache-lookup"' not in main
+        and '"playlist-exact-cache-lookup"' not in main
+        and 'CacheStorage.findAudioUri(this, exactKey)' not in main
+        and 'CacheStorage.findAudioMatches(this, song.title, song.artist)' not in main
+    ),
+'''
+if old_playlist_check not in check:
+    raise SystemExit('Cannot find obsolete v135 playlist cache-scan check')
+check = check.replace(old_playlist_check, new_playlist_check, 1)
 check = check.replace(
     "'version bumped': 'versionCode 2026080135' in gradle,",
     "'no cache-folder scan in playback path': (\n"
