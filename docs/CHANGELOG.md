@@ -265,3 +265,10 @@
 - Restored the `加入当前歌单` option for songs opened from search results.
 - Existing matches in other playlists no longer hide the option.
 - Duplicate detection still prevents duplicate entries in the selected target playlist.
+
+## 2026.08.04.complete-search-song-actions
+
+- Restored the full search-result action logic instead of forcing the add-to-playlist button.
+- Unmatched search results show `加入当前歌单`.
+- Matching playlist songs show `替换歌曲` and `替换歌词`.
+- Replacement actions now update the actual playlist entry and no longer fail because the search result is a separate object.

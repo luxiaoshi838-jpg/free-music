@@ -413,3 +413,11 @@
 - The action is no longer hidden merely because a matching title/artist exists in any playlist.
 - Duplicate handling remains inside the actual target-playlist insertion logic.
 - Long-pressing a search result still adds it to the target playlist.
+
+## 2026-08-04 - Complete search-result action state machine
+
+- Corrected the v138 assumption that every search result should expose `加入当前歌单`.
+- Search-only songs show `加入当前歌单`.
+- A search result matching an existing playlist song by normalized title and artist hides the add action and shows `替换歌曲` plus `替换歌词`.
+- Replacement previews and confirmations bind to the real playlist song object rather than the temporary search-result object.
+- Confirmed song replacement switches playback to the updated playlist entry.

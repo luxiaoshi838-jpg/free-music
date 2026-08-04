@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080138
-        versionName "2026.08.04.restore-search-add-playlist"
+        versionCode 2026080139
+        versionName "2026.08.04.complete-search-song-actions"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 

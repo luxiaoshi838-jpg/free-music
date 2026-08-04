@@ -251,14 +251,20 @@ checks = {
         and 'CacheStorage.findAudioUri(context, requestedKey)' not in network[network.find('private static CacheResult cacheLocked'):network.find('private static Object[] createCacheLocks')]
         and 'CacheStorage.findAudioUri(this, exactKey)' not in main
     ),
-    'search result always exposes add-to-playlist action': (
-        'boolean fromSearch = song != null && playingSearchQueue;' in main
-        and 'addCurrentButton.setText("加入当前歌单");' in main
-        and 'addCurrentButton.setVisibility(fromSearch ? View.VISIBLE : View.GONE);' in main
-        and 'fromSearchOnly' not in main
-        and 'searchResultsList.setOnItemLongClickListener' in main
+    'search result exposes complete context actions': (
+        'Song playlistMatch = findPlaylistSongMatch(song);' in main
+        and 'boolean unmatchedSearch = fromSearch && !existsInPlaylist;' in main
+        and 'addCurrentButton.setVisibility(unmatchedSearch ? View.VISIBLE : View.GONE);' in main
+        and 'songVersionButton.setVisibility(existsInPlaylist ? View.VISIBLE : View.GONE);' in main
+        and 'lyricVersionButton.setVisibility(existsInPlaylist ? View.VISIBLE : View.GONE);' in main
+        and 'Song target = findPlaylistSongMatch(selected);' in main
+        and 'pendingSongTarget = target;' in main
+        and 'pendingLyricSong = target;' in main
+        and 'isPlaylistSongObject(target)' in main
+        and 'switchPlaybackToPlaylistSong(target);' in main
+        and 'addCurrentButton.setVisibility(fromSearch ? View.VISIBLE : View.GONE);' not in main
     ),
-    'version bumped': 'versionCode 2026080138' in gradle,
+    'version bumped': 'versionCode 2026080139' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog

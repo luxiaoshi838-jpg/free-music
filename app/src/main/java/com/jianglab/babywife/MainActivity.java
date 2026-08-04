@@ -2024,10 +2024,10 @@ public class MainActivity extends Activity {
 
     private int indexOfSong(Playlist playlist, Song song) {
         if (playlist == null || song == null) return -1;
-        String key = song.key();
+        String identity = dedupeKey(song);
         for (int i = 0; i < playlist.songs.size(); i++) {
             Song item = playlist.songs.get(i);
-            if (item == song || item.key().equals(key)) return i;
+            if (item == song || dedupeKey(item).equals(identity)) return i;
         }
         return -1;
     }
@@ -2038,11 +2038,46 @@ public class MainActivity extends Activity {
         if (playlistIndex < 0) return;
         currentPlaylistIndex = playlistIndex;
         currentSongIndex = songIndex;
+        currentSong = playlist.songs.get(songIndex);
         playingSearchQueue = false;
         searchSongIndex = -1;
         renderCurrentPlaylist();
         updateLyricActionVisibility(currentSong);
         saveLastSong(0);
+    }
+
+    private Song findPlaylistSongMatch(Song song) {
+        if (song == null) return null;
+        String identity = dedupeKey(song);
+        for (Playlist playlist : playlists) {
+            for (Song item : playlist.songs) {
+                if (item == song || dedupeKey(item).equals(identity)) return item;
+            }
+        }
+        return null;
+    }
+
+    private boolean isPlaylistSongObject(Song song) {
+        if (song == null) return false;
+        for (Playlist playlist : playlists) {
+            for (Song item : playlist.songs) {
+                if (item == song) return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean switchPlaybackToPlaylistSong(Song song) {
+        if (song == null) return false;
+        for (Playlist playlist : playlists) {
+            for (int index = 0; index < playlist.songs.size(); index++) {
+                if (playlist.songs.get(index) == song) {
+                    switchPlaybackToPlaylist(playlist, index);
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private void renderResults() {
@@ -2286,33 +2321,34 @@ public class MainActivity extends Activity {
     }
 
     private void showSongVersionPicker() {
-        Song song = currentSong;
-        if (song == null) {
+        Song selected = currentSong;
+        if (selected == null) {
             toast("请先选择歌曲");
             return;
         }
-        if (!isSongInAnyPlaylist(song)) {
+        Song target = findPlaylistSongMatch(selected);
+        if (target == null) {
             toast("替换歌曲只对歌单内歌曲生效");
             return;
         }
-        SongVersionPicker.show(this, song.title, song.artist, new SongVersionPicker.Callback() {
+        SongVersionPicker.show(this, selected.title, selected.artist, new SongVersionPicker.Callback() {
             @Override
             public void onStatus(String message) {
                 runOnUiThread(() -> {
-                    if (currentSong == song && statusView != null) statusView.setText(message);
+                    if (currentSong == selected && statusView != null) statusView.setText(message);
                 });
             }
 
             @Override
             public void onPreview(String title, String artist, String sourceLabel, String catalogJson) {
                 runOnUiThread(() -> {
-                    if (currentSong != song || catalogJson == null || catalogJson.trim().isEmpty()) return;
+                    if (currentSong != selected || catalogJson == null || catalogJson.trim().isEmpty()) return;
                     clearPendingLyricPreview();
-                    pendingSongTarget = song;
-                    pendingSongOriginalKey = song.key();
-                    pendingSongTitle = title == null ? song.title : title;
-                    pendingSongArtist = artist == null ? song.artist : artist;
-                    pendingSongSource = sourceLabel == null ? song.source : sourceLabel;
+                    pendingSongTarget = target;
+                    pendingSongOriginalKey = target.key();
+                    pendingSongTitle = title == null ? target.title : title;
+                    pendingSongArtist = artist == null ? target.artist : artist;
+                    pendingSongSource = sourceLabel == null ? target.source : sourceLabel;
                     pendingSongCatalogJson = catalogJson;
                     pendingReplacementType = REPLACEMENT_SONG;
                     titleView.setText(pendingSongTitle);
@@ -2329,9 +2365,9 @@ public class MainActivity extends Activity {
             @Override
             public void onUnavailable() {
                 runOnUiThread(() -> {
-                    if (currentSong != song) return;
-                    song.manualUnavailable = true;
-                    markSongUnavailable(song, song.autoUnavailable && song.manualUnavailable);
+                    if (currentSong != selected || !isPlaylistSongObject(target)) return;
+                    target.manualUnavailable = true;
+                    markSongUnavailable(target, target.autoUnavailable && target.manualUnavailable);
                     savePlaylists();
                     renderCurrentPlaylist();
                     statusView.setText("手动搜索全部来源后仍未找到相近版本");
@@ -2351,9 +2387,9 @@ public class MainActivity extends Activity {
     private void confirmPendingSong() {
         Song target = pendingSongTarget;
         if (target == null || pendingSongCatalogJson == null || pendingSongCatalogJson.trim().isEmpty()) return;
-        if (currentSong != target || !isSongInAnyPlaylist(target)) {
+        if (!isPlaylistSongObject(target)) {
             clearPendingLyricPreview();
-            toast("当前歌曲已不在歌单中");
+            toast("目标歌曲已不在歌单中");
             return;
         }
         String originalKey = pendingSongOriginalKey;
@@ -2390,6 +2426,7 @@ public class MainActivity extends Activity {
         clearPendingLyricPreview();
         savePlaylists();
         renderCurrentPlaylist();
+        switchPlaybackToPlaylistSong(target);
         titleView.setText(target.title);
         artistView.setText(target.artist + " · " + target.source);
         statusView.setText("歌曲版本已替换，正在按新版本缓存播放");
@@ -2463,29 +2500,30 @@ public class MainActivity extends Activity {
     }
 
     private void showLyricVersionPicker() {
-        Song song = currentSong;
-        if (song == null) {
+        Song selected = currentSong;
+        if (selected == null) {
             toast("请先选择歌曲");
             return;
         }
-        if (!isSongInAnyPlaylist(song)) {
+        Song target = findPlaylistSongMatch(selected);
+        if (target == null) {
             toast("替换歌词只对歌单内歌曲生效");
             return;
         }
-        LyricVersionPicker.show(this, song.title, song.artist, new LyricVersionPicker.Callback() {
+        LyricVersionPicker.show(this, selected.title, selected.artist, new LyricVersionPicker.Callback() {
             @Override
             public void onStatus(String message) {
                 runOnUiThread(() -> {
-                    if (currentSong == song && statusView != null) statusView.setText(message);
+                    if (currentSong == selected && statusView != null) statusView.setText(message);
                 });
             }
 
             @Override
             public void onPreview(String lyric, String lyricTitle, String lyricArtist, String sourceLabel) {
                 runOnUiThread(() -> {
-                    if (currentSong != song || lyric == null || lyric.trim().isEmpty()) return;
+                    if (currentSong != selected || lyric == null || lyric.trim().isEmpty()) return;
                     clearPendingLyricPreview();
-                    pendingLyricSong = song;
+                    pendingLyricSong = target;
                     pendingLyric = lyric;
                     pendingLyricLabel = lyricTitle + " · " + lyricArtist + " · " + sourceLabel;
                     pendingReplacementType = REPLACEMENT_LYRIC;
@@ -2503,15 +2541,19 @@ public class MainActivity extends Activity {
 
     private void confirmPendingLyric() {
         if (pendingLyricSong == null || pendingLyric == null || pendingLyric.trim().isEmpty()) return;
-        if (currentSong != pendingLyricSong || !isSongInAnyPlaylist(pendingLyricSong)) {
+        Song target = pendingLyricSong;
+        if (!isPlaylistSongObject(target)) {
             clearPendingLyricPreview();
-            toast("当前歌曲已不在歌单中");
+            toast("目标歌曲已不在歌单中");
             return;
         }
-        Song target = pendingLyricSong;
         String lyric = pendingLyric;
         String label = pendingLyricLabel;
         bindLyricToPlaylistCopies(target, lyric, label);
+        if (currentSong != null && dedupeKey(currentSong).equals(dedupeKey(target))) {
+            currentSong.lyric = lyric;
+            currentSong.lyricLabel = label;
+        }
         clearPendingLyricPreview();
         savePlaylists();
         showSongLyrics(currentSong);
@@ -2541,20 +2583,21 @@ public class MainActivity extends Activity {
     }
 
     private void updateLyricActionVisibility(Song song) {
-        boolean existsInPlaylist = song != null && isSongInAnyPlaylist(song);
-        boolean playlistContext = existsInPlaylist && !playingSearchQueue;
+        Song playlistMatch = findPlaylistSongMatch(song);
+        boolean existsInPlaylist = playlistMatch != null;
         boolean fromSearch = song != null && playingSearchQueue;
+        boolean unmatchedSearch = fromSearch && !existsInPlaylist;
         if (addCurrentButton != null) {
             addCurrentButton.setText("加入当前歌单");
-            addCurrentButton.setVisibility(fromSearch ? View.VISIBLE : View.GONE);
+            addCurrentButton.setVisibility(unmatchedSearch ? View.VISIBLE : View.GONE);
         }
         if (songVersionButton != null) {
-            songVersionButton.setVisibility(playlistContext ? View.VISIBLE : View.GONE);
+            songVersionButton.setVisibility(existsInPlaylist ? View.VISIBLE : View.GONE);
         }
         if (lyricVersionButton != null) {
-            lyricVersionButton.setVisibility(playlistContext ? View.VISIBLE : View.GONE);
+            lyricVersionButton.setVisibility(existsInPlaylist ? View.VISIBLE : View.GONE);
         }
-        if (!playlistContext && (pendingLyricSong == song || pendingSongTarget == song)) {
+        if (!existsInPlaylist && (pendingLyricSong != null || pendingSongTarget != null)) {
             clearPendingLyricPreview();
         }
     }
