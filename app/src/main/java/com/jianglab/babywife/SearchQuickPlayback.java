@@ -146,9 +146,15 @@ final class SearchQuickPlayback {
             }
             String storedUri = CacheStorage.storeAudio(context, key, extension, source,
                 title, artist, savedAlbum, candidate.catalogJson);
-            if (!CacheStorage.exists(context, storedUri)) {
+            if (!CacheFileState.exists(context, storedUri)) {
+                CacheFileState.deleteDirect(context, storedUri);
                 CacheStorage.deleteKey(context, key);
-                throw new IllegalStateException("搜索歌曲缓存写入后不存在");
+                throw new IllegalStateException("搜索歌曲缓存写入后无法读取");
+            }
+            if (SodaM4aDecryptor.isEncryptedM4a(context, storedUri)) {
+                CacheFileState.deleteDirect(context, storedUri);
+                CacheStorage.deleteKey(context, key);
+                throw new IllegalStateException("搜索歌曲缓存写入后仍为加密内容");
             }
             CacheStorage.deleteOtherSongCaches(context, title, artist, key);
             return storedUri;
