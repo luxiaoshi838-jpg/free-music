@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080143
-        versionName "2026.08.05.search-stream-and-cache"
+        versionCode 2026080147
+        versionName "2026.08.05.v147-restore-v143"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
