@@ -306,3 +306,16 @@
 - The exact successfully played address is cached in the background as `song title - artist.ext`.
 - Search playback reuses matching playlist cache records and synchronizes new cache URIs back to matching playlist songs.
 - Playlist one-click caching remains unchanged and still performs full download and validation.
+
+## v152 - 2026-08-05
+
+- Version: `2026080152 / 2026.08.05.v152-rapid-next-stability`.
+- Rapid manual previous/next presses are merged within a 220 ms window and execute only the final queue jump.
+- MediaPlayer creation, data-source opening, and prepare entry are serialized through one worker executor.
+- New playback requests cancel stale media-source and search-cache tasks.
+- Player listeners are detached before stop/reset/release.
+- Search Range caching now checks interruption when the user changes songs.
+- Android 11+ reads system process-exit history on the next launch for native crash, ANR, low-memory, and signal-exit diagnostics.
+- The last playback-transition song/token is recorded until playback starts successfully.
+- v151 Range regression checks, v152 stability checks, four-brand compilation, package-name checks, and version checks passed.
+- Real-device rapid-switch stress testing is still required.
