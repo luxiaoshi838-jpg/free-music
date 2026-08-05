@@ -13,7 +13,7 @@ cached_method = resolver[
 ]
 post_store = resolver[
     resolver.index("String storedUri = CacheStorage.storeAudio"):
-    resolver.index("status(callback, \"唯一正式缓存写入完成")")
+    resolver.index('status(callback, "唯一正式缓存写入完成')
 ]
 clear_method = network[
     network.index("static int clearExcept"):
