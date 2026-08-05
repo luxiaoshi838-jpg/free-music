@@ -35,6 +35,8 @@ jobs:
           else
             python scripts/apply_v143_search_stream_and_cache_patch.py
           fi
+      - name: Fix v143 album metadata compilation
+        run: python scripts/fix_v143_compile.py
       - name: Update v143 playback-path feature check
         run: python scripts/fix_v143_feature_check.py
       - name: Verify all feature requirements
@@ -61,6 +63,8 @@ jobs:
           assert 'findBestExactOnSource' in catalog
           assert 'NetworkMediaCache.cache(' in main[main.index('private void cacheCurrentPlaylistOneClick'):]
           assert 'AudioPlaybackVerifier.probeFile' in resolver
+          assert 'song.album' not in main
+          assert 'savedAlbum' in quick
           print('v143 search stream/background cache assertions passed')
           PY
       - name: Build four release APKs
