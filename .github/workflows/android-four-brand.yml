@@ -31,6 +31,7 @@ jobs:
           if [ -f scripts/check_feature_requirements.py ]; then
             python3 - <<'PY'
           from pathlib import Path
+          import re
           path = Path('scripts/check_feature_requirements.py')
           text = path.read_text(encoding='utf-8')
           replacements = [
@@ -42,15 +43,42 @@ jobs:
                "and 'AudioPlaybackVerifier.probeFile' in playable_resolver"),
               ("and 'mediaPlayer.prepareAsync();' in main",
                "and 'readyPlayer.prepareAsync();' in main"),
-              ("'\\\"media-source-open\\\"' in main",
-               "'mediaSourceExecutor.submit' in main"),
-              ("main.find('new Thread(() -> {', main.find('private void startLocalPlayback'))",
-               "main.find('mediaSourceExecutor.submit', main.find('private void startLocalPlayback'))"),
-              ("'\\\"search-audio-cache\\\"' in main",
-               "'searchCacheExecutor.submit' in main"),
           ]
           for old, new in replacements:
               text = text.replace(old, new)
+
+          content_uri_check = '''    'content uri data source opens off main thread': (
+              'mediaSourceExecutor = Executors.newSingleThreadExecutor()' in main
+              and 'mediaSourceExecutor.submit' in main
+              and 'preparedPlayer.setDataSource(this, Uri.parse(playbackUri));' in main
+              and main.find('mediaSourceExecutor.submit', main.find('private void startLocalPlayback'))
+                  < main.find('preparedPlayer.setDataSource(this, Uri.parse(playbackUri));', main.find('private void startLocalPlayback'))
+              and 'mediaPlayer.setDataSource(this, Uri.parse(song.uri));' not in main
+          ),'''
+          text, count = re.subn(
+              r"    'content uri data source opens off main thread': \(.*?^    \),",
+              content_uri_check, text, count=1, flags=re.S | re.M)
+          if count != 1:
+              raise SystemExit('could not replace content-uri off-main-thread check')
+
+          search_stream_check = '''    'search playback streams first and caches same address in background': (
+              'if (playingSearchQueue)' in main
+              and 'playSearchSongFast(song, playToken);' in main
+              and 'trySearchPlaybackCandidate(song, playToken, 0);' in main
+              and 'startLocalPlayback(song, playToken, () -> {' in main
+              and 'cacheSearchPlaybackAsync(song, resolved, playToken);' in main
+              and '\"search-address-resolver\"' in main
+              and 'searchCacheExecutor = Executors.newSingleThreadExecutor()' in main
+              and 'searchCacheExecutor.submit' in main
+              and 'SearchQuickPlayback.resolveStage' in main
+              and 'SearchQuickPlayback.cache' in main
+          ),'''
+          text, count = re.subn(
+              r"    'search playback streams first and caches same address in background': \(.*?^    \),",
+              search_stream_check, text, count=1, flags=re.S | re.M)
+          if count != 1:
+              raise SystemExit('could not replace search stream/background-cache check')
+
           path.write_text(text, encoding='utf-8')
           PY
             python3 scripts/check_feature_requirements.py
