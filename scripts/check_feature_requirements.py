@@ -12,6 +12,7 @@ picker = (root / 'app/src/main/java/com/jianglab/babywife/SongVersionPicker.java
 catalog = (root / 'app/src/main/java/com/jianglab/babywife/CatalogSearch.java').read_text(encoding='utf-8')
 playable_resolver = (root / 'app/src/main/java/com/jianglab/babywife/PlayableAudioResolver.java').read_text(encoding='utf-8')
 playback_verifier = (root / 'app/src/main/java/com/jianglab/babywife/AudioPlaybackVerifier.java').read_text(encoding='utf-8')
+quick_playback = (root / 'app/src/main/java/com/jianglab/babywife/SearchQuickPlayback.java').read_text(encoding='utf-8')
 gradle = (root / 'app/build.gradle').read_text(encoding='utf-8')
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text(encoding='utf-8')
 project_log = (root / 'PROJECT_LOG.md').read_text(encoding='utf-8')
@@ -242,7 +243,8 @@ checks = {
         'playPlaylistSongFromCacheFirst' in main
         and 'playPlaylistSongFromExactCache' not in main
         and '歌单没有记录缓存，立即获取音频' in main
-        and '本次搜索缓存' in main
+        and '已使用歌单中的同名歌曲缓存' in main
+        and '搜索歌曲缓存' in main
         and '正在准备音频，播放开始后再匹配歌词' in main
         and 'if (song.isNetworkCatalog()) showSongLyrics(song);' in main
         and '未使用播放前缓存扫描，立即获取可播放音频' in network
@@ -293,7 +295,39 @@ checks = {
         and '!activityResumed || !windowFocused || !isDeviceInteractive()' in main
         and 'deviceInteractive=' in main
     ),
-    'version bumped': 'versionCode 2026080142' in gradle,
+    'search playback streams first and caches same address in background': (
+        'if (playingSearchQueue)' in main
+        and 'playSearchSongFast(song, playToken);' in main
+        and 'trySearchPlaybackCandidate(song, playToken, 0);' in main
+        and 'startLocalPlayback(song, playToken, () -> {' in main
+        and 'cacheSearchPlaybackAsync(song, resolved, playToken);' in main
+        and '"search-address-resolver"' in main
+        and '"search-audio-cache"' in main
+        and 'SearchQuickPlayback.resolveStage' in main
+        and 'SearchQuickPlayback.cache' in main
+    ),
+    'search playback reuses playlist cache and keeps friendly filename': (
+        'findPlaylistSongMatch(song)' in main
+        and '已使用歌单中的同名歌曲缓存' in main
+        and 'CacheStorage.logicalIdentity(song.title, song.artist)' in main
+        and 'item.cachedUri = storedUri;' in main
+        and 'CacheStorage.storeAudio(context, key, extension, source' in quick_playback
+        and 'String base = record.title + " - " + record.artist;' in cache
+    ),
+    'search fallback is selected source then kuwo then netease': (
+        'stage == 0' in quick_playback
+        and 'stage == 1 ? "kuwo"' in quick_playback
+        and 'stage == 2 ? "netease"' in quick_playback
+        and 'findBestExactOnSource' in catalog
+        and 'replacementScore(title, artist, track)' in catalog
+        and 'formatPriority' not in quick_playback
+    ),
+    'playlist one-click cache remains full cache path': (
+        'cacheCurrentPlaylistOneClick' in main
+        and 'NetworkMediaCache.cache(' in main[main.find('private void cacheCurrentPlaylistOneClick'):]
+        and 'PlayableAudioResolver.prepare' in network
+    ),
+    'version bumped': 'versionCode 2026080143' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog

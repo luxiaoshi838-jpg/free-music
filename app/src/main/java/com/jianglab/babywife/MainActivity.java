@@ -3287,15 +3287,17 @@ public class MainActivity extends Activity {
         if (song.isNetworkCatalog()) {
             stopPlayback();
             playButton.setText("▶");
-            if (!playingSearchQueue && isSongInAnyPlaylist(song)) {
+            if (playingSearchQueue) {
+                playSearchSongFast(song, playToken);
+            } else if (isSongInAnyPlaylist(song)) {
                 playPlaylistSongFromCacheFirst(song, playToken);
             } else if (song.cachedUri != null && !song.cachedUri.trim().isEmpty()) {
                 song.uri = song.cachedUri;
-                statusView.setText("已读取本次搜索缓存，正在启动播放...");
+                statusView.setText("已读取记录缓存，正在启动播放...");
                 startLocalPlayback(song, playToken, null, () -> {
                     song.cachedUri = "";
                     song.uri = "";
-                    statusView.setText("本次搜索缓存无法播放，立即重新获取音频...");
+                    statusView.setText("记录缓存无法播放，立即重新获取音频...");
                     cacheAndPlay(song, playToken);
                 });
             } else {
@@ -3312,6 +3314,143 @@ public class MainActivity extends Activity {
             return;
         }
         startLocalPlayback(song, playToken, null, null);
+    }
+
+    private void playSearchSongFast(Song song, int playToken) {
+        Song playlistMatch = findPlaylistSongMatch(song);
+        String playlistCache = playlistMatch == null || playlistMatch.cachedUri == null
+            ? "" : playlistMatch.cachedUri.trim();
+        if (!playlistCache.isEmpty()) {
+            song.cachedUri = playlistCache;
+            song.uri = playlistCache;
+            statusView.setText("已使用歌单中的同名歌曲缓存，正在启动播放...");
+            startLocalPlayback(song, playToken, null, () -> {
+                song.cachedUri = "";
+                song.uri = "";
+                playlistMatch.cachedUri = "";
+                playlistMatch.uri = "";
+                savePlaylists();
+                statusView.setText("歌单缓存无法播放，正在尝试搜索结果真实地址...");
+                trySearchPlaybackCandidate(song, playToken, 0);
+            });
+            return;
+        }
+
+        String sessionCache = song.cachedUri == null ? "" : song.cachedUri.trim();
+        if (!sessionCache.isEmpty()) {
+            song.uri = sessionCache;
+            statusView.setText("已读取搜索歌曲缓存，正在启动播放...");
+            startLocalPlayback(song, playToken, null, () -> {
+                song.cachedUri = "";
+                song.uri = "";
+                statusView.setText("搜索缓存无法播放，正在尝试真实地址...");
+                trySearchPlaybackCandidate(song, playToken, 0);
+            });
+            return;
+        }
+        trySearchPlaybackCandidate(song, playToken, 0);
+    }
+
+    private void trySearchPlaybackCandidate(Song song, int playToken, int stage) {
+        if (song == null || currentSong != song || playToken != playbackRequestSerial) return;
+        if (stage > 2) {
+            stopPlayback();
+            playButton.setText("▶");
+            lyricView.setText("音频未开始播放，未启动在线歌词匹配");
+            statusView.setText("搜索结果、酷我和网易云均没有可播放地址");
+            toast("暂时没有找到可播放资源");
+            return;
+        }
+        String stageLabel = stage == 0 ? "搜索结果自身来源"
+            : (stage == 1 ? "酷我" : "网易云");
+        statusView.setText("正在解析" + stageLabel + "的真实播放地址...");
+        new Thread(() -> {
+            SearchQuickPlayback.Candidate candidate = null;
+            try {
+                candidate = SearchQuickPlayback.resolveStage(song.catalogJson, stage);
+            } catch (Exception ignored) {
+            }
+            SearchQuickPlayback.Candidate resolved = candidate;
+            runOnUiThread(() -> {
+                if (currentSong != song || playToken != playbackRequestSerial) return;
+                if (resolved == null || resolved.playbackUrl.isEmpty()) {
+                    trySearchPlaybackCandidate(song, playToken, stage + 1);
+                    return;
+                }
+                song.uri = resolved.playbackUrl;
+                statusView.setText("已找到" + resolved.sourceLabel
+                    + "真实地址，正在在线播放；播放开始后后台保存缓存...");
+                startLocalPlayback(song, playToken, () -> {
+                    song.catalogJson = resolved.catalogJson;
+                    song.source = resolved.sourceLabel;
+                    artistView.setText(song.artist + " · " + song.source);
+                    saveLastSong(0);
+                    statusView.setText("正在在线播放，同时后台保存“"
+                        + song.title + " - " + song.artist + "”缓存...");
+                    cacheSearchPlaybackAsync(song, resolved, playToken);
+                }, () -> {
+                    song.uri = "";
+                    statusView.setText(resolved.sourceLabel + "地址无法播放，继续下一来源...");
+                    trySearchPlaybackCandidate(song, playToken, stage + 1);
+                });
+            });
+        }, "search-address-resolver").start();
+    }
+
+    private void cacheSearchPlaybackAsync(Song song, SearchQuickPlayback.Candidate candidate,
+                                          int playToken) {
+        new Thread(() -> {
+            try {
+                String storedUri = SearchQuickPlayback.cache(
+                    this, candidate, song.title, song.artist, "");
+                runOnUiThread(() -> {
+                    song.cachedUri = storedUri;
+                    persistSearchCacheToPlaylistCopies(song, candidate, storedUri);
+                    if (currentSong == song && playToken == playbackRequestSerial) {
+                        int position = 0;
+                        try {
+                            if (mediaPlayer != null) position = mediaPlayer.getCurrentPosition();
+                        } catch (Exception ignored) {
+                        }
+                        saveLastSong(position);
+                        statusView.setText("当前播放：" + song.title
+                            + "（缓存已保存为“" + song.title + " - " + song.artist + "”）");
+                    }
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> {
+                    if (currentSong == song && playToken == playbackRequestSerial) {
+                        statusView.setText("当前播放正常，但后台缓存失败：" + error.getMessage());
+                    }
+                });
+            }
+        }, "search-audio-cache").start();
+    }
+
+    private void persistSearchCacheToPlaylistCopies(Song song,
+                                                     SearchQuickPlayback.Candidate candidate,
+                                                     String storedUri) {
+        String identity = CacheStorage.logicalIdentity(song.title, song.artist);
+        boolean changed = false;
+        for (Playlist playlist : playlists) {
+            for (Song item : playlist.songs) {
+                if (!identity.isEmpty()
+                    && identity.equals(CacheStorage.logicalIdentity(item.title, item.artist))) {
+                    item.source = candidate.sourceLabel;
+                    item.catalogJson = candidate.catalogJson;
+                    item.cachedUri = storedUri;
+                    item.uri = storedUri;
+                    item.cacheFailed = false;
+                    item.autoUnavailable = false;
+                    item.unavailable = false;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            savePlaylists();
+            renderCurrentPlaylist();
+        }
     }
 
     private void playPlaylistSongFromCacheFirst(Song song, int playToken) {

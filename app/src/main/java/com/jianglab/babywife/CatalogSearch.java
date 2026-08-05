@@ -257,6 +257,23 @@ final class CatalogSearch {
         }
     }
 
+    static Track findBestExactOnSource(String source, String title, String artist) {
+        String sourceCode = source == null ? "" : source.trim().toLowerCase(Locale.ROOT);
+        if (sourceCode.isEmpty() || normalize(title).isEmpty()) return null;
+        String keyword = isUnknownArtist(artist) ? title : title + " " + artist;
+        List<Track> rows = searchOneSource(sourceCode, keyword);
+        Track best = null;
+        int bestScore = Integer.MIN_VALUE;
+        for (Track track : rows) {
+            int score = replacementScore(title, artist, track);
+            if (best == null || score > bestScore) {
+                best = track;
+                bestScore = score;
+            }
+        }
+        return bestScore >= 700 ? best : null;
+    }
+
     private static List<Track> searchOneSource(String source, String keyword) {
         List<Track> rows = new ArrayList<>();
         try {

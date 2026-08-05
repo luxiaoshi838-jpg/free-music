@@ -297,3 +297,12 @@
 - Removed synchronous restored-song preparation.
 - No-response monitoring pauses while the app is backgrounded, unfocused or the screen is not interactive.
 - Includes first-playable-source search behavior from v141.
+
+
+## 2026.08.05.search-stream-and-cache
+
+- Search results start streaming from the selected source without waiting for a full download.
+- Failed selected-source playback falls back only to Kuwo and then NetEase.
+- The exact successfully played address is cached in the background as `song title - artist.ext`.
+- Search playback reuses matching playlist cache records and synchronizes new cache URIs back to matching playlist songs.
+- Playlist one-click caching remains unchanged and still performs full download and validation.

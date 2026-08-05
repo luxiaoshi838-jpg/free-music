@@ -448,3 +448,12 @@
 - Removed the dormant synchronous last-song cache validation and MediaPlayer.prepare path.
 - Responsiveness watchdog now runs only while the activity is resumed, focused and the device is interactive.
 - Added lifecycle state to no-response reports to distinguish foreground ANRs from screen/background suspension.
+
+
+## 2026-08-05 - Separate instant search playback from playlist bulk caching
+
+- Search-result taps now reuse an existing same-title-and-artist playlist cache when available.
+- Without cache, the selected catalog address is streamed immediately; only on playback failure does the app try Kuwo and then NetEase.
+- The exact address that actually started playback is downloaded in the background and stored with the existing `title - artist.ext` filename rule.
+- Completed search caches are synchronized to matching playlist entries so adding the search result later does not require another download.
+- Playlist one-click caching keeps the full NetworkMediaCache/PlayableAudioResolver validation workflow.
