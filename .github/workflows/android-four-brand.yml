@@ -33,12 +33,24 @@ jobs:
           from pathlib import Path
           path = Path('scripts/check_feature_requirements.py')
           text = path.read_text(encoding='utf-8')
-          text = text.replace("'version bumped': 'versionCode 2026080143' in gradle,",
-                              "'version bumped': 'versionCode 2026080152' in gradle,")
-          text = text.replace("'PlayableAudioResolver.cachedAudioExists' in network",
-                              "'CacheFileState.exists' in network")
-          text = text.replace("and 'AudioPlaybackVerifier.isPlayableUri' in playable_resolver",
-                              "and 'AudioPlaybackVerifier.probeFile' in playable_resolver")
+          replacements = [
+              ("'version bumped': 'versionCode 2026080143' in gradle,",
+               "'version bumped': 'versionCode 2026080152' in gradle,"),
+              ("'PlayableAudioResolver.cachedAudioExists' in network",
+               "'CacheFileState.exists' in network"),
+              ("and 'AudioPlaybackVerifier.isPlayableUri' in playable_resolver",
+               "and 'AudioPlaybackVerifier.probeFile' in playable_resolver"),
+              ("and 'mediaPlayer.prepareAsync();' in main",
+               "and 'readyPlayer.prepareAsync();' in main"),
+              ("'\\\"media-source-open\\\"' in main",
+               "'mediaSourceExecutor.submit' in main"),
+              ("main.find('new Thread(() -> {', main.find('private void startLocalPlayback'))",
+               "main.find('mediaSourceExecutor.submit', main.find('private void startLocalPlayback'))"),
+              ("'\\\"search-audio-cache\\\"' in main",
+               "'searchCacheExecutor.submit' in main"),
+          ]
+          for old, new in replacements:
+              text = text.replace(old, new)
           path.write_text(text, encoding='utf-8')
           PY
             python3 scripts/check_feature_requirements.py
