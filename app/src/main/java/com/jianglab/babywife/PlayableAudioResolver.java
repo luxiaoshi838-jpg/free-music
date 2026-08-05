@@ -201,9 +201,9 @@ final class PlayableAudioResolver {
             String storedUri = CacheStorage.storeAudio(context, key, best.extension, cacheSource,
                 title, artist, album, catalog.toString());
             if (!CacheStorage.exists(context, storedUri)
-                || !AudioPlaybackVerifier.isPlayableUri(context, storedUri)) {
+                || SodaM4aDecryptor.isEncryptedM4a(context, storedUri)) {
                 CacheStorage.deleteKey(context, key);
-                throw new IllegalStateException("文件写入缓存后未通过实际播放校验，已自动删除");
+                throw new IllegalStateException("文件写入缓存后不存在或仍为加密内容，已自动删除");
             }
             status(callback, "唯一正式缓存写入完成，所有临时候选已清理");
             return new Result(catalog.toString(), storedUri, false);
@@ -214,9 +214,11 @@ final class PlayableAudioResolver {
     }
 
     static boolean cachedAudioExists(Context context, String uriText) {
+        // Cache completion is a storage-state check. The bytes were already decrypted
+        // and probed before CacheStorage.storeAudio(). Re-preparing a content:// URI
+        // here causes false negatives on document providers that still play the file.
         return CacheStorage.exists(context, uriText)
-            && !SodaM4aDecryptor.isEncryptedM4a(context, uriText)
-            && AudioPlaybackVerifier.isPlayableUri(context, uriText);
+            && !SodaM4aDecryptor.isEncryptedM4a(context, uriText);
     }
 
     private static List<JSONObject> candidateCatalogs(JSONObject requestedCatalog) {
