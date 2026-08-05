@@ -35,6 +35,8 @@ jobs:
           text = path.read_text(encoding='utf-8')
           text = text.replace("'version bumped': 'versionCode 2026080143' in gradle,",
                               "'version bumped': 'versionCode 2026080149' in gradle,")
+          text = text.replace("'PlayableAudioResolver.cachedAudioExists' in network",
+                              "'CacheFileState.exists' in network")
           text = text.replace("and 'AudioPlaybackVerifier.isPlayableUri' in playable_resolver",
                               "and 'AudioPlaybackVerifier.probeFile' in playable_resolver")
           path.write_text(text, encoding='utf-8')
