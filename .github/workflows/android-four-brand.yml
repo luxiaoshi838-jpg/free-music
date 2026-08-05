@@ -35,6 +35,8 @@ jobs:
           text = path.read_text(encoding='utf-8')
           text = text.replace("'version bumped': 'versionCode 2026080143' in gradle,",
                               "'version bumped': 'versionCode 2026080148' in gradle,")
+          text = text.replace("and 'AudioPlaybackVerifier.isPlayableUri' in playable_resolver",
+                              "and 'AudioPlaybackVerifier.probeFile' in playable_resolver")
           path.write_text(text, encoding='utf-8')
           PY
             python3 scripts/check_feature_requirements.py
