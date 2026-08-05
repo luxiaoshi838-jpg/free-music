@@ -35,6 +35,8 @@ jobs:
           else
             python scripts/apply_v143_search_stream_and_cache_patch.py
           fi
+      - name: Update v143 playback-path feature check
+        run: python scripts/fix_v143_feature_check.py
       - name: Verify all feature requirements
         run: python scripts/check_feature_requirements.py
       - name: Assert search stream and cache split
