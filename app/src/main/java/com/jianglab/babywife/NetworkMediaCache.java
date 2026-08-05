@@ -217,7 +217,8 @@ final class NetworkMediaCache {
     }
 
     static int clearExcept(Context context, Set<String> keepKeys) {
-        return CacheStorage.clearExcept(context, keepKeys);
+        int removed = TransientCacheCleaner.clearDocumentTreeExcept(context, keepKeys);
+        return removed + CacheStorage.clearExcept(context, keepKeys);
     }
 
     static int deleteCatalogCache(Context context, String catalogJson) {
