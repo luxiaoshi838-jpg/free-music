@@ -238,7 +238,7 @@ public class MainActivity extends Activity {
     private final ExecutorService searchCacheExecutor = Executors.newSingleThreadExecutor();
     private Future<?> mediaSourceOpenFuture;
     private Future<?> searchCacheFuture;
-    private int mediaOpenSerial = 0;
+    private volatile int mediaOpenSerial = 0;
     private volatile boolean activityDestroyed = false;
     private volatile boolean playlistCacheRunning = false;
     private final ExecutorService playlistCacheScanExecutor = Executors.newSingleThreadExecutor();
@@ -299,9 +299,9 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         installCrashReporter();
-        captureLastProcessExitReport();
         normalStatusBarColor = getWindow().getStatusBarColor();
         loadPlaylists();
+        captureLastProcessExitReport();
         loadSavedUiSettings();
         setContentView(buildContentView());
         attachPressFeedbackTree(shellView);
@@ -3908,7 +3908,8 @@ public class MainActivity extends Activity {
                     readyPlayer.setOnPreparedListener(player -> {
                         if (mediaPlayer != player || currentSong != song
                             || playToken != playbackRequestSerial || openSerial != mediaOpenSerial) {
-                            if (mediaPlayer != player) releaseMediaPlayer(player);
+                            if (mediaPlayer == player) mediaPlayer = null;
+                            releaseMediaPlayer(player);
                             return;
                         }
                         try {
