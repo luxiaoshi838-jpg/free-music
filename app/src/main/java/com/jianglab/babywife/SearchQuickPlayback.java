@@ -22,12 +22,15 @@ import bridge.Bridge;
  * Lightweight search-result playback path.
  *
  * It resolves only one address at a time, starts streaming before caching, and
- * stores the exact address that actually started playback. Playlist one-click
- * caching continues to use NetworkMediaCache and PlayableAudioResolver.
+ * stores the exact song after resolving a separate fresh address for download.
+ * Playlist one-click caching continues to use NetworkMediaCache and
+ * PlayableAudioResolver.
  */
 final class SearchQuickPlayback {
     private static final int CONNECT_TIMEOUT_MS = 12000;
     private static final int READ_TIMEOUT_MS = 30000;
+    private static final int DOWNLOAD_ATTEMPTS = 3;
+    private static final long DOWNLOAD_RETRY_DELAY_MS = 260L;
     private static final long MAX_AUDIO_BYTES = 512L * 1024L * 1024L;
 
     private SearchQuickPlayback() {
@@ -105,12 +108,12 @@ final class SearchQuickPlayback {
         return new Candidate(data.toString(), source, rawUrl, playAuth, extension);
     }
 
-    static String cache(Context context, Candidate candidate, String title,
+    static String cache(Context context, Candidate playbackCandidate, String title,
                         String artist, String album) throws Exception {
-        if (context == null || candidate == null || candidate.playbackUrl.isEmpty()) {
+        if (context == null || playbackCandidate == null || playbackCandidate.playbackUrl.isEmpty()) {
             throw new IllegalArgumentException("搜索歌曲缓存参数无效");
         }
-        String key = NetworkMediaCache.cacheKeyForCatalog(candidate.catalogJson);
+        String key = NetworkMediaCache.cacheKeyForCatalog(playbackCandidate.catalogJson);
         if (key.isEmpty()) throw new IllegalStateException("搜索歌曲缓存键无效");
 
         File tempRoot = new File(context.getCacheDir(), "search_stream_cache");
@@ -120,32 +123,29 @@ final class SearchQuickPlayback {
         File partial = new File(tempRoot, key + ".part");
         File decrypted = new File(tempRoot, key + ".decrypted");
         try {
-            download(candidate, partial);
-            if (!partial.isFile() || partial.length() <= 0) {
-                throw new IllegalStateException("搜索歌曲下载文件为空");
-            }
+            Candidate downloadCandidate = downloadWithFreshAddress(playbackCandidate, partial);
 
             File source = partial;
             if (SodaM4aDecryptor.isEncryptedM4a(partial)) {
-                if (candidate.playAuth.isEmpty()) {
+                if (downloadCandidate.playAuth.isEmpty()) {
                     throw new IllegalStateException("加密 M4A 缺少 PlayAuth");
                 }
-                SodaM4aDecryptor.decrypt(partial, decrypted, candidate.playAuth);
+                SodaM4aDecryptor.decrypt(partial, decrypted, downloadCandidate.playAuth);
                 source = decrypted;
             }
 
             AudioPlaybackVerifier.Probe probe = AudioPlaybackVerifier.probeFile(source);
-            String extension = detectExtension(source, candidate.extension, probe.mimeType);
+            String extension = detectExtension(source, downloadCandidate.extension, probe.mimeType);
             String savedAlbum = album == null ? "" : album.trim();
             if (savedAlbum.isEmpty()) {
                 try {
-                    savedAlbum = new JSONObject(candidate.catalogJson)
+                    savedAlbum = new JSONObject(downloadCandidate.catalogJson)
                         .optString("album", "").trim();
                 } catch (Exception ignored) {
                 }
             }
             String storedUri = CacheStorage.storeAudio(context, key, extension, source,
-                title, artist, savedAlbum, candidate.catalogJson);
+                title, artist, savedAlbum, downloadCandidate.catalogJson);
             if (!CacheFileState.exists(context, storedUri)) {
                 CacheFileState.deleteDirect(context, storedUri);
                 CacheStorage.deleteKey(context, key);
@@ -164,38 +164,101 @@ final class SearchQuickPlayback {
         }
     }
 
+    private static Candidate downloadWithFreshAddress(Candidate playbackCandidate,
+                                                       File output) throws Exception {
+        Exception lastError = null;
+        for (int attempt = 0; attempt < DOWNLOAD_ATTEMPTS; attempt++) {
+            Candidate downloadCandidate = resolveFreshCandidate(playbackCandidate);
+            if (output.exists() && !output.delete()) {
+                throw new IllegalStateException("无法重置搜索歌曲临时文件");
+            }
+            try {
+                download(downloadCandidate, output);
+                if (output.isFile() && output.length() > 0) return downloadCandidate;
+                lastError = new IllegalStateException("搜索歌曲下载为空");
+            } catch (Exception error) {
+                lastError = error;
+            }
+            if (output.exists()) output.delete();
+            if (attempt + 1 < DOWNLOAD_ATTEMPTS) {
+                try {
+                    Thread.sleep(DOWNLOAD_RETRY_DELAY_MS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("搜索歌曲后台缓存已中断", interrupted);
+                }
+            }
+        }
+        String detail = lastError == null || lastError.getMessage() == null
+            ? "重新解析下载地址后仍未收到音频内容" : lastError.getMessage();
+        throw new IllegalStateException("搜索歌曲后台下载失败：" + detail, lastError);
+    }
+
+    private static Candidate resolveFreshCandidate(Candidate playbackCandidate) {
+        try {
+            Candidate refreshed = resolveCatalog(new JSONObject(playbackCandidate.catalogJson));
+            if (refreshed != null && !refreshed.playbackUrl.isEmpty()) return refreshed;
+        } catch (Exception ignored) {
+        }
+        return playbackCandidate;
+    }
+
     private static void download(Candidate candidate, File output) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(candidate.playbackUrl).openConnection();
         connection.setInstanceFollowRedirects(true);
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
-        connection.setRequestProperty("User-Agent", "Mozilla/5.0");
-        if ("netease".equals(candidate.sourceCode)) {
-            connection.setRequestProperty("Referer", "https://music.163.com/");
-        } else if ("kuwo".equals(candidate.sourceCode)) {
-            connection.setRequestProperty("Referer", "https://www.kuwo.cn/");
-        }
-        int code = connection.getResponseCode();
-        if (code < 200 || code >= 400) {
-            connection.disconnect();
-            throw new IllegalStateException("音频下载响应异常：HTTP " + code);
-        }
-        long total = 0L;
-        try (InputStream input = new BufferedInputStream(connection.getInputStream());
-             OutputStream stream = new BufferedOutputStream(new FileOutputStream(output))) {
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = input.read(buffer)) >= 0) {
-                if (read == 0) continue;
-                total += read;
-                if (total > MAX_AUDIO_BYTES) {
-                    throw new IllegalStateException("音频文件超过缓存大小限制");
-                }
-                stream.write(buffer, 0, read);
+        connection.setUseCaches(false);
+        connection.setRequestProperty("User-Agent", userAgent(candidate.sourceCode));
+        connection.setRequestProperty("Accept", "audio/*,application/octet-stream;q=0.9,*/*;q=0.1");
+        connection.setRequestProperty("Accept-Encoding", "identity");
+        String referer = referer(candidate.sourceCode);
+        if (!referer.isEmpty()) connection.setRequestProperty("Referer", referer);
+
+        long written = 0L;
+        try {
+            int code = connection.getResponseCode();
+            if (code < 200 || code >= 400) {
+                throw new IllegalStateException("音频下载响应异常：HTTP " + code);
             }
+            long announced = connection.getContentLengthLong();
+            if (announced > MAX_AUDIO_BYTES) {
+                throw new IllegalStateException("音频文件超过缓存大小限制");
+            }
+            try (InputStream input = new BufferedInputStream(connection.getInputStream());
+                 OutputStream stream = new BufferedOutputStream(new FileOutputStream(output))) {
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = input.read(buffer)) >= 0) {
+                    if (read == 0) continue;
+                    written += read;
+                    if (written > MAX_AUDIO_BYTES) {
+                        throw new IllegalStateException("音频文件超过缓存大小限制");
+                    }
+                    stream.write(buffer, 0, read);
+                }
+            }
+            if (written <= 0) throw new IllegalStateException("搜索歌曲下载为空");
         } finally {
             connection.disconnect();
         }
+    }
+
+    private static String userAgent(String source) {
+        if ("kugou".equals(source) || "migu".equals(source) || "soda".equals(source)) {
+            return "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36";
+        }
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/134 Safari/537.36";
+    }
+
+    private static String referer(String source) {
+        if ("netease".equals(source)) return "https://music.163.com/";
+        if ("qq".equals(source)) return "https://y.qq.com/";
+        if ("kugou".equals(source)) return "https://www.kugou.com/";
+        if ("kuwo".equals(source)) return "http://www.kuwo.cn/";
+        if ("migu".equals(source)) return "https://music.migu.cn/";
+        if ("bilibili".equals(source)) return "https://www.bilibili.com/";
+        return "";
     }
 
     private static String detectExtension(File file, String fallback, String mimeType) {
