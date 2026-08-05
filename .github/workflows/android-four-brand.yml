@@ -1,4 +1,4 @@
-name: Build v150 Search Background Cache Four Brands
+name: Build v151 Search Range Cache Four Brands
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: v150-search-background-cache-${{ github.workflow }}-${{ github.ref }}
+  group: v151-search-range-cache-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -25,7 +25,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Verify v150 search background cache fix
+      - name: Verify v151 search range cache fix
         run: |
           python3 scripts/check_public_repo.py
           if [ -f scripts/check_feature_requirements.py ]; then
@@ -34,7 +34,7 @@ jobs:
           path = Path('scripts/check_feature_requirements.py')
           text = path.read_text(encoding='utf-8')
           text = text.replace("'version bumped': 'versionCode 2026080143' in gradle,",
-                              "'version bumped': 'versionCode 2026080150' in gradle,")
+                              "'version bumped': 'versionCode 2026080151' in gradle,")
           text = text.replace("'PlayableAudioResolver.cachedAudioExists' in network",
                               "'CacheFileState.exists' in network")
           text = text.replace("and 'AudioPlaybackVerifier.isPlayableUri' in playable_resolver",
@@ -43,9 +43,9 @@ jobs:
           PY
             python3 scripts/check_feature_requirements.py
           fi
-          python3 scripts/check_v150_search_background_cache.py
-          grep -q 'versionCode 2026080150' app/build.gradle
-          grep -q 'versionName "2026.08.05.v150-search-background-cache"' app/build.gradle
+          python3 scripts/check_v151_search_range_cache.py
+          grep -q 'versionCode 2026080151' app/build.gradle
+          grep -q 'versionName "2026.08.05.v151-search-range-cache"' app/build.gradle
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -70,16 +70,16 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build four v150 APKs
+      - name: Build four v151 APKs
         run: |
           if [ -f scripts/run_with_no_output_watchdog.py ]; then
-            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v150.log -- gradle --no-daemon assembleDebug
+            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v151.log -- gradle --no-daemon assembleDebug
           else
             set -o pipefail
-            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v150.log
+            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v151.log
           fi
 
-      - name: Verify v150 APK package names and version
+      - name: Verify v151 APK package names and version
         shell: bash
         run: |
           set -euo pipefail
@@ -99,19 +99,19 @@ jobs:
             package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
             version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
             test "$package_name" = "${expected[$flavor]}"
-            test "$version_code" = "2026080150"
+            test "$version_code" = "2026080151"
             "$apksigner" verify --verbose "$apk"
-            cp "$apk" "verified-apks/${flavor}_v150_search_background_cache.apk"
+            cp "$apk" "verified-apks/${flavor}_v151_search_range_cache.apk"
           done
-          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v150.txt
+          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v151.txt
 
-      - name: Upload v150 search background cache APKs and logs
+      - name: Upload v151 search range cache APKs and logs
         uses: actions/upload-artifact@v4
         with:
-          name: v150-search-background-cache-four-brand-apks
+          name: v151-search-range-cache-four-brand-apks
           path: |
             verified-apks/
             build/sdkmanager.log
-            build/assemble-v150.log
+            build/assemble-v151.log
           if-no-files-found: error
           retention-days: 14
