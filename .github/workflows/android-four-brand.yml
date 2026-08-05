@@ -1,4 +1,4 @@
-name: Build v148 Cache State and Cleanup Four Brands
+name: Build v149 Cache URI and Orphan Fix Four Brands
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: v148-cache-state-cleanup-${{ github.workflow }}-${{ github.ref }}
+  group: v149-cache-uri-orphan-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -25,7 +25,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Verify v148 cache state and cleanup fix
+      - name: Verify v149 cache URI and orphan fix
         run: |
           python3 scripts/check_public_repo.py
           if [ -f scripts/check_feature_requirements.py ]; then
@@ -34,16 +34,16 @@ jobs:
           path = Path('scripts/check_feature_requirements.py')
           text = path.read_text(encoding='utf-8')
           text = text.replace("'version bumped': 'versionCode 2026080143' in gradle,",
-                              "'version bumped': 'versionCode 2026080148' in gradle,")
+                              "'version bumped': 'versionCode 2026080149' in gradle,")
           text = text.replace("and 'AudioPlaybackVerifier.isPlayableUri' in playable_resolver",
                               "and 'AudioPlaybackVerifier.probeFile' in playable_resolver")
           path.write_text(text, encoding='utf-8')
           PY
             python3 scripts/check_feature_requirements.py
           fi
-          python3 scripts/check_v148_cache_state_cleanup.py
-          grep -q 'versionCode 2026080148' app/build.gradle
-          grep -q 'versionName "2026.08.05.v148-cache-state-cleanup"' app/build.gradle
+          python3 scripts/check_v149_cache_uri_orphans.py
+          grep -q 'versionCode 2026080149' app/build.gradle
+          grep -q 'versionName "2026.08.05.v149-cache-uri-orphan-fix"' app/build.gradle
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -68,16 +68,16 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build four v148 APKs
+      - name: Build four v149 APKs
         run: |
           if [ -f scripts/run_with_no_output_watchdog.py ]; then
-            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v148.log -- gradle --no-daemon assembleDebug
+            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v149.log -- gradle --no-daemon assembleDebug
           else
             set -o pipefail
-            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v148.log
+            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v149.log
           fi
 
-      - name: Verify v148 APK package names and version
+      - name: Verify v149 APK package names and version
         shell: bash
         run: |
           set -euo pipefail
@@ -97,19 +97,19 @@ jobs:
             package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
             version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
             test "$package_name" = "${expected[$flavor]}"
-            test "$version_code" = "2026080148"
+            test "$version_code" = "2026080149"
             "$apksigner" verify --verbose "$apk"
-            cp "$apk" "verified-apks/${flavor}_v148_cache_state_cleanup.apk"
+            cp "$apk" "verified-apks/${flavor}_v149_cache_uri_orphan_fix.apk"
           done
-          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v148.txt
+          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v149.txt
 
-      - name: Upload v148 cache-state-cleanup APKs and logs
+      - name: Upload v149 cache-uri-orphan APKs and logs
         uses: actions/upload-artifact@v4
         with:
-          name: v148-cache-state-cleanup-four-brand-apks
+          name: v149-cache-uri-orphan-fix-four-brand-apks
           path: |
             verified-apks/
             build/sdkmanager.log
-            build/assemble-v148.log
+            build/assemble-v149.log
           if-no-files-found: error
           retention-days: 14
