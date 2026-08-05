@@ -426,6 +426,8 @@ public class MainActivity extends Activity {
         try {
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             String existing = prefs.getString(KEY_CRASH_REPORT, "");
+            boolean existingPending = existing != null && !existing.trim().isEmpty()
+                && !prefs.getBoolean(KEY_CRASH_REPORT_DISMISSED, false);
             long handledTime = prefs.getLong(KEY_LAST_HANDLED_EXIT_TIME, 0L);
             ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
             if (manager == null) return;
@@ -440,7 +442,7 @@ public class MainActivity extends Activity {
             }
             if (latest == null) return;
             prefs.edit().putLong(KEY_LAST_HANDLED_EXIT_TIME, latest.getTimestamp()).apply();
-            if (existing != null && !existing.trim().isEmpty()) return;
+            if (existingPending) return;
             if (!isDiagnosticExitReason(latest.getReason())) return;
 
             StringBuilder report = new StringBuilder();
