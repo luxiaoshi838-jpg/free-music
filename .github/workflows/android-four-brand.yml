@@ -1,4 +1,4 @@
-name: Build Four Brand Debug APKs
+name: Build v147 Restore v143 Four Brands
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: four-brand-debug-${{ github.workflow }}-${{ github.ref }}
+  group: v147-restore-v143-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -25,12 +25,22 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Verify public repository
+      - name: Verify v143 source and v147 upgrade metadata
         run: |
           python3 scripts/check_public_repo.py
           if [ -f scripts/check_feature_requirements.py ]; then
+            python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/check_feature_requirements.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace("'version bumped': 'versionCode 2026080143' in gradle,",
+                              "'version bumped': 'versionCode 2026080147' in gradle,")
+          path.write_text(text, encoding='utf-8')
+          PY
             python3 scripts/check_feature_requirements.py
           fi
+          grep -q 'versionCode 2026080147' app/build.gradle
+          grep -q 'versionName "2026.08.05.v147-restore-v143"' app/build.gradle
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -55,16 +65,16 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build four APKs with five-minute watchdog
+      - name: Build four v147 APKs
         run: |
           if [ -f scripts/run_with_no_output_watchdog.py ]; then
-            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-debug.log -- gradle --no-daemon assembleDebug
+            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v147.log -- gradle --no-daemon assembleDebug
           else
             set -o pipefail
-            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-debug.log
+            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v147.log
           fi
 
-      - name: Verify APK files and package names
+      - name: Verify v147 APK package names and version
         shell: bash
         run: |
           set -euo pipefail
@@ -80,20 +90,23 @@ jobs:
           for flavor in babywifeclassic lidacaizhu jianglab niubi; do
             apk="app/build/outputs/apk/${flavor}/debug/app-${flavor}-debug.apk"
             test -s "$apk"
-            package_name=$("$aapt" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            badging=$("$aapt" dump badging "$apk")
+            package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
             test "$package_name" = "${expected[$flavor]}"
+            test "$version_code" = "2026080147"
             "$apksigner" verify --verbose "$apk"
-            cp "$apk" "verified-apks/${flavor}.apk"
+            cp "$apk" "verified-apks/${flavor}_v147_restore_v143.apk"
           done
-          sha256sum verified-apks/*.apk | tee verified-apks/SHA256.txt
+          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v147.txt
 
-      - name: Upload four APKs and logs
+      - name: Upload v147 restore-v143 APKs and logs
         uses: actions/upload-artifact@v4
         with:
-          name: four-brand-debug-apks
+          name: v147-restore-v143-four-brand-apks
           path: |
             verified-apks/
             build/sdkmanager.log
-            build/assemble-debug.log
+            build/assemble-v147.log
           if-no-files-found: error
           retention-days: 14
