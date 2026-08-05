@@ -1,0 +1,45 @@
+name: Apply v152 Playback Stability Source
+
+on:
+  push:
+    branches:
+      - agent/v128-m4a-decrypt
+
+permissions:
+  contents: write
+
+jobs:
+  apply-source:
+    if: ${{ !contains(github.event.head_commit.message, '[v152-source-applied]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v128-m4a-decrypt
+          fetch-depth: 0
+
+      - name: Apply source patch
+        run: python3 scripts/apply_v152_playback_stability.py
+
+      - name: Verify intended source changes
+        run: |
+          grep -q 'PLAYBACK_NAVIGATION_DEBOUNCE_MS' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'mediaSourceExecutor = Executors.newSingleThreadExecutor' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'getHistoricalProcessExitReasons' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'throwIfInterrupted' app/src/main/java/com/jianglab/babywife/SearchQuickPlayback.java
+          git diff --check
+
+      - name: Commit patched source
+        run: |
+          if git diff --quiet; then
+            echo 'Source already patched.'
+            exit 0
+          fi
+          git config user.name 'luxiaoshi838-jpg'
+          git config user.email 'luxiaoshi838@gmail.com'
+          git add app/src/main/java/com/jianglab/babywife/MainActivity.java \
+                  app/src/main/java/com/jianglab/babywife/SearchQuickPlayback.java
+          git commit -m 'Apply v152 rapid-next playback stability [v152-source-applied] [skip ci]'
+          git push origin HEAD:agent/v128-m4a-decrypt
