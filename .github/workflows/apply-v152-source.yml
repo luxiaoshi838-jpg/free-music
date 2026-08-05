@@ -1,4 +1,4 @@
-name: Apply v152 Playback Stability Follow-up
+name: Apply v152 Exit Report Follow-up
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply-source:
-    if: ${{ !contains(github.event.head_commit.message, '[v152-followup-applied]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[v152-exit-report-applied]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -20,66 +20,47 @@ jobs:
           ref: agent/v128-m4a-decrypt
           fetch-depth: 0
 
-      - name: Finalize source patch
+      - name: Fix report replacement rule
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path('app/src/main/java/com/jianglab/babywife/MainActivity.java')
           text = path.read_text(encoding='utf-8')
-
-          replacements = [
-              (
-                  '        installCrashReporter();\n'
-                  '        captureLastProcessExitReport();\n'
-                  '        normalStatusBarColor = getWindow().getStatusBarColor();\n'
-                  '        loadPlaylists();\n'
-                  '        loadSavedUiSettings();',
-                  '        installCrashReporter();\n'
-                  '        normalStatusBarColor = getWindow().getStatusBarColor();\n'
-                  '        loadPlaylists();\n'
-                  '        captureLastProcessExitReport();\n'
-                  '        loadSavedUiSettings();'
-              ),
-              ('    private int mediaOpenSerial = 0;',
-               '    private volatile int mediaOpenSerial = 0;'),
-              (
-                  '                        if (mediaPlayer != player || currentSong != song\n'
-                  '                            || playToken != playbackRequestSerial || openSerial != mediaOpenSerial) {\n'
-                  '                            if (mediaPlayer != player) releaseMediaPlayer(player);\n'
-                  '                            return;\n'
-                  '                        }',
-                  '                        if (mediaPlayer != player || currentSong != song\n'
-                  '                            || playToken != playbackRequestSerial || openSerial != mediaOpenSerial) {\n'
-                  '                            if (mediaPlayer == player) mediaPlayer = null;\n'
-                  '                            releaseMediaPlayer(player);\n'
-                  '                            return;\n'
-                  '                        }'
-              ),
-          ]
-          for old, new in replacements:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'expected one replacement, found {count}: {old[:80]!r}')
-              text = text.replace(old, new, 1)
+          old = (
+              '            String existing = prefs.getString(KEY_CRASH_REPORT, "");\n'
+              '            long handledTime = prefs.getLong(KEY_LAST_HANDLED_EXIT_TIME, 0L);'
+          )
+          new = (
+              '            String existing = prefs.getString(KEY_CRASH_REPORT, "");\n'
+              '            boolean existingPending = existing != null && !existing.trim().isEmpty()\n'
+              '                && !prefs.getBoolean(KEY_CRASH_REPORT_DISMISSED, false);\n'
+              '            long handledTime = prefs.getLong(KEY_LAST_HANDLED_EXIT_TIME, 0L);'
+          )
+          if text.count(old) != 1:
+              raise SystemExit('existing report block did not match exactly once')
+          text = text.replace(old, new, 1)
+          old = '            if (existing != null && !existing.trim().isEmpty()) return;'
+          new = '            if (existingPending) return;'
+          if text.count(old) != 1:
+              raise SystemExit('existing report guard did not match exactly once')
+          text = text.replace(old, new, 1)
           path.write_text(text, encoding='utf-8')
           PY
 
-      - name: Verify final source
+      - name: Verify report rule
         run: |
-          grep -q 'loadPlaylists();' app/src/main/java/com/jianglab/babywife/MainActivity.java
-          grep -q 'captureLastProcessExitReport();' app/src/main/java/com/jianglab/babywife/MainActivity.java
-          grep -q 'private volatile int mediaOpenSerial' app/src/main/java/com/jianglab/babywife/MainActivity.java
-          grep -q 'if (mediaPlayer == player) mediaPlayer = null' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'boolean existingPending' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'if (existingPending) return' app/src/main/java/com/jianglab/babywife/MainActivity.java
           git diff --check
 
-      - name: Commit finalized source
+      - name: Commit report fix
         run: |
           if git diff --quiet; then
-            echo 'Source already finalized.'
+            echo 'Report rule already applied.'
             exit 0
           fi
           git config user.name 'luxiaoshi838-jpg'
           git config user.email 'luxiaoshi838@gmail.com'
           git add app/src/main/java/com/jianglab/babywife/MainActivity.java
-          git commit -m 'Finalize v152 playback stability [v152-followup-applied] [skip ci]'
+          git commit -m 'Fix v152 system exit report replacement [v152-exit-report-applied] [skip ci]'
           git push origin HEAD:agent/v128-m4a-decrypt
