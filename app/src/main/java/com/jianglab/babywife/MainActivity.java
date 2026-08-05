@@ -345,18 +345,6 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    protected void onDestroy() {
-        activityDestroyed = true;
-        clearPendingPlaybackNavigation();
-        cancelMediaSourceOpenTask();
-        cancelSearchCacheTask();
-        mediaSourceExecutor.shutdownNow();
-        searchCacheExecutor.shutdownNow();
-        stopPlayback();
-        super.onDestroy();
-    }
-
-    @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         windowFocused = hasFocus;
@@ -5621,6 +5609,12 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        activityDestroyed = true;
+        clearPendingPlaybackNavigation();
+        cancelMediaSourceOpenTask();
+        cancelSearchCacheTask();
+        mediaSourceExecutor.shutdownNow();
+        searchCacheExecutor.shutdownNow();
         if (mediaPlayer != null && currentSong != null) {
             try {
                 saveLastSong(mediaPlayer.getCurrentPosition());
