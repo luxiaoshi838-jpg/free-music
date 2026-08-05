@@ -227,7 +227,8 @@ final class NetworkMediaCache {
     }
 
     static boolean cachedAudioExists(Context context, String uriText) {
-        return PlayableAudioResolver.cachedAudioExists(context, uriText);
+        return CacheFileState.exists(context, uriText)
+            && !SodaM4aDecryptor.isEncryptedM4a(context, uriText);
     }
 
     private static String catalogTitle(JSONObject catalog) {
