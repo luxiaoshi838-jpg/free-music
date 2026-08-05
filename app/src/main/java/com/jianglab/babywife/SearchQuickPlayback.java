@@ -142,7 +142,9 @@ final class SearchQuickPlayback {
         File partial = new File(tempRoot, key + ".part");
         File decrypted = new File(tempRoot, key + ".decrypted");
         try {
+            throwIfInterrupted();
             Candidate downloadCandidate = downloadWithFreshAddress(playbackCandidate, partial);
+            throwIfInterrupted();
 
             File source = partial;
             if (SodaM4aDecryptor.isEncryptedM4a(partial)) {
@@ -153,6 +155,7 @@ final class SearchQuickPlayback {
                 source = decrypted;
             }
 
+            throwIfInterrupted();
             AudioPlaybackVerifier.Probe probe = AudioPlaybackVerifier.probeFile(source);
             String extension = detectExtension(source, downloadCandidate.extension, probe.mimeType);
             String savedAlbum = album == null ? "" : album.trim();
@@ -163,6 +166,7 @@ final class SearchQuickPlayback {
                 } catch (Exception ignored) {
                 }
             }
+            throwIfInterrupted();
             String storedUri = CacheStorage.storeAudio(context, key, extension, source,
                 title, artist, savedAlbum, downloadCandidate.catalogJson);
             if (!CacheFileState.exists(context, storedUri)) {
@@ -187,6 +191,7 @@ final class SearchQuickPlayback {
                                                        File output) throws Exception {
         Exception lastError = null;
         for (int attempt = 0; attempt < DOWNLOAD_ATTEMPTS; attempt++) {
+            throwIfInterrupted();
             Candidate downloadCandidate;
             try {
                 downloadCandidate = resolveFreshCandidate(playbackCandidate);
@@ -235,6 +240,7 @@ final class SearchQuickPlayback {
 
         try (OutputStream stream = new BufferedOutputStream(new FileOutputStream(output, false))) {
             while (!complete) {
+                throwIfInterrupted();
                 if (writtenTotal >= MAX_AUDIO_BYTES) {
                     throw new IllegalStateException("音频文件超过缓存大小限制");
                 }
@@ -263,6 +269,7 @@ final class SearchQuickPlayback {
                         byte[] buffer = new byte[64 * 1024];
                         int read;
                         while ((read = input.read(buffer)) >= 0) {
+                            throwIfInterrupted();
                             if (read == 0) continue;
                             segmentBytes += read;
                             writtenTotal += read;
@@ -303,6 +310,7 @@ final class SearchQuickPlayback {
                                            long end) throws Exception {
         URL current = new URL(candidate.playbackUrl);
         for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
+            throwIfInterrupted();
             HttpURLConnection connection = (HttpURLConnection) current.openConnection();
             connection.setInstanceFollowRedirects(false);
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -331,6 +339,12 @@ final class SearchQuickPlayback {
                 connection.getContentLengthLong(), connection.getHeaderField("Content-Range"));
         }
         throw new IllegalStateException("音频重定向次数过多");
+    }
+
+    private static void throwIfInterrupted() {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new IllegalStateException("搜索歌曲后台缓存已取消");
+        }
     }
 
     private static long parseContentRangeTotal(String value) {
