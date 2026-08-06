@@ -174,7 +174,8 @@ public final class PlaybackControlService extends Service {
 
     private void updateArtworkIdentity() {
         String next = PlaybackArtworkLoader.identity(
-            title, artist, catalogJson, mediaUri);
+            title, artist, catalogJson, mediaUri)
+            + "|art=" + artworkUrl.trim();
         if (next.equals(artworkIdentity)) return;
         artworkIdentity = next;
         artworkRequestedIdentity = "";

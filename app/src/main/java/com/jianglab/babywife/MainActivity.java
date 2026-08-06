@@ -2730,6 +2730,7 @@ public class MainActivity extends Activity {
                     item.artist = pendingSongArtist;
                     item.source = pendingSongSource;
                     item.catalogJson = pendingSongCatalogJson;
+                    item.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(pendingSongCatalogJson);
                     item.uri = "";
                     item.cachedUri = "";
                     item.lyric = "";
@@ -2745,6 +2746,7 @@ public class MainActivity extends Activity {
         target.artist = pendingSongArtist;
         target.source = pendingSongSource;
         target.catalogJson = pendingSongCatalogJson;
+        target.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(pendingSongCatalogJson);
         target.uri = "";
         target.cachedUri = "";
         target.lyric = "";
@@ -2771,6 +2773,7 @@ public class MainActivity extends Activity {
                 if (item == song || item.key().equals(originalKey)) {
                     item.source = song.source;
                     item.catalogJson = song.catalogJson;
+                    item.artworkUrl = song.artworkUrl;
                     item.cachedUri = song.cachedUri;
                     item.uri = song.uri;
                 }
@@ -2782,6 +2785,7 @@ public class MainActivity extends Activity {
         if (song == null || commit == null || currentSong != song || playToken != playbackRequestSerial) return;
         if (commit.catalogJson != null && !commit.catalogJson.trim().isEmpty()) {
             song.catalogJson = commit.catalogJson;
+            song.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(commit.catalogJson);
         }
         if (commit.sourceLabel != null && !commit.sourceLabel.trim().isEmpty()) {
             song.source = commit.sourceLabel;
@@ -3808,6 +3812,9 @@ public class MainActivity extends Activity {
                     && identity.equals(CacheStorage.logicalIdentity(item.title, item.artist))) {
                     item.source = candidate.sourceLabel;
                     item.catalogJson = candidate.catalogJson;
+                    item.artworkUrl = !song.artworkUrl.isEmpty()
+                        ? song.artworkUrl
+                        : PlaybackArtworkLoader.extractArtworkUrl(candidate.catalogJson);
                     item.cachedUri = storedUri;
                     item.uri = storedUri;
                     item.cacheFailed = false;
@@ -3824,6 +3831,7 @@ public class MainActivity extends Activity {
     }
 
     private void playPlaylistSongFromCacheFirst(Song song, int playToken) {
+        attachExistingFriendlyCache(song);
         String recorded = song.cachedUri == null ? "" : song.cachedUri.trim();
         if (recorded.isEmpty()) {
             statusView.setText("歌单没有完整友好缓存，正在在线播放并复用Media3缓存...");
@@ -4602,8 +4610,13 @@ public class MainActivity extends Activity {
         if (song == null || !song.isNetworkCatalog() || !visited.add(song)) return;
         String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
         String uri = key.isEmpty() ? "" : CacheStorage.findAudioUri(this, key);
-        song.cachedUri = uri;
-        if (!uri.isEmpty()) song.uri = uri;
+        if (uri.isEmpty()) {
+            String media3Key = Media3CacheStore.keyFor(
+                song.title, song.artist, song.catalogJson);
+            uri = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
+        }
+        song.cachedUri = CacheFileState.exists(this, uri) ? uri : "";
+        if (!song.cachedUri.isEmpty()) song.uri = song.cachedUri;
     }
 
     private String uninstallCleanupSettingText() {
