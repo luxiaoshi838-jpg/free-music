@@ -5,7 +5,6 @@ import android.content.Context;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.database.StandaloneDatabaseProvider;
 import androidx.media3.datasource.DataSource;
-import androidx.media3.datasource.cache.Cache;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.ContentMetadata;
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
@@ -119,7 +118,7 @@ final class Media3CacheStore {
                 try {
                     local.removeResource(key);
                     removed++;
-                } catch (Cache.CacheException ignored) {
+                } catch (Exception ignored) {
                 }
             }
         } catch (Exception ignored) {
