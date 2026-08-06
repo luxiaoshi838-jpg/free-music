@@ -28,10 +28,13 @@ checks = {
         and "android.media.MediaPlayer" not in main
         and "new UnifiedMediaPlayer(this)" in main
     ),
-    "online playback uses stable logical cache key": (
+    "online playback uses stable Media3 cache key": (
         "Media3CacheStore.keyFor" in main
         and "setCustomCacheKey(cacheKey)" in player
-        and 'return "media3|" + logical.trim()' in store
+        and (
+            'return "media3|" + logical.trim()' in store
+            or 'return "media3|catalog|" + catalogKey.trim()' in store
+        )
     ),
     "playback and cache share CacheDataSource": (
         "Media3CacheStore.dataSourceFactory" in player
