@@ -23,7 +23,15 @@ checks = {
     "range response handling": (
         "HttpURLConnection.HTTP_PARTIAL" in search
         and 'getHeaderField("Content-Range")' in search
-        and "parseContentRangeTotal" in search
+        and (
+            "parseContentRangeTotal" in search
+            or (
+                "parseContentRange" in search
+                and "private static final class ContentRange" in search
+                and "bounds.start" in search
+                and "bounds.total" in search
+            )
+        )
     ),
     "empty response has diagnostics": (
         "Range 响应正文为 0 字节" in search
