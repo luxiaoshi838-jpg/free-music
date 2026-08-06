@@ -1,0 +1,42 @@
+name: Apply v154 MainActivity Migration
+
+on:
+  push:
+    branches:
+      - agent/v128-m4a-decrypt
+
+permissions:
+  contents: write
+
+jobs:
+  apply-mainactivity:
+    if: ${{ !contains(github.event.head_commit.message, '[v154-mainactivity-applied]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v128-m4a-decrypt
+          fetch-depth: 0
+
+      - name: Apply v154 MainActivity patch
+        run: |
+          python3 scripts/apply_v154_mainactivity.py
+          git diff --check
+          grep -q 'UnifiedMediaPlayer mediaPlayer' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'Media3FriendlyCacheExporter.cacheAndExport' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'notificationCatalog' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          ! grep -q '歌曲还在缓存，完成后再加入歌单' app/src/main/java/com/jianglab/babywife/MainActivity.java
+
+      - name: Commit migrated source
+        run: |
+          if git diff --quiet; then
+            echo 'v154 MainActivity already applied.'
+            exit 0
+          fi
+          git config user.name 'luxiaoshi838-jpg'
+          git config user.email 'luxiaoshi838@gmail.com'
+          git add app/src/main/java/com/jianglab/babywife/MainActivity.java
+          git commit -m 'Migrate playback to v154 Media3 shared cache [v154-mainactivity-applied] [skip ci]'
+          git push origin HEAD:agent/v128-m4a-decrypt
