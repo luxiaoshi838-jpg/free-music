@@ -20,7 +20,7 @@ import java.util.Set;
  *
  * This cache is intentionally separate from the user-selected friendly export
  * folder. It stores Media3 spans while a song is being played, so reopening the
- * same catalog key reuses already downloaded bytes instead of starting a second
+ * same logical song reuses already downloaded bytes instead of starting a second
  * full-file download.
  */
 @UnstableApi
@@ -30,6 +30,16 @@ final class Media3CacheStore {
     private static StandaloneDatabaseProvider databaseProvider;
 
     private Media3CacheStore() {
+    }
+
+    static String keyFor(String title, String artist, String catalogJson) {
+        String logical = CacheStorage.logicalIdentity(title, artist);
+        if (logical != null && !logical.trim().isEmpty()) {
+            return "media3|" + logical.trim();
+        }
+        String catalogKey = NetworkMediaCache.cacheKeyForCatalog(catalogJson);
+        return catalogKey == null || catalogKey.trim().isEmpty()
+            ? "" : "media3|" + catalogKey.trim();
     }
 
     static synchronized SimpleCache get(Context context) {
