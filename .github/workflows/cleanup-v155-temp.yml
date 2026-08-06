@@ -1,0 +1,39 @@
+name: Cleanup v155 Temporary Files
+
+on:
+  push:
+    branches:
+      - agent/v128-m4a-decrypt
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: ${{ !contains(github.event.head_commit.message, '[v155-temp-cleaned]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v128-m4a-decrypt
+          fetch-depth: 0
+
+      - name: Remove one-time patch files
+        run: |
+          git rm -f \
+            .github/workflows/apply-v155-cache-cover.yml \
+            .github/workflows/fix-v155-patch-script.yml \
+            .github/workflows/fix-v155-first-match.yml \
+            .github/workflows/apply-v155-followup.yml \
+            .github/workflows/cleanup-v155-temp.yml \
+            scripts/apply_v155_cache_cover_fix.py \
+            scripts/apply_v155_followup.py
+          git diff --check
+
+      - name: Commit cleanup
+        run: |
+          git config user.name 'luxiaoshi838-jpg'
+          git config user.email 'luxiaoshi838@gmail.com'
+          git commit -m 'Remove v155 temporary patch files [v155-temp-cleaned] [skip ci]'
+          git push origin HEAD:agent/v128-m4a-decrypt
