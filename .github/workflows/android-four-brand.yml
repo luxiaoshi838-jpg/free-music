@@ -1,4 +1,4 @@
-name: Build v152 Rapid Next Stability Four Brands
+name: Build v153 Playback Stop Report Four Brands
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: v152-rapid-next-stability-${{ github.workflow }}-${{ github.ref }}
+  group: v153-playback-stop-report-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -25,7 +25,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Verify v152 rapid-next stability
+      - name: Verify v153 playback stop handling
         run: |
           python3 scripts/check_public_repo.py
           if [ -f scripts/check_feature_requirements.py ]; then
@@ -36,7 +36,7 @@ jobs:
           text = path.read_text(encoding='utf-8')
           replacements = [
               ("'version bumped': 'versionCode 2026080143' in gradle,",
-               "'version bumped': 'versionCode 2026080152' in gradle,"),
+               "'version bumped': 'versionCode 2026080153' in gradle,"),
               ("'PlayableAudioResolver.cachedAudioExists' in network",
                "'CacheFileState.exists' in network"),
               ("and 'AudioPlaybackVerifier.isPlayableUri' in playable_resolver",
@@ -78,25 +78,34 @@ jobs:
               search_stream_check, text, count=1, flags=re.S | re.M)
           if count != 1:
               raise SystemExit('could not replace search stream/background-cache check')
-
           path.write_text(text, encoding='utf-8')
           PY
             python3 scripts/check_feature_requirements.py
           fi
+
           python3 - <<'PY'
           from pathlib import Path
           path = Path('scripts/check_v151_search_range_cache.py')
           text = path.read_text(encoding='utf-8')
           text = text.replace('"versionCode 2026080151" in gradle',
-                              '"versionCode 2026080152" in gradle')
+                              '"versionCode 2026080153" in gradle')
           text = text.replace("'versionName \"2026.08.05.v151-search-range-cache\"' in gradle",
-                              "'versionName \"2026.08.05.v152-rapid-next-stability\"' in gradle")
+                              "'versionName \"2026.08.06.v153-playback-stop-report\"' in gradle")
+          path.write_text(text, encoding='utf-8')
+
+          path = Path('scripts/check_v152_rapid_next_stability.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('"versionCode 2026080152" in gradle',
+                              '"versionCode 2026080153" in gradle')
+          text = text.replace("'versionName \"2026.08.05.v152-rapid-next-stability\"' in gradle",
+                              "'versionName \"2026.08.06.v153-playback-stop-report\"' in gradle")
           path.write_text(text, encoding='utf-8')
           PY
           python3 scripts/check_v151_search_range_cache.py
           python3 scripts/check_v152_rapid_next_stability.py
-          grep -q 'versionCode 2026080152' app/build.gradle
-          grep -q 'versionName "2026.08.05.v152-rapid-next-stability"' app/build.gradle
+          python3 scripts/check_v153_playback_stop.py
+          grep -q 'versionCode 2026080153' app/build.gradle
+          grep -q 'versionName "2026.08.06.v153-playback-stop-report"' app/build.gradle
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -121,16 +130,16 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build four v152 APKs
+      - name: Build four v153 APKs
         run: |
           if [ -f scripts/run_with_no_output_watchdog.py ]; then
-            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v152.log -- gradle --no-daemon assembleDebug
+            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v153.log -- gradle --no-daemon assembleDebug
           else
             set -o pipefail
-            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v152.log
+            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v153.log
           fi
 
-      - name: Verify v152 APK package names and version
+      - name: Verify v153 APK package names and version
         shell: bash
         run: |
           set -euo pipefail
@@ -150,19 +159,19 @@ jobs:
             package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
             version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
             test "$package_name" = "${expected[$flavor]}"
-            test "$version_code" = "2026080152"
+            test "$version_code" = "2026080153"
             "$apksigner" verify --verbose "$apk"
-            cp "$apk" "verified-apks/${flavor}_v152_rapid_next_stability.apk"
+            cp "$apk" "verified-apks/${flavor}_v153_playback_stop_report.apk"
           done
-          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v152.txt
+          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v153.txt
 
-      - name: Upload v152 rapid-next stability APKs and logs
+      - name: Upload v153 playback-stop APKs and logs
         uses: actions/upload-artifact@v4
         with:
-          name: v152-rapid-next-stability-four-brand-apks
+          name: v153-playback-stop-report-four-brand-apks
           path: |
             verified-apks/
             build/sdkmanager.log
-            build/assemble-v152.log
+            build/assemble-v153.log
           if-no-files-found: error
           retention-days: 14
