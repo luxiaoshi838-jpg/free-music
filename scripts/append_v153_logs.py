@@ -43,4 +43,4 @@ for path, marker, entry in (
 ):
     text = path.read_text(encoding="utf-8")
     if marker not in text:
-        path.write_text(text.rstrip() + entry + "\n", encoding="utf-8")
+        path.write_text(text.rstrip() + entry.rstrip() + "\n", encoding="utf-8")
