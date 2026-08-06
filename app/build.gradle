@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080153
-        versionName "2026.08.06.v153-playback-stop-report"
+        versionCode 2026080154
+        versionName "2026.08.06.v154-media3-shared-cache"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
@@ -52,5 +52,9 @@ android {
 }
 
 dependencies {
+    def media3_version = "1.10.1"
     implementation files('libs/musicbridge.aar')
+    implementation "androidx.media3:media3-exoplayer:$media3_version"
+    implementation "androidx.media3:media3-datasource:$media3_version"
+    implementation "androidx.media3:media3-database:$media3_version"
 }
