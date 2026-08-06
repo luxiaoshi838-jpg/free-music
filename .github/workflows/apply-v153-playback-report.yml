@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   apply-reporting:
-    if: ${{ !contains(github.event.head_commit.message, '[v153-report-applied]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
