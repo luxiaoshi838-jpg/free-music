@@ -158,8 +158,8 @@ text = replace_once(text,
     'resolved artwork')
 
 text = replace_once(text,
-    '                    String media3Key = Media3CacheStore.keyFor(\n                        song.title, song.artist, song.catalogJson);',
-    '                    String media3Key = Media3CacheStore.keyFor(\n                        song.title, song.artist, song.catalogJson);\n                    Media3PlaybackCacheIndex.record(this, media3Key, song.title,\n                        song.artist, song.catalogJson, song.artworkUrl);',
+    '                    String media3Key = Media3CacheStore.keyFor(\n                        song.title, song.artist, song.catalogJson);\n                    preparedPlayer.setDataSource(',
+    '                    String media3Key = Media3CacheStore.keyFor(\n                        song.title, song.artist, song.catalogJson);\n                    Media3PlaybackCacheIndex.record(this, media3Key, song.title,\n                        song.artist, song.catalogJson, song.artworkUrl);\n                    preparedPlayer.setDataSource(',
     'record playback cache')
 
 text = replace_once(text,
