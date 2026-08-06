@@ -53,6 +53,12 @@ final class Media3FriendlyCacheExporter {
         if (media3Key.isEmpty() || storageKey.isEmpty()) {
             throw new IllegalStateException("歌曲缓存键无效");
         }
+        String existingUri = CacheStorage.findAudioUri(context, storageKey);
+        if (!existingUri.isEmpty() && CacheFileState.exists(context, existingUri)
+            && !SodaM4aDecryptor.isEncryptedM4a(context, existingUri)) {
+            Media3PlaybackCacheIndex.markExported(context, media3Key, existingUri);
+            return existingUri;
+        }
 
         Map<String, String> headers = UnifiedMediaPlayer.requestHeadersFor(candidate.catalogJson);
         DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
@@ -94,12 +100,24 @@ final class Media3FriendlyCacheExporter {
         long contentLength = ContentMetadata.getContentLength(
             Media3CacheStore.get(context).getContentMetadata(media3Key));
         if (contentLength <= 0L) contentLength = observedLength.get();
+        // CacheWriter returning normally means it reached the resource EOF. Some
+        // music CDNs omit a usable Content-Length, so derive the exact contiguous
+        // byte count from the cache instead of discarding a completed download.
         if (contentLength <= 0L) {
-            throw new IllegalStateException("Media3没有得到音频总长度");
+            contentLength = Media3CacheStore.contiguousCachedBytesFromZero(
+                context, media3Key);
+        }
+        if (contentLength <= 0L) {
+            throw new IllegalStateException("Media3缓存完成后仍无法确定音频长度");
         }
         if (!Media3CacheStore.get(context).isCached(media3Key, 0L, contentLength)) {
             throw new IllegalStateException("Media3缓存尚未覆盖完整歌曲");
         }
+        DataSpec exportSpec = new DataSpec.Builder()
+            .setUri(Uri.parse(candidate.playbackUrl))
+            .setKey(media3Key)
+            .setLength(contentLength)
+            .build();
 
         File tempRoot = new File(context.getCacheDir(), "media3_friendly_export");
         if (!tempRoot.exists() && !tempRoot.mkdirs()) {
@@ -108,7 +126,7 @@ final class Media3FriendlyCacheExporter {
         File raw = new File(tempRoot, storageKey + ".raw");
         File decrypted = new File(tempRoot, storageKey + ".decrypted");
         try {
-            copyCachedResource(cacheFactory, dataSpec, raw, contentLength);
+            copyCachedResource(cacheFactory, exportSpec, raw, contentLength);
             File source = raw;
             if (SodaM4aDecryptor.isEncryptedM4a(raw)) {
                 if (candidate.playAuth.isEmpty()) {

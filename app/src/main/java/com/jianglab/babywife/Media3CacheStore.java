@@ -32,13 +32,29 @@ final class Media3CacheStore {
     }
 
     static String keyFor(String title, String artist, String catalogJson) {
-        String logical = CacheStorage.logicalIdentity(title, artist);
-        if (logical != null && !logical.trim().isEmpty()) {
-            return "media3|" + logical.trim();
-        }
         String catalogKey = NetworkMediaCache.cacheKeyForCatalog(catalogJson);
-        return catalogKey == null || catalogKey.trim().isEmpty()
-            ? "" : "media3|" + catalogKey.trim();
+        if (catalogKey != null && !catalogKey.trim().isEmpty()) {
+            return "media3|catalog|" + catalogKey.trim();
+        }
+        String logical = CacheStorage.logicalIdentity(title, artist);
+        return logical == null || logical.trim().isEmpty()
+            ? "" : "media3|logical|" + logical.trim();
+    }
+
+    static long contiguousCachedBytesFromZero(Context context, String key) {
+        if (context == null || key == null || key.trim().isEmpty()) return 0L;
+        try {
+            long end = 0L;
+            for (androidx.media3.datasource.cache.CacheSpan span
+                : get(context).getCachedSpans(key.trim())) {
+                if (!span.isCached || span.length <= 0L) continue;
+                if (span.position > end) break;
+                end = Math.max(end, span.position + span.length);
+            }
+            return end;
+        } catch (Exception ignored) {
+            return 0L;
+        }
     }
 
     static synchronized SimpleCache get(Context context) {
