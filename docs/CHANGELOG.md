@@ -319,3 +319,14 @@
 - The last playback-transition song/token is recorded until playback starts successfully.
 - v151 Range regression checks, v152 stability checks, four-brand compilation, package-name checks, and version checks passed.
 - Real-device rapid-switch stress testing is still required.
+
+## v153 - 2026-08-06
+
+- Version: `2026080153 / 2026.08.06.v153-playback-stop-report`.
+- Fixed Range caching so a short partial response is no longer mistaken for a complete song.
+- Enforced continuous `Content-Range` offsets, exact range-body length, and exact final total length.
+- Added copyable reports for MediaPlayer error, silent stop, stalled progress, missing player, early cached-file completion, and Activity destruction during active playback.
+- Added one automatic restart attempt when MediaPlayer silently changes to a stopped state.
+- Added cached-duration comparison and deletion/retrieval of clearly truncated cache files.
+- Kept v152 rapid-next serialization and cancellation behavior.
+- Automated checks and four-brand Android compilation passed; phone playback testing is still required.
