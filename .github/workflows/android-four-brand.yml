@@ -1,4 +1,4 @@
-name: Build v155 Cache Recognition and Playlist Artwork Four Brands
+name: Build v156 Upgrade-Compatible Four Brands
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: v155-cache-index-artwork-${{ github.workflow }}-${{ github.ref }}
+  group: v156-upgrade-compatible-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -27,32 +27,38 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify v155 cache, artwork, UI and legacy functions
+      - name: Verify v156 metadata and all v155 functions
         run: |
           python3 scripts/check_public_repo.py
           python3 - <<'PY'
           from pathlib import Path
           replacements = {
               'scripts/check_v154_preserve_current_features.py': [
-                  ('versionCode 2026080154', 'versionCode 2026080155'),
+                  ('versionCode 2026080154', 'versionCode 2026080656'),
                   ('2026.08.06.v154-media3-shared-cache',
-                   '2026.08.06.v155-cache-index-playlist-artwork'),
+                   '2026.08.06.v156-upgrade-compatible'),
               ],
               'scripts/check_v154_media3_shared_cache_artwork.py': [
-                  ('versionCode 2026080154', 'versionCode 2026080155'),
+                  ('versionCode 2026080154', 'versionCode 2026080656'),
                   ('2026.08.06.v154-media3-shared-cache',
-                   '2026.08.06.v155-cache-index-playlist-artwork'),
-                  ('"v154 metadata"', '"v155 metadata through v154 regression"'),
+                   '2026.08.06.v156-upgrade-compatible'),
+                  ('"v154 metadata"', '"v156 metadata through v154 regression"'),
               ],
               'scripts/check_v153_playback_stop.py': [
-                  ('versionCode 2026080153', 'versionCode 2026080155'),
+                  ('versionCode 2026080153', 'versionCode 2026080656'),
                   ('2026.08.06.v153-playback-stop-report',
-                   '2026.08.06.v155-cache-index-playlist-artwork'),
-                  ('"v153 metadata"', '"v155 metadata through v153 regression"'),
+                   '2026.08.06.v156-upgrade-compatible'),
+                  ('"v153 metadata"', '"v156 metadata through v153 regression"'),
                   ('searchCacheExecutor = Executors.newSingleThreadExecutor()',
                    'searchCacheExecutor = Executors.newFixedThreadPool(2)'),
                   ('"existing v152 serialized player retained"',
                    '"v152 serialized media-source player retained with v155 cache workers"'),
+              ],
+              'scripts/check_v155_cache_index_playlist_artwork.py': [
+                  ('versionCode 2026080155', 'versionCode 2026080656'),
+                  ('2026.08.06.v155-cache-index-playlist-artwork',
+                   '2026.08.06.v156-upgrade-compatible'),
+                  ('"v155 metadata"', '"v156 metadata with v155 functions"'),
               ],
           }
           for filename, pairs in replacements.items():
@@ -66,8 +72,8 @@ jobs:
           python3 scripts/check_v154_media3_shared_cache_artwork.py
           python3 scripts/check_v153_playback_stop.py
           python3 scripts/check_v155_cache_index_playlist_artwork.py
-          grep -q 'versionCode 2026080155' app/build.gradle
-          grep -q 'versionName "2026.08.06.v155-cache-index-playlist-artwork"' app/build.gradle
+          grep -q 'versionCode 2026080656' app/build.gradle
+          grep -q 'versionName "2026.08.06.v156-upgrade-compatible"' app/build.gradle
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -92,16 +98,16 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build four v155 APKs
+      - name: Build four v156 APKs
         run: |
           if [ -f scripts/run_with_no_output_watchdog.py ]; then
-            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v155.log -- gradle --no-daemon assembleDebug
+            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v156.log -- gradle --no-daemon assembleDebug
           else
             set -o pipefail
-            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v155.log
+            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v156.log
           fi
 
-      - name: Verify v155 APK package names and version
+      - name: Verify v156 APK package names and version
         shell: bash
         run: |
           set -euo pipefail
@@ -121,19 +127,19 @@ jobs:
             package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
             version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
             test "$package_name" = "${expected[$flavor]}"
-            test "$version_code" = "2026080155"
+            test "$version_code" = "2026080656"
             "$apksigner" verify --verbose "$apk"
-            cp "$apk" "verified-apks/${flavor}_v155_cache_index_playlist_artwork.apk"
+            cp "$apk" "verified-apks/${flavor}_v156_upgrade_compatible.apk"
           done
-          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v155.txt
+          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v156.txt
 
-      - name: Upload v155 APKs and logs
+      - name: Upload v156 APKs and logs
         uses: actions/upload-artifact@v4
         with:
-          name: v155-cache-index-playlist-artwork-four-brand-apks
+          name: v156-upgrade-compatible-four-brand-apks
           path: |
             verified-apks/
             build/sdkmanager.log
-            build/assemble-v155.log
+            build/assemble-v156.log
           if-no-files-found: error
           retention-days: 14
