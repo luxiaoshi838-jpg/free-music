@@ -133,6 +133,8 @@ public class MainActivity extends Activity {
     private static final long NO_RESPONSE_CHECK_INTERVAL_MS = 3000L;
     private static final long UI_HEARTBEAT_INTERVAL_MS = 1000L;
     private static final long PLAYBACK_NAVIGATION_DEBOUNCE_MS = 220L;
+    private static final long PLAYBACK_HEALTH_CHECK_INTERVAL_MS = 2000L;
+    private static final long PLAYBACK_STALL_REPORT_MS = 12000L;
     private static final String KEY_LAST_HANDLED_EXIT_TIME = "last_handled_exit_time";
     private static final String KEY_PLAYBACK_TRANSITION_PENDING = "playback_transition_pending";
     private static final String KEY_PLAYBACK_TRANSITION_DETAIL = "playback_transition_detail";
@@ -204,6 +206,7 @@ public class MainActivity extends Activity {
     private final Random random = new Random();
     private final Handler lyricHandler = new Handler(Looper.getMainLooper());
     private final Handler responsivenessHandler = new Handler(Looper.getMainLooper());
+    private final Handler playbackHealthHandler = new Handler(Looper.getMainLooper());
     private final List<LyricLine> lyricLines = new ArrayList<>();
     private boolean userLyricTouch = false;
     private boolean autoScrollingLyrics = false;
@@ -240,6 +243,12 @@ public class MainActivity extends Activity {
     private Future<?> searchCacheFuture;
     private volatile int mediaOpenSerial = 0;
     private volatile boolean activityDestroyed = false;
+    private boolean playbackPreparing = false;
+    private boolean playbackExpectedPlaying = false;
+    private boolean playbackUserPaused = false;
+    private boolean playbackSilentStopReported = false;
+    private long playbackLastObservedPosition = -1L;
+    private long playbackLastProgressTime = 0L;
     private volatile boolean playlistCacheRunning = false;
     private final ExecutorService playlistCacheScanExecutor = Executors.newSingleThreadExecutor();
     private volatile int playlistCacheScanSerial = 0;
@@ -291,6 +300,18 @@ public class MainActivity extends Activity {
             if (responsivenessWatchdogRunning && activityResumed
                 && windowFocused && isDeviceInteractive()) {
                 responsivenessHandler.postDelayed(this, UI_HEARTBEAT_INTERVAL_MS);
+            }
+        }
+    };
+
+
+    private final Runnable playbackHealthTicker = new Runnable() {
+        @Override
+        public void run() {
+            checkPlaybackHealth();
+            if (playbackExpectedPlaying && !activityDestroyed) {
+                playbackHealthHandler.postDelayed(
+                    this, PLAYBACK_HEALTH_CHECK_INTERVAL_MS);
             }
         }
     };
@@ -499,6 +520,155 @@ public class MainActivity extends Activity {
             .apply();
     }
 
+    private void reportPlaybackProblem(String reason, MediaPlayer player,
+                                               int what, int extra, String playbackUri) {
+        Playlist playlist = currentPlaylist();
+        Song song = currentSong;
+        PlaybackProblemReporter.store(
+            this,
+            reason,
+            player,
+            what,
+            extra,
+            playingSearchQueue ? "search" : "playlist",
+            currentPlaylistIndex,
+            currentSongIndex,
+            playlist == null ? "" : playlist.name,
+            song == null ? "" : song.title,
+            song == null ? "" : song.artist,
+            song == null ? "" : song.source,
+            playbackUri,
+            song == null ? "" : song.cachedUri,
+            song == null ? "" : song.catalogJson,
+            activityResumed,
+            windowFocused,
+            isDeviceInteractive(),
+            playbackPreparing,
+            playbackExpectedPlaying,
+            playbackUserPaused
+        );
+    }
+
+    private long safePlaybackPosition(MediaPlayer player) {
+        if (player == null) return -1L;
+        try {
+            return player.getCurrentPosition();
+        } catch (Exception ignored) {
+            return -1L;
+        }
+    }
+
+    private long safePlaybackDuration(MediaPlayer player) {
+        if (player == null) return -1L;
+        try {
+            return player.getDuration();
+        } catch (Exception ignored) {
+            return -1L;
+        }
+    }
+
+    private boolean safePlaybackIsPlaying(MediaPlayer player) {
+        if (player == null) return false;
+        try {
+            return player.isPlaying();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void startPlaybackHealthWatch(MediaPlayer player) {
+        playbackPreparing = false;
+        playbackExpectedPlaying = true;
+        playbackUserPaused = false;
+        playbackSilentStopReported = false;
+        playbackLastObservedPosition = safePlaybackPosition(player);
+        playbackLastProgressTime = System.currentTimeMillis();
+        playbackHealthHandler.removeCallbacks(playbackHealthTicker);
+        playbackHealthHandler.postDelayed(
+            playbackHealthTicker, PLAYBACK_HEALTH_CHECK_INTERVAL_MS);
+    }
+
+    private void stopPlaybackHealthWatch() {
+        playbackExpectedPlaying = false;
+        playbackHealthHandler.removeCallbacks(playbackHealthTicker);
+    }
+
+    private void checkPlaybackHealth() {
+        if (!playbackExpectedPlaying || playbackPreparing || playbackUserPaused
+            || activityDestroyed) return;
+        MediaPlayer player = mediaPlayer;
+        if (player == null) {
+            if (!playbackSilentStopReported) {
+                playbackSilentStopReported = true;
+                reportPlaybackProblem(
+                    "player-disappeared-without-error-callback",
+                    null, 0, 0, currentSong == null ? "" : currentSong.uri);
+            }
+            stopPlaybackHealthWatch();
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long position = safePlaybackPosition(player);
+        long duration = safePlaybackDuration(player);
+        boolean playing = safePlaybackIsPlaying(player);
+        if (position >= 0L && position > playbackLastObservedPosition + 250L) {
+            playbackLastObservedPosition = position;
+            playbackLastProgressTime = now;
+            playbackSilentStopReported = false;
+            return;
+        }
+
+        boolean nearEnd = duration > 0L && position >= 0L
+            && position + 3000L >= duration;
+        if (nearEnd || now - playbackLastProgressTime < PLAYBACK_STALL_REPORT_MS
+            || playbackSilentStopReported) return;
+
+        playbackSilentStopReported = true;
+        reportPlaybackProblem(
+            playing ? "playback-position-stalled"
+                : "playback-stopped-without-callback",
+            player, 0, 0, currentSong == null ? "" : currentSong.uri);
+        if (playing) {
+            if (statusView != null) {
+                statusView.setText("播放进度长时间未变化，已生成播放问题报告");
+            }
+            return;
+        }
+
+        try {
+            player.start();
+            playbackLastProgressTime = now;
+            playbackSilentStopReported = false;
+            if (statusView != null) {
+                statusView.setText("检测到播放意外停止，已自动尝试恢复并生成报告");
+            }
+            publishPlaybackControlState(true);
+        } catch (Exception error) {
+            stopPlaybackHealthWatch();
+            if (playButton != null) playButton.setText("▶");
+            if (statusView != null) {
+                statusView.setText("播放意外停止，自动恢复失败，已生成报告");
+            }
+            publishPlaybackControlState(true);
+        }
+    }
+
+    private void deleteIncompletePlaybackCache(Song song, String playbackUri) {
+        try {
+            CacheFileState.deleteDirect(this, playbackUri);
+        } catch (Exception ignored) {
+        }
+        if (song == null) return;
+        try {
+            NetworkMediaCache.deleteCatalogCache(this, song.catalogJson);
+        } catch (Exception ignored) {
+        }
+        song.cachedUri = "";
+        song.uri = "";
+        savePlaylists();
+    }
+
     private void persistCrashReport(Thread thread, Throwable throwable) {
         StringWriter stack = new StringWriter();
         if (throwable != null) throwable.printStackTrace(new PrintWriter(stack));
@@ -629,13 +799,13 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(text);
         new AlertDialog.Builder(this)
-            .setTitle("\u4e0a\u6b21\u95ea\u9000/\u65e0\u54cd\u5e94\u62a5\u544a")
+            .setTitle("上次播放/闪退问题报告")
             .setView(scroll)
             .setPositiveButton("\u590d\u5236", (dialog, which) -> {
                 ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                 if (clipboard != null) {
                     clipboard.setPrimaryClip(ClipData.newPlainText("crash-or-no-response-report", report));
-                    toast("\u95ea\u9000/\u65e0\u54cd\u5e94\u62a5\u544a\u5df2\u590d\u5236");
+                    toast("播放/闪退问题报告已复制");
                 }
                 markCrashReportDismissed();
             })
@@ -663,7 +833,7 @@ public class MainActivity extends Activity {
         String report = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .getString(KEY_CRASH_REPORT, "");
         if (report == null || report.trim().isEmpty()) {
-            toast("\u6682\u65e0\u95ea\u9000/\u65e0\u54cd\u5e94\u62a5\u544a");
+            toast("暂无播放/闪退问题报告");
             return;
         }
         showCrashReportDialog(report);
@@ -3840,8 +4010,11 @@ public class MainActivity extends Activity {
 
     private void startLocalPlayback(Song song, int playToken, Runnable onStarted, Runnable onFailed) {
         stopPlayback();
+        playbackPreparing = true;
+        playbackUserPaused = false;
         String playbackUri = song.uri == null ? "" : song.uri.trim();
         if (playbackUri.isEmpty()) {
+            playbackPreparing = false;
             clearPlaybackTransition();
             if (onFailed != null) onFailed.run();
             return;
@@ -3875,18 +4048,41 @@ public class MainActivity extends Activity {
                     readyPlayer.setOnCompletionListener(player -> {
                         if (mediaPlayer == player && currentSong == song
                             && playToken == playbackRequestSerial) {
+                            stopPlaybackHealthWatch();
+                            playbackPreparing = false;
+                            long actualDuration = safePlaybackDuration(player);
+                            if (PlaybackDurationGuard.clearlyShort(
+                                song.catalogJson, playbackUri,
+                                song.isNetworkCatalog(), actualDuration)) {
+                                reportPlaybackProblem(
+                                    "cached-audio-ended-before-catalog-duration",
+                                    player, 0, 0, playbackUri);
+                                mediaPlayer = null;
+                                releaseMediaPlayer(player);
+                                deleteIncompletePlaybackCache(song, playbackUri);
+                                if (statusView != null) {
+                                    statusView.setText("检测到缓存歌曲不完整，已删除并重新获取");
+                                }
+                                if (onFailed != null) onFailed.run();
+                                return;
+                            }
                             playAfterCompletion();
                         }
                     });
                     readyPlayer.setOnErrorListener((player, what, extra) -> {
                         if (mediaPlayer == player && currentSong == song
                             && playToken == playbackRequestSerial) {
+                            reportPlaybackProblem(
+                                "media-player-error", player, what, extra, playbackUri);
+                            playbackPreparing = false;
+                            stopPlaybackHealthWatch();
                             mediaPlayer = null;
                             releaseMediaPlayer(player);
                             lyricHandler.removeCallbacks(lyricTicker);
                             resetPlaybackProgress();
                             playButton.setText("▶");
-                            statusView.setText("播放失败：当前来源不可用（" + what + "/" + extra + "）");
+                            statusView.setText("播放失败：当前来源不可用（"
+                                + what + "/" + extra + "），已生成播放问题报告");
                             clearPlaybackTransition();
                             if (onFailed != null) onFailed.run();
                             publishPlaybackControlState(true);
@@ -3903,9 +4099,30 @@ public class MainActivity extends Activity {
                             return;
                         }
                         try {
+                            long actualDuration = safePlaybackDuration(player);
+                            if (PlaybackDurationGuard.clearlyShort(
+                                song.catalogJson, playbackUri,
+                                song.isNetworkCatalog(), actualDuration)) {
+                                reportPlaybackProblem(
+                                    "cached-duration-short-before-start",
+                                    player, 0, 0, playbackUri);
+                                playbackPreparing = false;
+                                mediaPlayer = null;
+                                releaseMediaPlayer(player);
+                                deleteIncompletePlaybackCache(song, playbackUri);
+                                if (statusView != null) {
+                                    statusView.setText("检测到缓存歌曲时长不完整，已删除并重新获取");
+                                }
+                                if (onFailed != null) onFailed.run();
+                                return;
+                            }
                             player.start();
                             onPlaybackStarted(song, onStarted);
                         } catch (Exception error) {
+                            reportPlaybackProblem(
+                                "player-start-exception", player, 0, 0, playbackUri);
+                            playbackPreparing = false;
+                            stopPlaybackHealthWatch();
                             mediaPlayer = null;
                             releaseMediaPlayer(player);
                             lyricHandler.removeCallbacks(lyricTicker);
@@ -3919,6 +4136,10 @@ public class MainActivity extends Activity {
                     try {
                         readyPlayer.prepareAsync();
                     } catch (Exception error) {
+                        reportPlaybackProblem(
+                            "prepare-async-exception", readyPlayer, 0, 0, playbackUri);
+                        playbackPreparing = false;
+                        stopPlaybackHealthWatch();
                         mediaPlayer = null;
                         releaseMediaPlayer(readyPlayer);
                         playButton.setText("▶");
@@ -3928,6 +4149,7 @@ public class MainActivity extends Activity {
                     }
                 });
             } catch (Throwable error) {
+                playbackPreparing = false;
                 releaseMediaPlayer(preparedPlayer);
                 runOnUiThread(() -> {
                     if (activityDestroyed || currentSong != song
@@ -3943,6 +4165,7 @@ public class MainActivity extends Activity {
     }
 
     private void onPlaybackStarted(Song song, Runnable onStarted) {
+        startPlaybackHealthWatch(mediaPlayer);
         clearPlaybackTransition();
         playButton.setText("Ⅱ");
         saveLastSong(0);
@@ -3968,12 +4191,16 @@ public class MainActivity extends Activity {
             return;
         }
         if (mediaPlayer.isPlaying()) {
+            playbackUserPaused = true;
+            stopPlaybackHealthWatch();
             mediaPlayer.pause();
             playButton.setText("▶");
             saveLastSong(mediaPlayer.getCurrentPosition());
             lyricHandler.removeCallbacks(lyricTicker);
         } else {
             mediaPlayer.start();
+            playbackUserPaused = false;
+            startPlaybackHealthWatch(mediaPlayer);
             playButton.setText("Ⅱ");
             lyricHandler.post(lyricTicker);
         }
@@ -4003,6 +4230,9 @@ public class MainActivity extends Activity {
     }
 
     private void stopPlayback() {
+        playbackPreparing = false;
+        playbackUserPaused = false;
+        stopPlaybackHealthWatch();
         cancelMediaSourceOpenTask();
         MediaPlayer player = mediaPlayer;
         mediaPlayer = null;
@@ -4077,7 +4307,7 @@ public class MainActivity extends Activity {
         cacheLocationButton.setOnClickListener(view -> showCacheLocationDialog());
         bottomActions.addView(cacheLocationButton, bottomSettingParams(38, 2));
 
-        Button crashReportButton = makeButton("\u95ea\u9000/\u65e0\u54cd\u5e94\u62a5\u544a", false);
+        Button crashReportButton = makeButton("播放/闪退报告", false);
         crashReportButton.setOnClickListener(view -> openSavedCrashReport());
         bottomActions.addView(crashReportButton, bottomSettingParams(38, 2));
 
@@ -5609,7 +5839,13 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (playbackExpectedPlaying && mediaPlayer != null) {
+            reportPlaybackProblem(
+                "activity-destroyed-during-active-playback",
+                mediaPlayer, 0, 0, currentSong == null ? "" : currentSong.uri);
+        }
         activityDestroyed = true;
+        playbackHealthHandler.removeCallbacks(playbackHealthTicker);
         clearPendingPlaybackNavigation();
         cancelMediaSourceOpenTask();
         cancelSearchCacheTask();
