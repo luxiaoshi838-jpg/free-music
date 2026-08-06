@@ -47,6 +47,9 @@ final class Media3FriendlyCacheExporter {
         }
         String media3Key = Media3CacheStore.keyFor(title, artist, candidate.catalogJson);
         String storageKey = NetworkMediaCache.cacheKeyForCatalog(candidate.catalogJson);
+        String artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(candidate.catalogJson);
+        Media3PlaybackCacheIndex.record(context, media3Key, title, artist,
+            candidate.catalogJson, artworkUrl);
         if (media3Key.isEmpty() || storageKey.isEmpty()) {
             throw new IllegalStateException("歌曲缓存键无效");
         }
@@ -81,6 +84,8 @@ final class Media3FriendlyCacheExporter {
                     throw new IllegalStateException("后台缓存已取消");
                 }
                 if (requestLength > 0L) observedLength.set(requestLength);
+                Media3PlaybackCacheIndex.updateProgress(
+                    context, media3Key, bytesCached, requestLength);
                 if (callback != null) callback.onProgress(requestLength, bytesCached);
             }
         );
@@ -137,6 +142,7 @@ final class Media3FriendlyCacheExporter {
                 throw new IllegalStateException("友好名称缓存写入后仍为加密内容");
             }
             CacheStorage.deleteOtherSongCaches(context, title, artist, storageKey);
+            Media3PlaybackCacheIndex.markExported(context, media3Key, storedUri);
             return storedUri;
         } finally {
             if (raw.exists()) raw.delete();

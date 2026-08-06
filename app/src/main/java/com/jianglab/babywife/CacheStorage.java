@@ -153,7 +153,10 @@ final class CacheStorage {
             text.append(treeLabel(tree)).append("\n").append(tree.toString())
                 .append("\n（自选总文件夹；卸载软件后仍保留，可转移和手动管理）");
         }
-        text.append("\n\n删除歌单或歌曲只移除歌单记录，不删除歌曲和歌词文件；")
+        text.append("\n\n")
+            .append(Media3PlaybackCacheIndex.summary(context).displayText())
+            .append("\n")
+            .append("删除歌单或歌曲只移除歌单记录，不删除歌曲和歌词文件；")
             .append("顶部扫把只清理不再属于任何歌单的缓存。");
         return text.toString();
     }

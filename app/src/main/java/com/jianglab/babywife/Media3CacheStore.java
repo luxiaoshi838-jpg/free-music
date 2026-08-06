@@ -102,6 +102,7 @@ final class Media3CacheStore {
         if (key == null || key.trim().isEmpty()) return;
         try {
             get(context).removeResource(key.trim());
+            Media3PlaybackCacheIndex.remove(context, key.trim());
         } catch (Exception ignored) {
         }
     }
@@ -117,10 +118,15 @@ final class Media3CacheStore {
                 if (keep.contains(key)) continue;
                 try {
                     local.removeResource(key);
+                    Media3PlaybackCacheIndex.remove(context, key);
                     removed++;
                 } catch (Exception ignored) {
                 }
             }
+        } catch (Exception ignored) {
+        }
+        try {
+            Media3PlaybackCacheIndex.pruneToKeys(context, get(context).getKeys());
         } catch (Exception ignored) {
         }
         return removed;

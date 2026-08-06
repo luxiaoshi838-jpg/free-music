@@ -43,6 +43,7 @@ public final class PlaybackControlService extends Service {
     private static final String EXTRA_DURATION = "duration";
     private static final String EXTRA_POSITION = "position";
     private static final String EXTRA_CATALOG_JSON = "catalog_json";
+    private static final String EXTRA_ARTWORK_URL = "artwork_url";
     private static final String EXTRA_MEDIA_URI = "media_uri";
 
     private static final String CHANNEL_ID = "babywife_media_playback";
@@ -54,6 +55,7 @@ public final class PlaybackControlService extends Service {
     private String title = "尚未播放";
     private String artist = "大宝贝儿老婆";
     private String catalogJson = "";
+    private String artworkUrl = "";
     private String mediaUri = "";
     private String artworkIdentity = "";
     private String artworkRequestedIdentity = "";
@@ -75,12 +77,19 @@ public final class PlaybackControlService extends Service {
 
     static void publishState(Context context, String title, String artist,
                              boolean playing, long duration, long position) {
-        publishState(context, title, artist, playing, duration, position, "", "");
+        publishState(context, title, artist, playing, duration, position, "", "", "");
     }
 
     static void publishState(Context context, String title, String artist,
                              boolean playing, long duration, long position,
                              String catalogJson, String mediaUri) {
+        publishState(context, title, artist, playing, duration, position,
+            catalogJson, "", mediaUri);
+    }
+
+    static void publishState(Context context, String title, String artist,
+                             boolean playing, long duration, long position,
+                             String catalogJson, String artworkUrl, String mediaUri) {
         Intent intent = new Intent(context, PlaybackControlService.class)
             .setAction(ACTION_UPDATE)
             .putExtra(EXTRA_TITLE, title == null ? "尚未播放" : title)
@@ -89,6 +98,7 @@ public final class PlaybackControlService extends Service {
             .putExtra(EXTRA_DURATION, Math.max(0L, duration))
             .putExtra(EXTRA_POSITION, Math.max(0L, position))
             .putExtra(EXTRA_CATALOG_JSON, catalogJson == null ? "" : catalogJson)
+            .putExtra(EXTRA_ARTWORK_URL, artworkUrl == null ? "" : artworkUrl)
             .putExtra(EXTRA_MEDIA_URI, mediaUri == null ? "" : mediaUri);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent);
@@ -151,6 +161,7 @@ public final class PlaybackControlService extends Service {
             duration = intent.getLongExtra(EXTRA_DURATION, 0L);
             position = intent.getLongExtra(EXTRA_POSITION, 0L);
             catalogJson = safe(intent.getStringExtra(EXTRA_CATALOG_JSON));
+            artworkUrl = safe(intent.getStringExtra(EXTRA_ARTWORK_URL));
             mediaUri = safe(intent.getStringExtra(EXTRA_MEDIA_URI));
             if (title == null || title.trim().isEmpty()) title = "尚未播放";
             if (artist == null) artist = "";
@@ -179,10 +190,12 @@ public final class PlaybackControlService extends Service {
         final String requestTitle = title;
         final String requestArtist = artist;
         final String requestCatalog = catalogJson;
+        final String requestArtworkUrl = artworkUrl;
         final String requestUri = mediaUri;
         artworkExecutor.execute(() -> {
             Bitmap loaded = PlaybackArtworkLoader.load(
-                this, requestTitle, requestArtist, requestCatalog, requestUri);
+                this, requestTitle, requestArtist, requestCatalog,
+                requestArtworkUrl, requestUri);
             runOnMainThread(() -> {
                 if (requestSerial != artworkRequestSerial
                     || !identity.equals(artworkIdentity)) return;

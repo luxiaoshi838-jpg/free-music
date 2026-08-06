@@ -58,6 +58,12 @@ final class PlaybackArtworkLoader {
 
     static Bitmap load(Context context, String title, String artist,
                        String catalogJson, String mediaUri) {
+        return load(context, title, artist, catalogJson, "", mediaUri);
+    }
+
+    static Bitmap load(Context context, String title, String artist,
+                       String catalogJson, String explicitArtworkUrl,
+                       String mediaUri) {
         if (context == null) return null;
         String identity = identity(title, artist, catalogJson, mediaUri);
         File directory = cacheDirectory(context);
@@ -70,7 +76,8 @@ final class PlaybackArtworkLoader {
 
         bitmap = embeddedArtwork(context, mediaUri);
         if (bitmap == null) {
-            String url = findArtworkUrl(catalogJson);
+            String url = explicitArtworkUrl == null ? "" : explicitArtworkUrl.trim();
+            if (url.isEmpty()) url = findArtworkUrl(catalogJson);
             if (!url.isEmpty()) bitmap = downloadArtwork(url);
         }
         if (bitmap == null) return null;
@@ -99,6 +106,10 @@ final class PlaybackArtworkLoader {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    static String extractArtworkUrl(String catalogJson) {
+        return findArtworkUrl(catalogJson);
     }
 
     private static String findArtworkUrl(String catalogJson) {
