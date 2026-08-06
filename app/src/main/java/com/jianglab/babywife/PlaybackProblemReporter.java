@@ -2,7 +2,6 @@ package com.jianglab.babywife;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.media.MediaPlayer;
 import android.os.Build;
 
 /** Stores non-crash playback failures in the existing copyable problem-report slot. */
@@ -15,7 +14,7 @@ final class PlaybackProblemReporter {
     private PlaybackProblemReporter() {
     }
 
-    static void store(Context context, String reason, MediaPlayer player,
+    static void store(Context context, String reason, UnifiedMediaPlayer player,
                       int what, int extra, String queueType,
                       int playlistIndex, int songIndex, String playlistName,
                       String title, String artist, String source,
@@ -34,6 +33,7 @@ final class PlaybackProblemReporter {
             report.append("device=").append(Build.MANUFACTURER).append(' ')
                 .append(Build.MODEL).append(" / Android ").append(Build.VERSION.RELEASE)
                 .append(" sdk=").append(Build.VERSION.SDK_INT).append('\n');
+            report.append("playerEngine=Media3 ExoPlayer shared cache\n");
             report.append("reason=").append(safe(reason)).append('\n');
             report.append("what=").append(what).append('\n');
             report.append("extra=").append(extra).append('\n');
@@ -67,7 +67,7 @@ final class PlaybackProblemReporter {
         }
     }
 
-    private static long position(MediaPlayer player) {
+    private static long position(UnifiedMediaPlayer player) {
         if (player == null) return -1L;
         try {
             return player.getCurrentPosition();
@@ -76,7 +76,7 @@ final class PlaybackProblemReporter {
         }
     }
 
-    private static long duration(MediaPlayer player) {
+    private static long duration(UnifiedMediaPlayer player) {
         if (player == null) return -1L;
         try {
             return player.getDuration();
@@ -85,7 +85,7 @@ final class PlaybackProblemReporter {
         }
     }
 
-    private static boolean isPlaying(MediaPlayer player) {
+    private static boolean isPlaying(UnifiedMediaPlayer player) {
         if (player == null) return false;
         try {
             return player.isPlaying();
