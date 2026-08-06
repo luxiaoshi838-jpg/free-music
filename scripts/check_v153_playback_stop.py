@@ -59,7 +59,8 @@ checks = {
     "manual pause excluded": (
         "playbackUserPaused = true" in main
         and "stopPlaybackHealthWatch();" in main
-        and "playbackUserPaused" in reporter
+        and "playbackUserPaused" in main
+        and 'report.append("userPaused=")' in reporter
     ),
     "existing v152 serialized player retained": (
         "mediaSourceExecutor = Executors.newSingleThreadExecutor()" in main
