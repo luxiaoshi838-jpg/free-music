@@ -2,16 +2,15 @@ name: Build v157 Source-Faithful Cache Export Four Brands
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches:
+      - agent/v128-m4a-decrypt
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: v157-source-faithful-cache-${{ github.workflow }}-${{ github.ref }}
+  group: v157-source-faithful-cache-direct
   cancel-in-progress: true
 
 env:
@@ -22,13 +21,20 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Direct checkout without Marketplace Actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch origin agent/v128-m4a-decrypt main --tags
+          git checkout -B agent/v128-m4a-decrypt origin/agent/v128-m4a-decrypt
+          git log -1 --oneline
 
       - name: Verify v157 and all retained functions
         run: |
+          set -euo pipefail
           python3 scripts/check_public_repo.py
           python3 - <<'PY'
           from pathlib import Path
@@ -76,34 +82,48 @@ jobs:
           grep -q 'versionCode 2026080757' app/build.gradle
           grep -q 'versionName "2026.08.06.v157-source-faithful-cache-export"' app/build.gradle
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
+      - name: Prepare JDK Android SDK and Gradle
         run: |
+          set -euo pipefail
           mkdir -p build
+          JAVA_BIN=$(command -v javac)
+          export JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$JAVA_BIN")")")
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version 2>&1 | tee build/java-version.log
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;37.0.0" 2>&1 | tee build/sdkmanager.log
-
-      - name: Set up Gradle 8.7
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.7"
+          if command -v gradle >/dev/null 2>&1; then
+            gradle --version | tee build/gradle-version.log
+          else
+            curl -fL --retry 5 --retry-delay 5 \
+              https://services.gradle.org/distributions/gradle-8.7-bin.zip \
+              -o /tmp/gradle-8.7-bin.zip
+            unzip -q /tmp/gradle-8.7-bin.zip -d /tmp
+            echo '/tmp/gradle-8.7/bin' >> "$GITHUB_PATH"
+            /tmp/gradle-8.7/bin/gradle --version | tee build/gradle-version.log
+          fi
 
       - name: Build four v157 APKs
         run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="/tmp/gradle-8.7/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          if command -v gradle >/dev/null 2>&1; then
+            GRADLE_CMD=$(command -v gradle)
+          else
+            GRADLE_CMD=/tmp/gradle-8.7/bin/gradle
+          fi
           set -o pipefail
-          gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v157.log
+          "$GRADLE_CMD" --no-daemon assembleDebug 2>&1 | tee build/assemble-v157.log
 
-      - name: Verify v157 APK packages and version
-        shell: bash
+      - name: Verify packages and prepare build archive
         run: |
           set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           aapt="$ANDROID_HOME/build-tools/37.0.0/aapt"
           apksigner="$ANDROID_HOME/build-tools/37.0.0/apksigner"
           declare -A expected=(
@@ -125,14 +145,23 @@ jobs:
             cp "$apk" "verified-apks/${flavor}_v157_source_faithful_cache_export.apk"
           done
           sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v157.txt
+          zip -r -9 v157-source-faithful-cache-export-four-brand-apks.zip \
+            verified-apks build/java-version.log build/gradle-version.log \
+            build/sdkmanager.log build/assemble-v157.log
+          sha256sum v157-source-faithful-cache-export-four-brand-apks.zip \
+            | tee v157-build-archive-sha256.txt
 
-      - name: Upload v157 APKs and logs
-        uses: actions/upload-artifact@v4
-        with:
-          name: v157-source-faithful-cache-export-four-brand-apks
-          path: |
-            verified-apks/
-            build/sdkmanager.log
-            build/assemble-v157.log
-          if-no-files-found: error
-          retention-days: 14
+      - name: Publish temporary build release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v157-ci-${GITHUB_RUN_ID}"
+          gh release create "$tag" \
+            v157-source-faithful-cache-export-four-brand-apks.zip \
+            v157-build-archive-sha256.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target agent/v128-m4a-decrypt \
+            --title "v157 CI build ${GITHUB_RUN_ID}" \
+            --notes "Temporary unsigned CI build for v157 verification." \
+            --prerelease
