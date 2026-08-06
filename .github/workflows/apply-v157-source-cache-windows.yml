@@ -1,0 +1,41 @@
+name: Apply v157 Source and Cache Fixes Windows
+
+on:
+  push:
+    branches:
+      - agent/v128-m4a-decrypt
+
+permissions:
+  contents: write
+
+jobs:
+  apply-windows:
+    if: ${{ !contains(github.event.head_commit.message, '[v157-applied]') }}
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v128-m4a-decrypt
+          fetch-depth: 0
+
+      - name: Apply v157 patch
+        shell: pwsh
+        run: |
+          python scripts/apply_v157_source_cache_fix.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Select-String -Path app/build.gradle -Pattern 'versionCode 2026080757' -Quiet | Out-Null
+          if (-not $?) { exit 1 }
+          Select-String -Path app/src/main/java/com/jianglab/babywife/MainActivity.java -Pattern 'trySearchPlaybackCandidate\(song, playToken, 0, false\)' -Quiet | Out-Null
+          if (-not $?) { exit 1 }
+
+      - name: Commit source changes
+        shell: pwsh
+        run: |
+          git config user.name 'luxiaoshi838-jpg'
+          git config user.email 'luxiaoshi838@gmail.com'
+          git add app/src/main/java/com/jianglab/babywife/MainActivity.java app/src/main/java/com/jianglab/babywife/Media3CacheStore.java app/src/main/java/com/jianglab/babywife/Media3FriendlyCacheExporter.java app/build.gradle
+          git commit -m 'Fix selected-source playback and friendly cache export [v157-applied] [skip ci]'
+          git push origin HEAD:agent/v128-m4a-decrypt
