@@ -2,7 +2,7 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-BASELINE = "e1f26d6763c390cab9dd6fc5b1d8c5f87c37e81c"  # last completed v153 source
+BASELINE = "e1f26d6763c390cab9dd6fc5b1d8c5f87c37e81c"  # completed v153 source
 
 
 def read(path: str) -> str:
@@ -16,6 +16,8 @@ def git(*args: str) -> str:
 main = read("app/src/main/java/com/jianglab/babywife/MainActivity.java")
 cache = read("app/src/main/java/com/jianglab/babywife/CacheStorage.java")
 service = read("app/src/main/java/com/jianglab/babywife/PlaybackControlService.java")
+search_cache = read("app/src/main/java/com/jianglab/babywife/SearchQuickPlayback.java")
+media3_export = read("app/src/main/java/com/jianglab/babywife/Media3FriendlyCacheExporter.java")
 gradle = read("app/build.gradle")
 manifest = read("app/src/main/AndroidManifest.xml")
 
@@ -26,9 +28,7 @@ forbidden_prefixes = (
     "app/src/main/res/mipmap-",
     "app/src/main/res/values/",
 )
-forbidden_exact = {
-    "app/src/main/AndroidManifest.xml",
-}
+forbidden_exact = {"app/src/main/AndroidManifest.xml"}
 ui_changes = sorted(
     path for path in changed
     if path in forbidden_exact or path.startswith(forbidden_prefixes)
@@ -53,17 +53,22 @@ checks = {
         "CatalogSearch.Session", "sourceSpinner", "searchResultsList",
         "activeSearchKeyword", "searchLoadMoreView"
     )),
-    "playlist create rename delete import export retained": all(token in main for token in (
+    "playlist create rename delete merge clear retained": all(token in main for token in (
+        "promptNewPlaylist", "promptRenamePlaylist", "deleteCurrentPlaylist",
+        "mergePlaylistsIntoCurrent", "clearCurrentPlaylist"
+    )),
+    "playlist CSV and link import export retained": all(token in main for token in (
         "REQUEST_EXPORT_PLAYLIST", "REQUEST_IMPORT_PLAYLIST_CSV",
-        "pendingExportPlaylistIndex", "playlistManagerList",
-        "renderCurrentPlaylist", "savePlaylists"
+        "exportCurrentPlaylistCsv", "importPlaylistCsv", "promptImportPlaylistLink"
     )),
     "local audio and folder import retained": all(token in main for token in (
-        "REQUEST_AUDIO_FILES", "REQUEST_AUDIO_FOLDER", "MAX_IMPORT_COUNT"
+        "REQUEST_AUDIO_FILES", "REQUEST_AUDIO_FOLDER", "MAX_IMPORT_COUNT",
+        "chooseAudioFiles", "chooseAudioFolder"
     )),
     "lyrics and manual replacement retained": all(token in main for token in (
         "lyricVersionButton", "confirmLyricButton", "pendingReplacementType",
-        "REPLACEMENT_LYRIC", "REPLACEMENT_SONG", "updateLyricProgress"
+        "REPLACEMENT_LYRIC", "REPLACEMENT_SONG", "updateLyricProgress",
+        "showSongVersionPicker", "showLyricVersionPicker"
     )),
     "play modes seek previous next retained": all(token in main for token in (
         "KEY_PLAY_MODE", "playPlaylistOffset", "performPlaylistOffset",
@@ -72,11 +77,11 @@ checks = {
     "notification playback service retained": (
         "PlaybackControlService.ensureStarted" in main
         and "PlaybackControlService" in manifest
-        and "MediaStyle" in service
+        and "Notification.MediaStyle" in service
     ),
     "progress restore retained": all(token in main for token in (
         "KEY_LAST_PLAYLIST", "KEY_LAST_SONG", "KEY_LAST_POSITION",
-        "restoreLastSong", "savePlaybackProgress"
+        "restoreLastSong", "saveLastSong"
     )),
     "cache folder selection and migration retained": all(token in cache for token in (
         "useDocumentTree", "useInternalStorage", "takePersistableUriPermission",
@@ -88,12 +93,24 @@ checks = {
         and "ensureFriendlyNames" in cache
     ),
     "playlist-safe broom cleanup retained": (
-        "clearExcept" in cache and "顶部扫把" in cache and "deleteKey" in cache
+        "clearExcept" in cache and "deleteKey" in cache
+        and "confirmClearTransientCache" in main and "clearTransientCache" in main
     ),
-    "M4A decryption retained": "SodaM4aDecryptor" in main,
+    "one-click playlist cache retained": all(token in main for token in (
+        "cacheCurrentPlaylistOneClick", "cachePlaylistSongWithTimeout",
+        "PLAYLIST_CACHE_TRACK_TIMEOUT_SECONDS"
+    )),
+    "M4A decryption retained": (
+        "SodaM4aDecryptor" in search_cache
+        and "SodaM4aDecryptor" in media3_export
+    ),
     "playback and crash report retained": all(token in main for token in (
         "PlaybackProblemReporter", "showPendingCrashReport",
         "captureLastProcessExitReport", "startResponsivenessWatchdog"
+    )),
+    "background and launcher icon controls retained": all(token in main for token in (
+        "chooseBackgroundImage", "showBuiltInBackgroundPicker",
+        "showLauncherIconPicker", "switchLauncherIcon"
     )),
     "v154 metadata": (
         "versionCode 2026080154" in gradle
