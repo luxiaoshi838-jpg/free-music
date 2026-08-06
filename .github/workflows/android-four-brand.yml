@@ -49,6 +49,10 @@ jobs:
                   ('2026.08.06.v153-playback-stop-report',
                    '2026.08.06.v155-cache-index-playlist-artwork'),
                   ('"v153 metadata"', '"v155 metadata through v153 regression"'),
+                  ('searchCacheExecutor = Executors.newSingleThreadExecutor()',
+                   'searchCacheExecutor = Executors.newFixedThreadPool(2)'),
+                  ('"existing v152 serialized player retained"',
+                   '"v152 serialized media-source player retained with v155 cache workers"'),
               ],
           }
           for filename, pairs in replacements.items():
