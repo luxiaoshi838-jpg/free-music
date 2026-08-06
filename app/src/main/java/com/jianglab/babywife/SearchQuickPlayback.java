@@ -57,6 +57,17 @@ final class SearchQuickPlayback {
         }
     }
 
+    private static final class ContentRange {
+    final long start;
+    final long end;
+    final long total;
+
+    ContentRange(long start, long end, long total) {
+        this.start = start;
+        this.end = end;
+        this.total = total;
+    }
+}
     private static final class RangeResponse {
         final HttpURLConnection connection;
         final URL finalUrl;
@@ -233,80 +244,121 @@ final class SearchQuickPlayback {
     }
 
     private static void downloadByRanges(Candidate candidate, File output) throws Exception {
-        long writtenTotal = 0L;
-        long expectedTotal = -1L;
-        boolean complete = false;
-        int segment = 0;
+    long writtenTotal = 0L;
+    long expectedTotal = -1L;
+    boolean complete = false;
+    int segment = 0;
 
-        try (OutputStream stream = new BufferedOutputStream(new FileOutputStream(output, false))) {
-            while (!complete) {
-                throwIfInterrupted();
-                if (writtenTotal >= MAX_AUDIO_BYTES) {
-                    throw new IllegalStateException("音频文件超过缓存大小限制");
-                }
-                long rangeEnd = Math.min(MAX_AUDIO_BYTES - 1L,
-                    writtenTotal + RANGE_CHUNK_BYTES - 1L);
-                RangeResponse response = openRange(candidate, writtenTotal, rangeEnd);
-                long segmentBytes = 0L;
-                try {
-                    if (response.statusCode != HttpURLConnection.HTTP_OK
-                        && response.statusCode != HttpURLConnection.HTTP_PARTIAL) {
-                        throw new IllegalStateException(downloadDiagnostic(response, writtenTotal,
-                            "HTTP 状态不可下载"));
-                    }
-                    if (response.statusCode == HttpURLConnection.HTTP_OK && writtenTotal > 0L) {
-                        throw new IllegalStateException(downloadDiagnostic(response, writtenTotal,
-                            "后续分段被服务器改为完整响应"));
-                    }
-                    long rangeTotal = parseContentRangeTotal(response.contentRange);
-                    if (rangeTotal > 0L) expectedTotal = rangeTotal;
-                    if (expectedTotal > MAX_AUDIO_BYTES) {
-                        throw new IllegalStateException("音频文件超过缓存大小限制");
-                    }
+    try (OutputStream stream = new BufferedOutputStream(new FileOutputStream(output, false))) {
+        while (!complete) {
+  throwIfInterrupted();
+  if (writtenTotal >= MAX_AUDIO_BYTES) {
+      throw new IllegalStateException("音频文件超过缓存大小限制");
+  }
+  long rangeEnd = Math.min(MAX_AUDIO_BYTES - 1L,
+      writtenTotal + RANGE_CHUNK_BYTES - 1L);
+  RangeResponse response = openRange(candidate, writtenTotal, rangeEnd);
+  long segmentBytes = 0L;
+  try {
+      ContentRange bounds = parseContentRange(response.contentRange);
+      if (response.statusCode == 416) {
+          long total = bounds == null ? -1L : bounds.total;
+          if (writtenTotal > 0L && total > 0L && writtenTotal == total) {
+              expectedTotal = total;
+              complete = true;
+              continue;
+          }
+          throw new IllegalStateException(downloadDiagnostic(response, writtenTotal,
+              "Range 超出范围但已写入长度与总长度不一致"));
+      }
+      if (response.statusCode != HttpURLConnection.HTTP_OK
+          && response.statusCode != HttpURLConnection.HTTP_PARTIAL) {
+          throw new IllegalStateException(downloadDiagnostic(response, writtenTotal,
+              "HTTP 状态不可下载"));
+      }
+      if (response.statusCode == HttpURLConnection.HTTP_OK && writtenTotal > 0L) {
+          throw new IllegalStateException(downloadDiagnostic(response, writtenTotal,
+              "后续分段被服务器改为完整响应"));
+      }
+      if (response.statusCode == HttpURLConnection.HTTP_PARTIAL) {
+          if (bounds == null) {
+              throw new IllegalStateException(downloadDiagnostic(response, writtenTotal,
+                  "HTTP 206 缺少有效 Content-Range"));
+          }
+          if (bounds.start != writtenTotal) {
+              throw new IllegalStateException(downloadDiagnostic(response, writtenTotal,
+                  "Range 起点不连续，期望 " + writtenTotal + "，实际 " + bounds.start));
+          }
+          if (bounds.end < bounds.start) {
+              throw new IllegalStateException(downloadDiagnostic(response, writtenTotal,
+                  "Content-Range 结束位置小于起点"));
+          }
+          if (bounds.total > 0L) expectedTotal = bounds.total;
+      }
+      if (expectedTotal > MAX_AUDIO_BYTES) {
+          throw new IllegalStateException("音频文件超过缓存大小限制");
+      }
 
-                    try (InputStream input = new BufferedInputStream(
-                        response.connection.getInputStream())) {
-                        byte[] buffer = new byte[64 * 1024];
-                        int read;
-                        while ((read = input.read(buffer)) >= 0) {
-                            throwIfInterrupted();
-                            if (read == 0) continue;
-                            segmentBytes += read;
-                            writtenTotal += read;
-                            if (writtenTotal > MAX_AUDIO_BYTES) {
-                                throw new IllegalStateException("音频文件超过缓存大小限制");
-                            }
-                            stream.write(buffer, 0, read);
-                        }
-                    }
+      try (InputStream input = new BufferedInputStream(
+          response.connection.getInputStream())) {
+          byte[] buffer = new byte[64 * 1024];
+          int read;
+          while ((read = input.read(buffer)) >= 0) {
+              throwIfInterrupted();
+              if (read == 0) continue;
+              segmentBytes += read;
+              writtenTotal += read;
+              if (writtenTotal > MAX_AUDIO_BYTES) {
+                  throw new IllegalStateException("音频文件超过缓存大小限制");
+              }
+              stream.write(buffer, 0, read);
+          }
+      }
 
-                    if (segmentBytes <= 0L) {
-                        throw new IllegalStateException(downloadDiagnostic(response, writtenTotal,
-                            "Range 响应正文为 0 字节"));
-                    }
-                    segment++;
-                    if (response.statusCode == HttpURLConnection.HTTP_OK) {
-                        complete = true;
-                    } else if (expectedTotal > 0L && writtenTotal >= expectedTotal) {
-                        complete = true;
-                    } else if (segmentBytes < RANGE_CHUNK_BYTES) {
-                        complete = true;
-                    } else if (segment > 160) {
-                        throw new IllegalStateException("Range 分段数量异常，已停止下载");
-                    }
-                } finally {
-                    response.connection.disconnect();
-                }
-            }
-            stream.flush();
+      if (segmentBytes <= 0L) {
+          throw new IllegalStateException(downloadDiagnostic(response, writtenTotal,
+              "Range 响应正文为 0 字节"));
+      }
+      if (bounds != null && bounds.start >= 0L && bounds.end >= bounds.start) {
+          long declaredBytes = bounds.end - bounds.start + 1L;
+          if (segmentBytes != declaredBytes) {
+              throw new IllegalStateException(downloadDiagnostic(response, writtenTotal,
+                  "Range 正文长度与 Content-Range 不一致，声明 "
+                      + declaredBytes + "，实际 " + segmentBytes));
+          }
+      }
+      segment++;
+      if (response.statusCode == HttpURLConnection.HTTP_OK) {
+          expectedTotal = response.contentLength > 0L
+              ? response.contentLength : writtenTotal;
+          complete = true;
+      } else if (expectedTotal > 0L && writtenTotal >= expectedTotal) {
+          if (writtenTotal != expectedTotal) {
+              throw new IllegalStateException(downloadDiagnostic(response, writtenTotal,
+                  "已写入长度超过 Content-Range 总长度"));
+          }
+          complete = true;
+      } else if (segment > 512) {
+          throw new IllegalStateException("Range 分段数量异常，已停止下载");
+      }
+  } finally {
+      response.connection.disconnect();
+  }
         }
-
-        if (!complete || writtenTotal <= 0L || !output.isFile() || output.length() <= 0L) {
-            throw new IllegalStateException("Range 分段下载未生成音频文件");
-        }
+        stream.flush();
     }
 
-    private static RangeResponse openRange(Candidate candidate, long start,
+    if (!complete || writtenTotal <= 0L || !output.isFile()
+        || output.length() != writtenTotal) {
+        throw new IllegalStateException("Range 分段下载未生成完整音频文件");
+    }
+    if (expectedTotal > 0L && writtenTotal != expectedTotal) {
+        throw new IllegalStateException("Range 下载长度不完整：期望 "
+  + expectedTotal + " 字节，实际 " + writtenTotal + " 字节");
+    }
+}
+
+private static RangeResponse openRange(Candidate candidate, long start,
                                            long end) throws Exception {
         URL current = new URL(candidate.playbackUrl);
         for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
@@ -347,19 +399,28 @@ final class SearchQuickPlayback {
         }
     }
 
-    private static long parseContentRangeTotal(String value) {
-        if (value == null) return -1L;
-        int slash = value.lastIndexOf('/');
-        if (slash < 0 || slash + 1 >= value.length()) return -1L;
-        String total = value.substring(slash + 1).trim();
-        if (total.isEmpty() || "*".equals(total)) return -1L;
-        try {
-            return Long.parseLong(total);
-        } catch (Exception ignored) {
-            return -1L;
+    private static ContentRange parseContentRange(String value) {
+    if (value == null || value.trim().isEmpty()) return null;
+    String text = value.trim();
+    try {
+        if (text.startsWith("bytes */")) {
+  long total = Long.parseLong(text.substring("bytes */".length()).trim());
+  return new ContentRange(-1L, -1L, total);
         }
+        if (!text.startsWith("bytes ")) return null;
+        String body = text.substring(6).trim();
+        int slash = body.lastIndexOf('/');
+        int dash = body.indexOf('-');
+        if (slash < 0 || dash < 0 || dash >= slash) return null;
+        long start = Long.parseLong(body.substring(0, dash).trim());
+        long end = Long.parseLong(body.substring(dash + 1, slash).trim());
+        String totalText = body.substring(slash + 1).trim();
+        long total = "*".equals(totalText) ? -1L : Long.parseLong(totalText);
+        return new ContentRange(start, end, total);
+    } catch (Exception ignored) {
+        return null;
     }
-
+}
     private static String downloadDiagnostic(RangeResponse response, long written,
                                              String reason) {
         String range = response.contentRange.isEmpty() ? "无" : response.contentRange;
