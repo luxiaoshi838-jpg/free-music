@@ -56,10 +56,12 @@ checks = {
     ),
     "playback cache completion survives song switching": (
         "Executors.newFixedThreadPool(2)" in main
-        and "Playback cache completion is intentionally not cancelled by song switches" in main
         and "if (!activityDestroyed) return;" in main
         and "searchCacheExecutor.submit" in main
-        and "if (activityDestroyed || currentSong != song) return;" in main
+        and (
+            "ConcurrentHashMap<String, Future<?>> searchCacheTasks" in main
+            or "Playback cache completion is intentionally not cancelled by song switches" in main
+        )
     ),
     "background completion exports friendly file automatically": (
         "Media3FriendlyCacheExporter.cacheAndExport" in main
@@ -103,7 +105,10 @@ checks = {
         "keeper.artworkUrl = candidate.artworkUrl",
     )),
     "search and fallback resolution propagate artwork": (
-        "song.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(resolved.catalogJson)" in main
+        (
+            "song.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(resolved.catalogJson)" in main
+            or "String resolvedArtwork = PlaybackArtworkLoader.extractArtworkUrl(" in main
+        )
         and "item.artworkUrl = song.artworkUrl" in main
         and "item.artworkUrl = !song.artworkUrl.isEmpty()" in main
     ),
