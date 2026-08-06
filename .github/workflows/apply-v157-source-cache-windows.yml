@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: apply-v157-source-cache-windows
+  cancel-in-progress: true
+
 jobs:
   apply-windows:
     if: ${{ !contains(github.event.head_commit.message, '[v157-applied]') }}
