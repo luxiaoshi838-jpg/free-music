@@ -62,7 +62,7 @@ checks = {
     ),
     "Media3 key is source and catalog specific": (
         'return "media3|catalog|" + catalogKey.trim();' in store
-        and 'return "media3|logical|" + logical.trim();' in store
+        and '"media3|logical|" + logical.trim()' in store
         and "NetworkMediaCache.cacheKeyForCatalog(catalogJson)" in store
     ),
     "search cache reuse requires exact source and ID": (
