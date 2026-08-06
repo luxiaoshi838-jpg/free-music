@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080154
-        versionName "2026.08.06.v154-media3-shared-cache"
+        versionCode 2026080155
+        versionName "2026.08.06.v155-cache-index-playlist-artwork"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
