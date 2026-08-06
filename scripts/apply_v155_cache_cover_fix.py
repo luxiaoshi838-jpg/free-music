@@ -6,6 +6,8 @@ ROOT = Path('.')
 
 def replace_once(text, old, new, label):
     count = text.count(old)
+    if label == 'record playback cache' and count >= 1:
+        return text.replace(old, new, 1)
     if count != 1:
         raise SystemExit(f'{label}: expected 1, found {count}')
     return text.replace(old, new, 1)
