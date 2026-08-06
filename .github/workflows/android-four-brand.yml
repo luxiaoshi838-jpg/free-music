@@ -1,4 +1,4 @@
-name: Build v153 Playback Stop Report Four Brands
+name: Build v154 Media3 Shared Cache Four Brands
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: v153-playback-stop-report-${{ github.workflow }}-${{ github.ref }}
+  group: v154-media3-shared-cache-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -24,88 +24,28 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Verify v153 playback stop handling
+      - name: Verify v154 feature preservation and Media3 architecture
         run: |
           python3 scripts/check_public_repo.py
-          if [ -f scripts/check_feature_requirements.py ]; then
-            python3 - <<'PY'
-          from pathlib import Path
-          import re
-          path = Path('scripts/check_feature_requirements.py')
-          text = path.read_text(encoding='utf-8')
-          replacements = [
-              ("'version bumped': 'versionCode 2026080143' in gradle,",
-               "'version bumped': 'versionCode 2026080153' in gradle,"),
-              ("'PlayableAudioResolver.cachedAudioExists' in network",
-               "'CacheFileState.exists' in network"),
-              ("and 'AudioPlaybackVerifier.isPlayableUri' in playable_resolver",
-               "and 'AudioPlaybackVerifier.probeFile' in playable_resolver"),
-              ("and 'mediaPlayer.prepareAsync();' in main",
-               "and 'readyPlayer.prepareAsync();' in main"),
-          ]
-          for old, new in replacements:
-              text = text.replace(old, new)
-
-          content_uri_check = '''    'content uri data source opens off main thread': (
-              'mediaSourceExecutor = Executors.newSingleThreadExecutor()' in main
-              and 'mediaSourceExecutor.submit' in main
-              and 'preparedPlayer.setDataSource(this, Uri.parse(playbackUri));' in main
-              and main.find('mediaSourceExecutor.submit', main.find('private void startLocalPlayback'))
-                  < main.find('preparedPlayer.setDataSource(this, Uri.parse(playbackUri));', main.find('private void startLocalPlayback'))
-              and 'mediaPlayer.setDataSource(this, Uri.parse(song.uri));' not in main
-          ),'''
-          text, count = re.subn(
-              r"    'content uri data source opens off main thread': \(.*?^    \),",
-              content_uri_check, text, count=1, flags=re.S | re.M)
-          if count != 1:
-              raise SystemExit('could not replace content-uri off-main-thread check')
-
-          search_stream_check = '''    'search playback streams first and caches same address in background': (
-              'if (playingSearchQueue)' in main
-              and 'playSearchSongFast(song, playToken);' in main
-              and 'trySearchPlaybackCandidate(song, playToken, 0);' in main
-              and 'startLocalPlayback(song, playToken, () -> {' in main
-              and 'cacheSearchPlaybackAsync(song, resolved, playToken);' in main
-              and '\"search-address-resolver\"' in main
-              and 'searchCacheExecutor = Executors.newSingleThreadExecutor()' in main
-              and 'searchCacheExecutor.submit' in main
-              and 'SearchQuickPlayback.resolveStage' in main
-              and 'SearchQuickPlayback.cache' in main
-          ),'''
-          text, count = re.subn(
-              r"    'search playback streams first and caches same address in background': \(.*?^    \),",
-              search_stream_check, text, count=1, flags=re.S | re.M)
-          if count != 1:
-              raise SystemExit('could not replace search stream/background-cache check')
-          path.write_text(text, encoding='utf-8')
-          PY
-            python3 scripts/check_feature_requirements.py
-          fi
-
+          python3 scripts/check_v154_preserve_current_features.py
+          python3 scripts/check_v154_media3_shared_cache_artwork.py
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('scripts/check_v151_search_range_cache.py')
+          path = Path('scripts/check_v153_playback_stop.py')
           text = path.read_text(encoding='utf-8')
-          text = text.replace('"versionCode 2026080151" in gradle',
-                              '"versionCode 2026080153" in gradle')
-          text = text.replace("'versionName \"2026.08.05.v151-search-range-cache\"' in gradle",
-                              "'versionName \"2026.08.06.v153-playback-stop-report\"' in gradle")
-          path.write_text(text, encoding='utf-8')
-
-          path = Path('scripts/check_v152_rapid_next_stability.py')
-          text = path.read_text(encoding='utf-8')
-          text = text.replace('"versionCode 2026080152" in gradle',
-                              '"versionCode 2026080153" in gradle')
-          text = text.replace("'versionName \"2026.08.05.v152-rapid-next-stability\"' in gradle",
-                              "'versionName \"2026.08.06.v153-playback-stop-report\"' in gradle")
+          text = text.replace('"versionCode 2026080153" in gradle',
+                              '"versionCode 2026080154" in gradle')
+          text = text.replace("'versionName \"2026.08.06.v153-playback-stop-report\"' in gradle",
+                              "'versionName \"2026.08.06.v154-media3-shared-cache\"' in gradle")
+          text = text.replace('"v153 metadata"', '"v154 metadata through v153 regression"')
           path.write_text(text, encoding='utf-8')
           PY
-          python3 scripts/check_v151_search_range_cache.py
-          python3 scripts/check_v152_rapid_next_stability.py
           python3 scripts/check_v153_playback_stop.py
-          grep -q 'versionCode 2026080153' app/build.gradle
-          grep -q 'versionName "2026.08.06.v153-playback-stop-report"' app/build.gradle
+          grep -q 'versionCode 2026080154' app/build.gradle
+          grep -q 'versionName "2026.08.06.v154-media3-shared-cache"' app/build.gradle
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -130,16 +70,16 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build four v153 APKs
+      - name: Build four v154 APKs
         run: |
           if [ -f scripts/run_with_no_output_watchdog.py ]; then
-            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v153.log -- gradle --no-daemon assembleDebug
+            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v154.log -- gradle --no-daemon assembleDebug
           else
             set -o pipefail
-            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v153.log
+            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v154.log
           fi
 
-      - name: Verify v153 APK package names and version
+      - name: Verify v154 APK package names and version
         shell: bash
         run: |
           set -euo pipefail
@@ -159,19 +99,19 @@ jobs:
             package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
             version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
             test "$package_name" = "${expected[$flavor]}"
-            test "$version_code" = "2026080153"
+            test "$version_code" = "2026080154"
             "$apksigner" verify --verbose "$apk"
-            cp "$apk" "verified-apks/${flavor}_v153_playback_stop_report.apk"
+            cp "$apk" "verified-apks/${flavor}_v154_media3_shared_cache_artwork.apk"
           done
-          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v153.txt
+          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v154.txt
 
-      - name: Upload v153 playback-stop APKs and logs
+      - name: Upload v154 APKs and logs
         uses: actions/upload-artifact@v4
         with:
-          name: v153-playback-stop-report-four-brand-apks
+          name: v154-media3-shared-cache-artwork-four-brand-apks
           path: |
             verified-apks/
             build/sdkmanager.log
-            build/assemble-v153.log
+            build/assemble-v154.log
           if-no-files-found: error
           retention-days: 14
