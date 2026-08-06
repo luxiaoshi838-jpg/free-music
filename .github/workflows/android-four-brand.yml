@@ -1,4 +1,4 @@
-name: Build v154 Media3 Shared Cache Four Brands
+name: Build v155 Cache Recognition and Playlist Artwork Four Brands
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: v154-media3-shared-cache-${{ github.workflow }}-${{ github.ref }}
+  group: v155-cache-index-artwork-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -27,25 +27,43 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify v154 feature preservation and Media3 architecture
+      - name: Verify v155 cache, artwork, UI and legacy functions
         run: |
           python3 scripts/check_public_repo.py
-          python3 scripts/check_v154_preserve_current_features.py
-          python3 scripts/check_v154_media3_shared_cache_artwork.py
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('scripts/check_v153_playback_stop.py')
-          text = path.read_text(encoding='utf-8')
-          text = text.replace('"versionCode 2026080153" in gradle',
-                              '"versionCode 2026080154" in gradle')
-          text = text.replace("'versionName \"2026.08.06.v153-playback-stop-report\"' in gradle",
-                              "'versionName \"2026.08.06.v154-media3-shared-cache\"' in gradle")
-          text = text.replace('"v153 metadata"', '"v154 metadata through v153 regression"')
-          path.write_text(text, encoding='utf-8')
+          replacements = {
+              'scripts/check_v154_preserve_current_features.py': [
+                  ('versionCode 2026080154', 'versionCode 2026080155'),
+                  ('2026.08.06.v154-media3-shared-cache',
+                   '2026.08.06.v155-cache-index-playlist-artwork'),
+              ],
+              'scripts/check_v154_media3_shared_cache_artwork.py': [
+                  ('versionCode 2026080154', 'versionCode 2026080155'),
+                  ('2026.08.06.v154-media3-shared-cache',
+                   '2026.08.06.v155-cache-index-playlist-artwork'),
+                  ('"v154 metadata"', '"v155 metadata through v154 regression"'),
+              ],
+              'scripts/check_v153_playback_stop.py': [
+                  ('versionCode 2026080153', 'versionCode 2026080155'),
+                  ('2026.08.06.v153-playback-stop-report',
+                   '2026.08.06.v155-cache-index-playlist-artwork'),
+                  ('"v153 metadata"', '"v155 metadata through v153 regression"'),
+              ],
+          }
+          for filename, pairs in replacements.items():
+              path = Path(filename)
+              text = path.read_text(encoding='utf-8')
+              for old, new in pairs:
+                  text = text.replace(old, new)
+              path.write_text(text, encoding='utf-8')
           PY
+          python3 scripts/check_v154_preserve_current_features.py
+          python3 scripts/check_v154_media3_shared_cache_artwork.py
           python3 scripts/check_v153_playback_stop.py
-          grep -q 'versionCode 2026080154' app/build.gradle
-          grep -q 'versionName "2026.08.06.v154-media3-shared-cache"' app/build.gradle
+          python3 scripts/check_v155_cache_index_playlist_artwork.py
+          grep -q 'versionCode 2026080155' app/build.gradle
+          grep -q 'versionName "2026.08.06.v155-cache-index-playlist-artwork"' app/build.gradle
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -70,16 +88,16 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build four v154 APKs
+      - name: Build four v155 APKs
         run: |
           if [ -f scripts/run_with_no_output_watchdog.py ]; then
-            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v154.log -- gradle --no-daemon assembleDebug
+            python3 scripts/run_with_no_output_watchdog.py --silence-seconds 300 --log build/assemble-v155.log -- gradle --no-daemon assembleDebug
           else
             set -o pipefail
-            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v154.log
+            gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v155.log
           fi
 
-      - name: Verify v154 APK package names and version
+      - name: Verify v155 APK package names and version
         shell: bash
         run: |
           set -euo pipefail
@@ -99,19 +117,19 @@ jobs:
             package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
             version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
             test "$package_name" = "${expected[$flavor]}"
-            test "$version_code" = "2026080154"
+            test "$version_code" = "2026080155"
             "$apksigner" verify --verbose "$apk"
-            cp "$apk" "verified-apks/${flavor}_v154_media3_shared_cache_artwork.apk"
+            cp "$apk" "verified-apks/${flavor}_v155_cache_index_playlist_artwork.apk"
           done
-          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v154.txt
+          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v155.txt
 
-      - name: Upload v154 APKs and logs
+      - name: Upload v155 APKs and logs
         uses: actions/upload-artifact@v4
         with:
-          name: v154-media3-shared-cache-artwork-four-brand-apks
+          name: v155-cache-index-playlist-artwork-four-brand-apks
           path: |
             verified-apks/
             build/sdkmanager.log
-            build/assemble-v154.log
+            build/assemble-v155.log
           if-no-files-found: error
           retention-days: 14
