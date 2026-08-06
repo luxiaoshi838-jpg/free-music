@@ -1,0 +1,36 @@
+name: Apply v155 Cache and Artwork Follow-up
+
+on:
+  push:
+    branches:
+      - agent/v128-m4a-decrypt
+
+permissions:
+  contents: write
+
+jobs:
+  apply-followup:
+    if: ${{ !contains(github.event.head_commit.message, '[v155-followup-applied]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v128-m4a-decrypt
+          fetch-depth: 0
+
+      - name: Apply v155 follow-up
+        run: |
+          python3 scripts/apply_v155_followup.py
+          git diff --check
+          grep -q 'item.artworkUrl = song.artworkUrl' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'target.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'artworkUrl.trim()' app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
+
+      - name: Commit follow-up
+        run: |
+          git config user.name 'luxiaoshi838-jpg'
+          git config user.email 'luxiaoshi838@gmail.com'
+          git add app/src/main/java/com/jianglab/babywife
+          git commit -m 'Complete v155 cache and playlist artwork propagation [v155-followup-applied] [skip ci]'
+          git push origin HEAD:agent/v128-m4a-decrypt
