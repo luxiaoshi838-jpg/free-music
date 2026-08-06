@@ -20,6 +20,10 @@ quick = read("app/src/main/java/com/jianglab/babywife/SearchQuickPlayback.java")
 gradle = read("app/build.gradle")
 cache_storage = read("app/src/main/java/com/jianglab/babywife/CacheStorage.java")
 
+candidate_start = main.find("    private void trySearchPlaybackCandidate(")
+candidate_end = main.find("    private void cacheSearchPlaybackAsync(", candidate_start)
+candidate_block = main[candidate_start:candidate_end] if candidate_start >= 0 and candidate_end > candidate_start else ""
+
 changed = set(filter(None, git("diff", "--name-only", BASELINE, "HEAD").splitlines()))
 ui_prefixes = (
     "app/src/main/res/layout/",
@@ -41,19 +45,20 @@ checks = {
         and "结果没有返回可播放地址，请选择其他来源结果" in main
     ),
     "selected source mismatch rejected": (
-        "!requestedSource.equals(resolved.sourceCode)" in main
-        and "来源校验失败：选择的是" in main
+        "!requestedSource.equals(resolved.sourceCode)" in candidate_block
+        and "来源校验失败：选择的是" in candidate_block
     ),
     "cross-source fallback limited to playlist replacement": (
-        "酷我（歌单自动替代）" in main
-        and "网易云（歌单自动替代）" in main
-        and "trySearchPlaybackCandidate(song, playToken, stage, !playingSearchQueue);" in main
+        "酷我（歌单自动替代）" in candidate_block
+        and "网易云（歌单自动替代）" in candidate_block
+        and "trySearchPlaybackCandidate(song, playToken, stage, !playingSearchQueue);" in candidate_block
     ),
     "resolved metadata installed before player opens": (
-        main.find("song.catalogJson = resolved.catalogJson;")
-        < main.find("startLocalPlayback(song, playToken, () ->")
-        and "song.source = resolved.sourceLabel;" in main
-        and "song.uri = resolved.playbackUrl;" in main
+        candidate_block.find("song.catalogJson = resolved.catalogJson;") >= 0
+        and candidate_block.find("song.catalogJson = resolved.catalogJson;")
+            < candidate_block.find("startLocalPlayback(song, playToken, () ->")
+        and "song.source = resolved.sourceLabel;" in candidate_block
+        and "song.uri = resolved.playbackUrl;" in candidate_block
     ),
     "Media3 key is source and catalog specific": (
         'return "media3|catalog|" + catalogKey.trim();' in store
@@ -65,8 +70,8 @@ checks = {
         and "catalogIdentity(candidate.catalogJson)" in main
     ),
     "playback immediately starts friendly export": (
-        "播放后自动生成本地缓存文件" in main
-        and "cacheSearchPlaybackAsync(song, resolved, playToken);" in main
+        "播放后自动生成本地缓存文件" in candidate_block
+        and "cacheSearchPlaybackAsync(song, resolved, playToken);" in candidate_block
         and "加入当前歌单" in main
     ),
     "cache tasks are per source key and survive song switch": (
