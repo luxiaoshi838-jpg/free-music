@@ -35,7 +35,7 @@ final class PlaybackArtworkLoader {
     private static final int READ_TIMEOUT_MS = 15000;
     private static final int MAX_REDIRECTS = 6;
     private static final int MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024;
-    private static final int TARGET_SIZE = 960;
+    private static final int TARGET_SIZE = 1280;
     private static final int MAX_CACHE_FILES = 180;
     private static final long MAX_CACHE_BYTES = 96L * 1024L * 1024L;
 

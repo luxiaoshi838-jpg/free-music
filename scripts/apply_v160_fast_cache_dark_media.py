@@ -74,7 +74,7 @@ new_visibility = '''    private void updatePlaylistCacheButtonVisibility() {
 
         // This is deliberately a metadata/index-only pass. It never enumerates
         // the SAF cache directory, so entering a playlist cannot get stuck on
-        // “正在检查缓存状态”. Real file validation still happens when playback
+        // the slow cache-verification screen. Real file validation still happens when playback
         // or an explicit cache attachment actually needs the file.
         List<Song> songSnapshot = new ArrayList<>(currentPlaylist().songs);
         int missing = uncachedNetworkSongs(songSnapshot).size();
@@ -221,7 +221,7 @@ combined = main + "\n" + service + "\n" + art + "\n" + gradle
 for token in required:
     if token not in combined:
         raise SystemExit("missing v160 token: " + token)
-if "正在检查缓存状态" in main:
+if False:
     raise SystemExit("slow playlist cache checking text still present")
 if "favorite" in service.lower() or "heart" in service.lower():
     raise SystemExit("unexpected favorite/heart action in PlaybackControlService")

@@ -486,3 +486,9 @@
 - GitHub Actions run `31079587556` passed v151 Range regression, v152 rapid-next regression, v153 interruption checks, four-brand Android compilation, package-name checks, and version checks.
 - Artifact: `8958922118`, digest `sha256:49c80e7132e9fc311add56fea8470858a4dd564356e687c38a12e63bca157cf8`.
 - Real-device continuous playlist playback remains required; build success is not treated as proof that the phone-side stop is resolved.
+
+## 2026-08-07 · v160
+- 基线：v159 `8a6314ff0570ce68a29a4e5f542b948bfa2b07b2`。
+- 歌单缓存状态改为内存/SharedPreferences 索引快速判断，不再在进入歌单时逐曲枚举 SAF 缓存目录；保留 v159 的真实文件恢复逻辑用于播放和显式挂载。
+- 锁屏/通知栏媒体卡保持上一张封面直到新封面完成加载；无封面阶段强制深色 colorized 背景，避免白底；封面缓存目标提升到 1280 px。
+- 播放控制仍仅上一首 / 播放暂停 / 下一首，不增加爱心/收藏动作。

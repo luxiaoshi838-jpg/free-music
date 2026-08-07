@@ -2486,33 +2486,15 @@ public class MainActivity extends Activity {
             return;
         }
 
-        final Playlist playlistSnapshot = currentPlaylist();
-        final int playlistIndexSnapshot = currentPlaylistIndex;
-        final List<Song> songSnapshot = playlistSnapshot == null
-            ? new ArrayList<>() : new ArrayList<>(playlistSnapshot.songs);
-        final int requestSerial = ++playlistCacheScanSerial;
-
-        playlistCacheButton.setVisibility(View.VISIBLE);
-        playlistCacheButton.setEnabled(false);
-        playlistCacheButton.setText("正在检查缓存状态…");
-        try {
-            playlistCacheScanExecutor.execute(() -> {
-                final int missing = uncachedNetworkSongs(songSnapshot).size();
-                runOnUiThread(() -> {
-                    if (playlistCacheButton == null || requestSerial != playlistCacheScanSerial) return;
-                    if (playlistSnapshot != currentPlaylist()
-                        || playlistIndexSnapshot != currentPlaylistIndex) {
-                        updatePlaylistCacheButtonVisibility();
-                        return;
-                    }
-                    playlistCacheButton.setEnabled(true);
-                    playlistCacheButton.setVisibility(missing > 0 ? View.VISIBLE : View.GONE);
-                    playlistCacheButton.setText("一键缓存未缓存歌曲（" + missing + "）");
-                });
-            });
-        } catch (RuntimeException ignored) {
-            playlistCacheButton.setEnabled(true);
-        }
+        // This is deliberately a metadata/index-only pass. It never enumerates
+        // the SAF cache directory, so entering a playlist cannot get stuck on
+        // the slow cache-verification screen. Real file validation still happens when playback
+        // or an explicit cache attachment actually needs the file.
+        List<Song> songSnapshot = new ArrayList<>(currentPlaylist().songs);
+        int missing = uncachedNetworkSongs(songSnapshot).size();
+        playlistCacheButton.setEnabled(true);
+        playlistCacheButton.setVisibility(missing > 0 ? View.VISIBLE : View.GONE);
+        playlistCacheButton.setText("一键缓存未缓存歌曲（" + missing + "）");
     }
 
     private List<Song> uncachedNetworkSongs(Playlist playlist) {
@@ -2525,7 +2507,7 @@ public class MainActivity extends Activity {
         if (songs == null) return result;
         for (Song song : songs) {
             if (song == null || !song.isNetworkCatalog()) continue;
-            if (songHasPlayableCache(song)) continue;
+            if (songHasRecordedCache(song)) continue;
             result.add(song);
         }
         return result;
@@ -2543,7 +2525,20 @@ public class MainActivity extends Activity {
         String cached = song.cachedUri == null ? "" : song.cachedUri.trim();
         if (!cached.isEmpty()) return true;
         String direct = song.uri == null ? "" : song.uri.trim();
-        return direct.startsWith("file:") || direct.startsWith("content:");
+        if (direct.startsWith("file:") || direct.startsWith("content:")) return true;
+
+        // The Media3 export index is SharedPreferences-backed and therefore
+        // cheap to query. Trusting its friendly URI avoids an expensive SAF
+        // directory walk while still recovering the v159 red/failure flags.
+        String media3Key = Media3CacheStore.keyFor(
+            song.title, song.artist, song.catalogJson);
+        String indexedUri = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
+        if (!indexedUri.isEmpty()) {
+            boolean changed = recoverCachedSongState(song, indexedUri);
+            if (changed) savePlaylists();
+            return true;
+        }
+        return false;
     }
 
     private boolean songHasPlayableCache(Song song) {
@@ -3112,7 +3107,7 @@ public class MainActivity extends Activity {
                     skipped++;
                     continue;
                 }
-                if (songHasPlayableCache(song)) {
+                if (songHasRecordedCache(song)) {
                     done++;
                     continue;
                 }

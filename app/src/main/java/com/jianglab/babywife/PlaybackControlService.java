@@ -8,6 +8,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
@@ -48,6 +49,7 @@ public final class PlaybackControlService extends Service {
 
     private static final String CHANNEL_ID = "babywife_media_playback";
     private static final int NOTIFICATION_ID = 1514;
+    private static final int FALLBACK_MEDIA_COLOR = Color.rgb(34, 31, 40);
 
     private final ExecutorService artworkExecutor = Executors.newSingleThreadExecutor();
     private MediaSession mediaSession;
@@ -179,7 +181,8 @@ public final class PlaybackControlService extends Service {
         if (next.equals(artworkIdentity)) return;
         artworkIdentity = next;
         artworkRequestedIdentity = "";
-        artwork = null;
+        // Keep the previous cover visible until the new one finishes loading;
+        // otherwise every track change flashes a white media card.
         artworkRequestSerial++;
     }
 
@@ -303,16 +306,27 @@ public final class PlaybackControlService extends Service {
             .setStyle(new Notification.MediaStyle()
                 .setMediaSession(mediaSession.getSessionToken())
                 .setShowActionsInCompactView(0, 1, 2));
+        int mediaColor = artwork == null
+            ? FALLBACK_MEDIA_COLOR : darkMediaColor(PlaybackArtworkLoader.averageColor(artwork));
+        builder.setColor(mediaColor);
         if (artwork != null) {
-            builder.setLargeIcon(artwork)
-                .setColor(PlaybackArtworkLoader.averageColor(artwork));
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                builder.setColorized(true);
-            }
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder.setColorized(false);
+            // High-resolution square art is supplied to both MediaSession and
+            // the notification. Android/OEM lock screens can then crop/enlarge
+            // it as the media-card backdrop instead of falling back to white.
+            builder.setLargeIcon(artwork);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setColorized(true);
         }
         return builder.build();
+    }
+
+    private int darkMediaColor(int color) {
+        if (color == 0) return FALLBACK_MEDIA_COLOR;
+        int red = Math.max(18, Color.red(color) * 58 / 100);
+        int green = Math.max(18, Color.green(color) * 58 / 100);
+        int blue = Math.max(22, Color.blue(color) * 58 / 100);
+        return Color.rgb(red, green, blue);
     }
 
     private PendingIntent servicePendingIntent(String action, int requestCode) {
