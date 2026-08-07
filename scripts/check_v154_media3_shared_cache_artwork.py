@@ -42,9 +42,17 @@ checks = {
         and "SimpleCache" in store
     ),
     "background completion reuses cached spans": (
-        "CacheWriter" in exporter
-        and "createDataSourceForDownloading" in exporter
-        and "Media3CacheStore.get(context).isCached" in exporter
+        (
+            "CacheWriter" in exporter
+            and "createDataSourceForDownloading" in exporter
+            and "Media3CacheStore.get(context).isCached" in exporter
+        )
+        or (
+            "copyReadThroughResource" in exporter
+            and "setCacheWriteDataSinkFactory(null)" in exporter
+            and "FLAG_IGNORE_CACHE_ON_ERROR" in exporter
+            and "Media3CacheStore.cachedBytes" in exporter
+        )
     ),
     "friendly audio export retained": (
         "CacheStorage.storeAudio" in exporter
