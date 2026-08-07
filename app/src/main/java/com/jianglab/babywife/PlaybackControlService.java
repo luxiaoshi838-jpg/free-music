@@ -14,6 +14,8 @@ import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Build;
 import android.os.IBinder;
+import android.view.View;
+import android.widget.RemoteViews;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -271,21 +273,13 @@ public final class PlaybackControlService extends Service {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        Notification.Action previous = new Notification.Action.Builder(
-            android.R.drawable.ic_media_previous,
-            "上一首",
-            servicePendingIntent(ACTION_PREVIOUS, 11)
-        ).build();
-        Notification.Action toggle = new Notification.Action.Builder(
-            playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play,
-            playing ? "暂停" : "播放",
-            servicePendingIntent(ACTION_TOGGLE, 12)
-        ).build();
-        Notification.Action next = new Notification.Action.Builder(
-            android.R.drawable.ic_media_next,
-            "下一首",
-            servicePendingIntent(ACTION_NEXT, 13)
-        ).build();
+        // v161 intentionally does NOT use Notification.MediaStyle. On the user's
+        // ROM the system completely re-skinned MediaStyle into the same pale card,
+        // ignoring the app's dark color. A custom RemoteViews notification makes
+        // the visible card itself app-controlled instead of palette-controlled by
+        // SystemUI. MediaSession remains active for headset/Bluetooth transport.
+        RemoteViews compact = buildCompactRemoteViews();
+        RemoteViews expanded = buildExpandedRemoteViews();
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? new Notification.Builder(this, CHANNEL_ID)
@@ -300,33 +294,75 @@ public final class PlaybackControlService extends Service {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
-            .addAction(previous)
-            .addAction(toggle)
-            .addAction(next)
-            .setStyle(new Notification.MediaStyle()
-                .setMediaSession(mediaSession.getSessionToken())
-                .setShowActionsInCompactView(0, 1, 2));
-        int mediaColor = artwork == null
-            ? FALLBACK_MEDIA_COLOR : darkMediaColor(PlaybackArtworkLoader.averageColor(artwork));
-        builder.setColor(mediaColor);
-        if (artwork != null) {
-            // High-resolution square art is supplied to both MediaSession and
-            // the notification. Android/OEM lock screens can then crop/enlarge
-            // it as the media-card backdrop instead of falling back to white.
-            builder.setLargeIcon(artwork);
+            .setColor(FALLBACK_MEDIA_COLOR);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            builder.setCustomContentView(compact)
+                .setCustomBigContentView(expanded)
+                .setCustomHeadsUpContentView(compact)
+                .setStyle(new Notification.DecoratedCustomViewStyle());
+        } else {
+            builder.setContent(compact);
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder.setColorized(true);
+            // Do not let SystemUI recolor the custom dark surface from wallpaper.
+            builder.setColorized(false);
         }
         return builder.build();
     }
 
-    private int darkMediaColor(int color) {
-        if (color == 0) return FALLBACK_MEDIA_COLOR;
-        int red = Math.max(18, Color.red(color) * 58 / 100);
-        int green = Math.max(18, Color.green(color) * 58 / 100);
-        int blue = Math.max(22, Color.blue(color) * 58 / 100);
-        return Color.rgb(red, green, blue);
+    private RemoteViews buildCompactRemoteViews() {
+        RemoteViews views = new RemoteViews(getPackageName(), R.layout.notification_media_compact);
+        bindCommonRemoteViews(views, false);
+        return views;
+    }
+
+    private RemoteViews buildExpandedRemoteViews() {
+        RemoteViews views = new RemoteViews(getPackageName(), R.layout.notification_media_expanded);
+        bindCommonRemoteViews(views, true);
+        return views;
+    }
+
+    private void bindCommonRemoteViews(RemoteViews views, boolean expanded) {
+        views.setTextViewText(R.id.media_title, title);
+        views.setTextViewText(R.id.media_artist, artist);
+        views.setTextViewText(R.id.media_previous, "⏮");
+        views.setTextViewText(R.id.media_toggle, playing ? "Ⅱ" : "▶");
+        views.setTextViewText(R.id.media_next, "⏭");
+        views.setOnClickPendingIntent(R.id.media_previous,
+            servicePendingIntent(ACTION_PREVIOUS, expanded ? 21 : 11));
+        views.setOnClickPendingIntent(R.id.media_toggle,
+            servicePendingIntent(ACTION_TOGGLE, expanded ? 22 : 12));
+        views.setOnClickPendingIntent(R.id.media_next,
+            servicePendingIntent(ACTION_NEXT, expanded ? 23 : 13));
+
+        if (artwork != null) {
+            views.setImageViewBitmap(R.id.media_artwork, artwork);
+            views.setViewVisibility(R.id.media_artwork, View.VISIBLE);
+            if (expanded) {
+                views.setImageViewBitmap(R.id.media_background, artwork);
+                views.setViewVisibility(R.id.media_background, View.VISIBLE);
+            }
+        } else {
+            views.setViewVisibility(R.id.media_artwork, View.INVISIBLE);
+            if (expanded) views.setViewVisibility(R.id.media_background, View.GONE);
+        }
+
+        if (expanded) {
+            int max = duration > 0L ? (int) Math.min(Integer.MAX_VALUE, duration) : 1;
+            int progress = duration > 0L
+                ? (int) Math.min(max, Math.max(0L, position)) : 0;
+            views.setProgressBar(R.id.media_progress, max, progress, false);
+            views.setTextViewText(R.id.media_position, formatMediaTime(position));
+            views.setTextViewText(R.id.media_duration, formatMediaTime(duration));
+        }
+    }
+
+    private String formatMediaTime(long millis) {
+        long totalSeconds = Math.max(0L, millis) / 1000L;
+        long minutes = totalSeconds / 60L;
+        long seconds = totalSeconds % 60L;
+        return String.format(java.util.Locale.ROOT, "%d:%02d", minutes, seconds);
     }
 
     private PendingIntent servicePendingIntent(String action, int requestCode) {

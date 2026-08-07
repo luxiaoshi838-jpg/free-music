@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080760
-        versionName "2026.08.07.v160-fast-cache-dark-media"
+        versionCode 2026080761
+        versionName "2026.08.07.v161-custom-dark-media-card"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
