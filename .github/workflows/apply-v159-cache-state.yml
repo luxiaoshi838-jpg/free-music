@@ -1,0 +1,39 @@
+name: Apply v159 Cache State Recovery
+
+on:
+  push:
+    branches:
+      - agent/v128-m4a-decrypt
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-v159-cache-state
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[v159-applied]') }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: Checkout patch and push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin agent/v128-m4a-decrypt
+          git checkout -B agent/v128-m4a-decrypt FETCH_HEAD
+          python3 scripts/apply_v159_cache_state_recovery.py
+          git diff --check
+          grep -q 'versionCode 2026080759' app/build.gradle
+          grep -q 'recoverCachedSongState' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'if (songHasPlayableCache(song)) continue;' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          git config user.name 'luxiaoshi838-jpg'
+          git config user.email 'luxiaoshi838@gmail.com'
+          git add app/src/main/java/com/jianglab/babywife/MainActivity.java app/build.gradle
+          git commit -m 'Recover cached songs from stale red state [v159-applied] [skip ci]'
+          git push origin HEAD:agent/v128-m4a-decrypt
