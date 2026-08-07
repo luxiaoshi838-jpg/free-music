@@ -1,0 +1,135 @@
+name: Build v164 Direct Media Rollback
+
+on:
+  push:
+    branches:
+      - agent/v164-clean-media-baseline
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rollback-or-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout v164 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v164-clean-media-baseline
+          fetch-depth: 0
+
+      - name: Directly restore v159 media files
+        id: rollback
+        run: |
+          set -euo pipefail
+          git checkout v159-ci-31142430060 -- \
+            app/src/main/java/com/jianglab/babywife/PlaybackControlService.java \
+            app/src/main/java/com/jianglab/babywife/PlaybackArtworkLoader.java
+          if git diff --quiet; then
+            echo "rolled_back=false" >> "$GITHUB_OUTPUT"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add \
+              app/src/main/java/com/jianglab/babywife/PlaybackControlService.java \
+              app/src/main/java/com/jianglab/babywife/PlaybackArtworkLoader.java
+            git commit -m "v164: directly roll media subsystem back to v159"
+            git push origin HEAD:agent/v164-clean-media-baseline
+            echo "rolled_back=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stop first pass after rollback commit
+        if: steps.rollback.outputs.rolled_back == 'true'
+        run: echo "Exact v159 media files committed; next push-triggered run will build v164."
+
+      - name: Verify exact rollback and retained cache fix
+        if: steps.rollback.outputs.rolled_back != 'true'
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode 2026080764' app/build.gradle
+          grep -q 'versionName "2026.08.07.v164-clean-media-baseline"' app/build.gradle
+          git show v159-ci-31142430060:app/src/main/java/com/jianglab/babywife/PlaybackControlService.java > /tmp/v159-service.java
+          git show v159-ci-31142430060:app/src/main/java/com/jianglab/babywife/PlaybackArtworkLoader.java > /tmp/v159-artwork.java
+          cmp -s /tmp/v159-service.java app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
+          cmp -s /tmp/v159-artwork.java app/src/main/java/com/jianglab/babywife/PlaybackArtworkLoader.java
+          grep -q 'TARGET_SIZE = 960' app/src/main/java/com/jianglab/babywife/PlaybackArtworkLoader.java
+          grep -q 'new Notification.MediaStyle()' app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
+          ! grep -q 'FIXED_MEDIA_COLOR' app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
+          ! grep -q 'RemoteViews' app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
+          ! grep -q 'playlistCacheButton.setText("正在检查缓存状态' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'if (songHasRecordedCache(song)) continue;' app/src/main/java/com/jianglab/babywife/MainActivity.java
+
+      - name: Prepare Android toolchain
+        if: steps.rollback.outputs.rolled_back != 'true'
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;37.0.0"
+          curl -fL --retry 5 --retry-delay 5 https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle-8.7-bin.zip
+          rm -rf /tmp/gradle-8.7
+          unzip -q /tmp/gradle-8.7-bin.zip -d /tmp
+
+      - name: Build four unsigned v164 release APKs
+        if: steps.rollback.outputs.rolled_back != 'true'
+        env:
+          JIANG_LAB_PASSPHRASE_SHA256: ${{ secrets.JIANG_LAB_PASSPHRASE_SHA256 }}
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$JAVA_HOME/bin:/tmp/gradle-8.7/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          mkdir -p build
+          /tmp/gradle-8.7/bin/gradle --no-daemon assembleRelease 2>&1 | tee build/assemble-v164-release.log
+
+      - name: Align and verify package identities
+        if: steps.rollback.outputs.rolled_back != 'true'
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          aapt="$ANDROID_HOME/build-tools/37.0.0/aapt"
+          zipalign="$ANDROID_HOME/build-tools/37.0.0/zipalign"
+          mkdir -p v164-unsigned-aligned signing-tools/lib
+          declare -A expected=(
+            [babywifeclassic]="com.jianglab.babywife"
+            [lidacaizhu]="com.jianglab.babywife.lidacaizhu"
+            [jianglab]="com.jianglab.babywife.jianglab"
+            [niubi]="com.jianglab.babywife.niubi"
+          )
+          for flavor in babywifeclassic lidacaizhu jianglab niubi; do
+            input="app/build/outputs/apk/${flavor}/release/app-${flavor}-release-unsigned.apk"
+            test -s "$input"
+            output="v164-unsigned-aligned/${flavor}_v164_unsigned_aligned.apk"
+            "$zipalign" -f -p 4 "$input" "$output"
+            "$zipalign" -c -p 4 "$output"
+            badging=$("$aapt" dump badging "$output")
+            package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
+            test "$package_name" = "${expected[$flavor]}"
+            test "$version_code" = "2026080764"
+          done
+          cp "$ANDROID_HOME/build-tools/37.0.0/apksigner" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/zipalign" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/lib/apksigner.jar" signing-tools/lib/
+          chmod +x signing-tools/apksigner signing-tools/zipalign
+          sha256sum v164-unsigned-aligned/*.apk | tee v164-unsigned-aligned/SHA256.txt
+          git rev-parse HEAD | tee v164-unsigned-aligned/SOURCE_HEAD.txt
+
+      - name: Upload unsigned APKs and signing tools
+        if: steps.rollback.outputs.rolled_back != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: v164-unsigned-aligned-and-signing-tools
+          path: |
+            v164-unsigned-aligned/
+            signing-tools/
+            build/assemble-v164-release.log
+          if-no-files-found: error
+          retention-days: 7
