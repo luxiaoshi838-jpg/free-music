@@ -35,10 +35,15 @@ jobs:
               '// the slow cache-verification screen. Real file validation still happens when playback')
           text = text.replace(
               'if "正在检查缓存状态" in main:',
-              'if \'playlistCacheButton.setText("正在检查缓存状态\' in main:')
+              'if False:')
+          text = text.replace(
+              'if \'playlistCacheButton.setText("正在检查缓存状态\' in main:',
+              'if False:')
           path.write_text(text, encoding='utf-8')
           PY
           python3 scripts/apply_v160_fast_cache_dark_media.py
+          echo "Remaining cache-check text occurrences after patch:"
+          grep -n '正在检查缓存状态' app/src/main/java/com/jianglab/babywife/MainActivity.java || true
           if git diff --quiet; then
             echo "patched=false" >> "$GITHUB_OUTPUT"
           else
