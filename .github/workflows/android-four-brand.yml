@@ -41,29 +41,23 @@ jobs:
           replacements = {
               'scripts/check_v154_preserve_current_features.py': [
                   ('versionCode 2026080154', 'versionCode 2026080757'),
-                  ('2026.08.06.v154-media3-shared-cache',
-                   '2026.08.06.v157-source-faithful-cache-export'),
+                  ('2026.08.06.v154-media3-shared-cache', '2026.08.06.v157-source-faithful-cache-export'),
               ],
               'scripts/check_v154_media3_shared_cache_artwork.py': [
                   ('versionCode 2026080154', 'versionCode 2026080757'),
-                  ('2026.08.06.v154-media3-shared-cache',
-                   '2026.08.06.v157-source-faithful-cache-export'),
+                  ('2026.08.06.v154-media3-shared-cache', '2026.08.06.v157-source-faithful-cache-export'),
                   ('"v154 metadata"', '"v157 metadata through v154 regression"'),
               ],
               'scripts/check_v153_playback_stop.py': [
                   ('versionCode 2026080153', 'versionCode 2026080757'),
-                  ('2026.08.06.v153-playback-stop-report',
-                   '2026.08.06.v157-source-faithful-cache-export'),
+                  ('2026.08.06.v153-playback-stop-report', '2026.08.06.v157-source-faithful-cache-export'),
                   ('"v153 metadata"', '"v157 metadata through v153 regression"'),
-                  ('searchCacheExecutor = Executors.newSingleThreadExecutor()',
-                   'searchCacheExecutor = Executors.newFixedThreadPool(2)'),
-                  ('"existing v152 serialized player retained"',
-                   '"v152 serialized media-source player retained with v157 cache workers"'),
+                  ('searchCacheExecutor = Executors.newSingleThreadExecutor()', 'searchCacheExecutor = Executors.newFixedThreadPool(2)'),
+                  ('"existing v152 serialized player retained"', '"v152 serialized media-source player retained with v157 cache workers"'),
               ],
               'scripts/check_v155_cache_index_playlist_artwork.py': [
                   ('versionCode 2026080155', 'versionCode 2026080757'),
-                  ('2026.08.06.v155-cache-index-playlist-artwork',
-                   '2026.08.06.v157-source-faithful-cache-export'),
+                  ('2026.08.06.v155-cache-index-playlist-artwork', '2026.08.06.v157-source-faithful-cache-export'),
                   ('"v155 metadata"', '"v157 metadata with v155 functions"'),
               ],
           }
@@ -94,9 +88,7 @@ jobs:
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;37.0.0" 2>&1 | tee build/sdkmanager.log
-          curl -fL --retry 5 --retry-delay 5 \
-            https://services.gradle.org/distributions/gradle-8.7-bin.zip \
-            -o /tmp/gradle-8.7-bin.zip
+          curl -fL --retry 5 --retry-delay 5 https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle-8.7-bin.zip
           rm -rf /tmp/gradle-8.7
           unzip -q /tmp/gradle-8.7-bin.zip -d /tmp
           /tmp/gradle-8.7/bin/gradle --version | tee build/gradle-version.log
@@ -136,11 +128,18 @@ jobs:
             cp "$apk" "verified-apks/${flavor}_v157_source_faithful_cache_export.apk"
           done
           sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v157.txt
-          zip -r -9 v157-source-faithful-cache-export-four-brand-apks.zip \
-            verified-apks build/java-version.log build/gradle-version.log \
-            build/sdkmanager.log build/assemble-v157.log
-          sha256sum v157-source-faithful-cache-export-four-brand-apks.zip \
-            | tee v157-build-archive-sha256.txt
+          zip -r -9 v157-source-faithful-cache-export-four-brand-apks.zip verified-apks build/java-version.log build/gradle-version.log build/sdkmanager.log build/assemble-v157.log
+          sha256sum v157-source-faithful-cache-export-four-brand-apks.zip | tee v157-build-archive-sha256.txt
+
+      - name: Upload v157 workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v157-source-faithful-cache-export-four-brand-apks
+          path: |
+            verified-apks/
+            build/assemble-v157.log
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Publish temporary build release
         env:
@@ -148,11 +147,4 @@ jobs:
         run: |
           set -euo pipefail
           tag="v157-ci-${GITHUB_RUN_ID}"
-          gh release create "$tag" \
-            v157-source-faithful-cache-export-four-brand-apks.zip \
-            v157-build-archive-sha256.txt \
-            --repo "$GITHUB_REPOSITORY" \
-            --target agent/v128-m4a-decrypt \
-            --title "v157 CI build ${GITHUB_RUN_ID}" \
-            --notes "Temporary unsigned CI build for v157 verification." \
-            --prerelease
+          gh release create "$tag" v157-source-faithful-cache-export-four-brand-apks.zip v157-build-archive-sha256.txt --repo "$GITHUB_REPOSITORY" --target agent/v128-m4a-decrypt --title "v157 CI build ${GITHUB_RUN_ID}" --notes "Temporary unsigned CI build for v157 verification." --prerelease
