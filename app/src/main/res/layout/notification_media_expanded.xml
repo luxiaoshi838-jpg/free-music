@@ -25,7 +25,7 @@
         android:paddingTop="10dp"
         android:paddingBottom="8dp">
 
-        <!-- 顶部信息区：按用户前一次单独参考图，左大封面、右三行信息 -->
+        <!-- 对照前一次单独参考图：左侧大封面、右侧三行信息、右上均衡器 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="82dp"
@@ -77,9 +77,18 @@
                     android:textColor="#FFB7B2BC"
                     android:textSize="12sp" />
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/media_equalizer"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:gravity="center"
+                android:text="▏▮▎▌"
+                android:textColor="#FFFFFFFF"
+                android:textSize="18sp" />
         </LinearLayout>
 
-        <!-- 参考图：信息区下方先放完整进度条 -->
+        <!-- 参考图：一整条进度条 -->
         <ProgressBar
             android:id="@+id/media_progress"
             style="?android:attr/progressBarStyleHorizontal"
@@ -87,7 +96,7 @@
             android:layout_height="5dp"
             android:layout_marginTop="8dp" />
 
-        <!-- 当前时间 / 总时间位于进度条两端下方 -->
+        <!-- 参考图：进度时间位于进度条下方两端 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="22dp"
@@ -113,12 +122,21 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
-        <!-- 底部控制区：取消左侧爱心，中央播放按钮做成大圆形，右侧保留队列 -->
+        <!-- 底部：左耳机；上一首；中央大圆播放；下一首；右队列 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="72dp"
             android:orientation="horizontal"
             android:gravity="center_vertical">
+
+            <ImageView
+                android:id="@+id/media_headset"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:padding="10dp"
+                android:src="@drawable/ic_media_headphones"
+                android:background="@drawable/notification_media_corner_circle"
+                android:contentDescription="耳机与音频输出" />
 
             <Space
                 android:layout_width="0dp"
