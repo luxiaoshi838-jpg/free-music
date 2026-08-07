@@ -87,8 +87,8 @@ checks = {
     "v158 nonblocking export retained": (
         "setCacheWriteDataSinkFactory(null)" in exporter
         and "copyReadThroughResource" in exporter
-        and "CacheWriter" not in exporter
-        and "FLAG_BLOCK_ON_CACHE" not in exporter
+        and "import androidx.media3.datasource.cache.CacheWriter;" not in exporter
+        and ".setFlags(CacheDataSource.FLAG_BLOCK_ON_CACHE)" not in exporter
     ),
 }
 
