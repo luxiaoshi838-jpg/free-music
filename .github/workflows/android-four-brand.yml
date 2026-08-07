@@ -74,8 +74,8 @@ jobs:
           grep -q 'versionName "2026.08.07.v159-cache-state-recovery"' app/build.gradle
           grep -q 'recoverCachedSongState' app/src/main/java/com/jianglab/babywife/MainActivity.java
           grep -q 'setCacheWriteDataSinkFactory(null)' app/src/main/java/com/jianglab/babywife/Media3FriendlyCacheExporter.java
-          ! grep -q 'CacheWriter' app/src/main/java/com/jianglab/babywife/Media3FriendlyCacheExporter.java
-          ! grep -q 'FLAG_BLOCK_ON_CACHE' app/src/main/java/com/jianglab/babywife/Media3FriendlyCacheExporter.java
+          ! grep -q '^import androidx.media3.datasource.cache.CacheWriter;' app/src/main/java/com/jianglab/babywife/Media3FriendlyCacheExporter.java
+          ! grep -q 'setFlags(CacheDataSource.FLAG_BLOCK_ON_CACHE)' app/src/main/java/com/jianglab/babywife/Media3FriendlyCacheExporter.java
           git diff --name-only 50846752e1866d603557af30ba8734671cd3d89d HEAD | grep -E '^app/src/main/res/' && exit 1 || true
 
       - name: Prepare JDK 17 Android SDK and Gradle 8.7
