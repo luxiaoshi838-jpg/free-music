@@ -8,7 +8,6 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
@@ -49,7 +48,6 @@ public final class PlaybackControlService extends Service {
 
     private static final String CHANNEL_ID = "babywife_media_playback";
     private static final int NOTIFICATION_ID = 1514;
-    private static final int FIXED_MEDIA_COLOR = Color.rgb(38, 34, 42);
 
     private final ExecutorService artworkExecutor = Executors.newSingleThreadExecutor();
     private MediaSession mediaSession;
@@ -181,8 +179,7 @@ public final class PlaybackControlService extends Service {
         if (next.equals(artworkIdentity)) return;
         artworkIdentity = next;
         artworkRequestedIdentity = "";
-        // Keep the previous cover visible until the new one finishes loading;
-        // otherwise every track change flashes a white media card.
+        // Keep the previous cover visible until the new one finishes loading.
         artworkRequestSerial++;
     }
 
@@ -306,14 +303,14 @@ public final class PlaybackControlService extends Service {
             .setStyle(new Notification.MediaStyle()
                 .setMediaSession(mediaSession.getSessionToken())
                 .setShowActionsInCompactView(0, 1, 2));
-        // v163: fixed dark media-card tint for HyperOS. Artwork remains artwork only;
-        // it no longer changes the card color from song to song.
-        builder.setColor(FIXED_MEDIA_COLOR);
         if (artwork != null) {
-            builder.setLargeIcon(artwork);
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder.setColorized(true);
+            builder.setLargeIcon(artwork)
+                .setColor(PlaybackArtworkLoader.averageColor(artwork));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                builder.setColorized(true);
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setColorized(false);
         }
         return builder.build();
     }
