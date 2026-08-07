@@ -179,7 +179,7 @@ public final class PlaybackControlService extends Service {
         if (next.equals(artworkIdentity)) return;
         artworkIdentity = next;
         artworkRequestedIdentity = "";
-        // Keep the previous cover visible until the new one finishes loading.
+        artwork = null;
         artworkRequestSerial++;
     }
 
