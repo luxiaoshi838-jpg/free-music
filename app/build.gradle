@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080757
-        versionName "2026.08.06.v157-source-faithful-cache-export"
+        versionCode 2026080758
+        versionName "2026.08.07.v158-active-playback-cache-export"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
