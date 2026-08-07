@@ -2525,7 +2525,7 @@ public class MainActivity extends Activity {
         if (songs == null) return result;
         for (Song song : songs) {
             if (song == null || !song.isNetworkCatalog()) continue;
-            if (songHasRecordedCache(song)) continue;
+            if (songHasPlayableCache(song)) continue;
             result.add(song);
         }
         return result;
@@ -2548,16 +2548,68 @@ public class MainActivity extends Activity {
 
     private boolean songHasPlayableCache(Song song) {
         if (song == null || !song.isNetworkCatalog()) return true;
-        if (NetworkMediaCache.cachedAudioExists(this, song.cachedUri)) return true;
+        String recorded = song.cachedUri == null ? "" : song.cachedUri.trim();
+        if (NetworkMediaCache.cachedAudioExists(this, recorded)) {
+            boolean changed = recoverCachedSongState(song, recorded);
+            if (changed) savePlaylists();
+            return true;
+        }
         String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
         String existingUri = key.isEmpty() ? "" : CacheStorage.findAudioUri(this, key);
+        if (!NetworkMediaCache.cachedAudioExists(this, existingUri)) {
+            String media3Key = Media3CacheStore.keyFor(
+                song.title, song.artist, song.catalogJson);
+            existingUri = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
+        }
         if (NetworkMediaCache.cachedAudioExists(this, existingUri)) {
-            song.cachedUri = existingUri;
-            song.uri = existingUri;
-            song.cacheFailed = false;
+            boolean changed = recoverCachedSongState(song, existingUri);
+            if (changed) savePlaylists();
             return true;
         }
         return false;
+    }
+
+    /**
+     * A verified friendly cache is authoritative: once Android can really read
+     * the file, every stale red/failure flag for the same logical playlist song
+     * must be cleared and all playlist copies must point at the playable file.
+     */
+    private boolean recoverCachedSongState(Song song, String playableUri) {
+        if (song == null || playableUri == null || playableUri.trim().isEmpty()) return false;
+        String uri = playableUri.trim();
+        String logicalKey = dedupeKey(song);
+        String catalogId = catalogIdentity(song.catalogJson);
+        boolean changed = applyRecoveredCacheState(song, uri);
+        for (Playlist playlist : playlists) {
+            for (Song item : playlist.songs) {
+                if (item == null || item == song) continue;
+                boolean sameLogicalSong = dedupeKey(item).equals(logicalKey);
+                boolean sameCatalog = !catalogId.isEmpty()
+                    && catalogId.equals(catalogIdentity(item.catalogJson));
+                if (!sameLogicalSong && !sameCatalog) continue;
+                changed |= applyRecoveredCacheState(item, uri);
+            }
+        }
+        return changed;
+    }
+
+    private boolean applyRecoveredCacheState(Song song, String uri) {
+        if (song == null) return false;
+        boolean changed = !uri.equals(song.cachedUri)
+            || !uri.equals(song.uri)
+            || song.unavailable
+            || song.autoUnavailable
+            || song.manualUnavailable
+            || song.manualAttempt
+            || song.cacheFailed;
+        song.cachedUri = uri;
+        song.uri = uri;
+        song.unavailable = false;
+        song.autoUnavailable = false;
+        song.manualUnavailable = false;
+        song.manualAttempt = false;
+        song.cacheFailed = false;
+        return changed;
     }
 
     private void renderEmptyPlayer() {
@@ -3060,7 +3112,7 @@ public class MainActivity extends Activity {
                     skipped++;
                     continue;
                 }
-                if (songHasRecordedCache(song)) {
+                if (songHasPlayableCache(song)) {
                     done++;
                     continue;
                 }
@@ -3097,6 +3149,8 @@ public class MainActivity extends Activity {
                     song.unavailable = false;
                     song.autoUnavailable = false;
                     song.manualUnavailable = false;
+                    song.manualAttempt = false;
+                    recoverCachedSongState(song, cached.audioUri);
                     done++;
                 } catch (Exception error) {
                     if (foregroundPlaybackSerial != cacheStartSerial) {
@@ -3906,7 +3960,15 @@ public class MainActivity extends Activity {
             uri = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
         }
         if (!uri.isEmpty() && CacheFileState.exists(this, uri)) {
-            song.cachedUri = uri;
+            boolean changed = recoverCachedSongState(song, uri);
+            if (changed) {
+                savePlaylists();
+                if (Looper.myLooper() == Looper.getMainLooper()) {
+                    if (playlistAdapter != null) playlistAdapter.notifyDataSetChanged();
+                    if (resultAdapter != null) resultAdapter.notifyDataSetChanged();
+                    updatePlaylistCacheButtonVisibility();
+                }
+            }
         }
     }
 
@@ -3931,6 +3993,8 @@ public class MainActivity extends Activity {
                 item.uri = storedUri;
                 item.cacheFailed = false;
                 item.autoUnavailable = false;
+                item.manualUnavailable = false;
+                item.manualAttempt = false;
                 item.unavailable = false;
                 changed = true;
             }
@@ -4732,8 +4796,11 @@ public class MainActivity extends Activity {
                 song.title, song.artist, song.catalogJson);
             uri = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
         }
-        song.cachedUri = CacheFileState.exists(this, uri) ? uri : "";
-        if (!song.cachedUri.isEmpty()) song.uri = song.cachedUri;
+        if (CacheFileState.exists(this, uri)) {
+            recoverCachedSongState(song, uri);
+        } else {
+            song.cachedUri = "";
+        }
     }
 
     private String uninstallCleanupSettingText() {
