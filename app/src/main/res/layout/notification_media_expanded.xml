@@ -11,7 +11,7 @@
         android:scaleType="centerCrop"
         android:contentDescription="封面背景" />
 
-    <View
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="#990B0910" />
@@ -138,7 +138,7 @@
                 android:background="@drawable/notification_media_corner_circle"
                 android:contentDescription="耳机与音频输出" />
 
-            <Space
+            <TextView
                 android:layout_width="0dp"
                 android:layout_height="1dp"
                 android:layout_weight="1" />
@@ -170,7 +170,7 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="27sp" />
 
-            <Space
+            <TextView
                 android:layout_width="0dp"
                 android:layout_height="1dp"
                 android:layout_weight="1" />
