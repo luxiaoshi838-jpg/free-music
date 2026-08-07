@@ -10,7 +10,6 @@ import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.cache.CacheDataSource;
-import androidx.media3.datasource.cache.CacheWriter;
 import androidx.media3.datasource.cache.ContentMetadata;
 
 import org.json.JSONObject;
@@ -18,19 +17,21 @@ import org.json.JSONObject;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Completes the same Media3 resource used by playback, then exports it through
- * CacheStorage so the user-visible file remains "title - artist.extension".
+ * Exports the active online resource to the user's friendly cache file.
+ *
+ * Playback and export share the same Media3 cache key, but the export side is
+ * deliberately read-only. It reuses spans that playback has already cached and
+ * reads only missing bytes from upstream. It never waits for playback's cache
+ * write lock, so pausing or continuing playback cannot leave export stuck at 0%.
  */
 @UnstableApi
 final class Media3FriendlyCacheExporter {
     interface ProgressCallback {
-        void onProgress(long totalBytes, long cachedBytes);
+        void onProgress(long totalBytes, long completedBytes);
     }
 
     private Media3FriendlyCacheExporter() {
@@ -53,6 +54,7 @@ final class Media3FriendlyCacheExporter {
         if (media3Key.isEmpty() || storageKey.isEmpty()) {
             throw new IllegalStateException("歌曲缓存键无效");
         }
+
         String existingUri = CacheStorage.findAudioUri(context, storageKey);
         if (!existingUri.isEmpty() && CacheFileState.exists(context, existingUri)
             && !SodaM4aDecryptor.isEncryptedM4a(context, existingUri)) {
@@ -70,53 +72,20 @@ final class Media3FriendlyCacheExporter {
                 : "Mozilla/5.0 (Android)");
         if (!headers.isEmpty()) httpFactory.setDefaultRequestProperties(headers);
         DefaultDataSource.Factory upstream = new DefaultDataSource.Factory(context, httpFactory);
-        CacheDataSource.Factory cacheFactory = new CacheDataSource.Factory()
+
+        // Important: this factory is READ-ONLY for the Media3 cache. The player
+        // may currently own a writable cache hole for the same key. A blocking
+        // CacheWriter would wait for that hole and can stay at 0% for the whole
+        // playback session (pause does not close the player's data source).
+        CacheDataSource.Factory exportFactory = new CacheDataSource.Factory()
             .setCache(Media3CacheStore.get(context))
             .setUpstreamDataSourceFactory(upstream)
-            .setFlags(CacheDataSource.FLAG_BLOCK_ON_CACHE);
+            .setCacheWriteDataSinkFactory(null)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
 
         DataSpec dataSpec = new DataSpec.Builder()
             .setUri(Uri.parse(candidate.playbackUrl))
             .setKey(media3Key)
-            .setFlags(DataSpec.FLAG_ALLOW_CACHE_FRAGMENTATION)
-            .build();
-        AtomicLong observedLength = new AtomicLong(C.LENGTH_UNSET);
-        CacheWriter writer = new CacheWriter(
-            cacheFactory.createDataSourceForDownloading(),
-            dataSpec,
-            null,
-            (requestLength, bytesCached, newBytesCached) -> {
-                if (Thread.currentThread().isInterrupted()) {
-                    throw new IllegalStateException("后台缓存已取消");
-                }
-                if (requestLength > 0L) observedLength.set(requestLength);
-                Media3PlaybackCacheIndex.updateProgress(
-                    context, media3Key, bytesCached, requestLength);
-                if (callback != null) callback.onProgress(requestLength, bytesCached);
-            }
-        );
-        writer.cache();
-
-        long contentLength = ContentMetadata.getContentLength(
-            Media3CacheStore.get(context).getContentMetadata(media3Key));
-        if (contentLength <= 0L) contentLength = observedLength.get();
-        // CacheWriter returning normally means it reached the resource EOF. Some
-        // music CDNs omit a usable Content-Length, so derive the exact contiguous
-        // byte count from the cache instead of discarding a completed download.
-        if (contentLength <= 0L) {
-            contentLength = Media3CacheStore.contiguousCachedBytesFromZero(
-                context, media3Key);
-        }
-        if (contentLength <= 0L) {
-            throw new IllegalStateException("Media3缓存完成后仍无法确定音频长度");
-        }
-        if (!Media3CacheStore.get(context).isCached(media3Key, 0L, contentLength)) {
-            throw new IllegalStateException("Media3缓存尚未覆盖完整歌曲");
-        }
-        DataSpec exportSpec = new DataSpec.Builder()
-            .setUri(Uri.parse(candidate.playbackUrl))
-            .setKey(media3Key)
-            .setLength(contentLength)
             .build();
 
         File tempRoot = new File(context.getCacheDir(), "media3_friendly_export");
@@ -126,7 +95,12 @@ final class Media3FriendlyCacheExporter {
         File raw = new File(tempRoot, storageKey + ".raw");
         File decrypted = new File(tempRoot, storageKey + ".decrypted");
         try {
-            copyCachedResource(cacheFactory, exportSpec, raw, contentLength);
+            long written = copyReadThroughResource(
+                context, exportFactory, dataSpec, raw, media3Key, callback);
+            if (written <= 0L) {
+                throw new IllegalStateException("缓存文件导出为空");
+            }
+
             File source = raw;
             if (SodaM4aDecryptor.isEncryptedM4a(raw)) {
                 if (candidate.playAuth.isEmpty()) {
@@ -168,15 +142,25 @@ final class Media3FriendlyCacheExporter {
         }
     }
 
-    private static void copyCachedResource(CacheDataSource.Factory factory,
-                                           DataSpec dataSpec,
-                                           File output,
-                                           long expectedLength) throws Exception {
+    private static long copyReadThroughResource(Context context,
+                                                CacheDataSource.Factory factory,
+                                                DataSpec dataSpec,
+                                                File output,
+                                                String media3Key,
+                                                ProgressCallback callback) throws Exception {
         DataSource source = factory.createDataSource();
         long written = 0L;
+        long expectedLength = C.LENGTH_UNSET;
         try (OutputStream stream = new BufferedOutputStream(
             new FileOutputStream(output, false))) {
-            source.open(dataSpec);
+            long openedLength = source.open(dataSpec);
+            if (openedLength > 0L) expectedLength = openedLength;
+            if (expectedLength <= 0L) {
+                long metadataLength = ContentMetadata.getContentLength(
+                    Media3CacheStore.get(context).getContentMetadata(media3Key));
+                if (metadataLength > 0L) expectedLength = metadataLength;
+            }
+
             byte[] buffer = new byte[128 * 1024];
             while (true) {
                 if (Thread.currentThread().isInterrupted()) {
@@ -187,6 +171,11 @@ final class Media3FriendlyCacheExporter {
                 if (read <= 0) continue;
                 stream.write(buffer, 0, read);
                 written += read;
+
+                long actualCached = Media3CacheStore.cachedBytes(context, media3Key);
+                Media3PlaybackCacheIndex.updateProgress(
+                    context, media3Key, actualCached, expectedLength);
+                if (callback != null) callback.onProgress(expectedLength, written);
             }
             stream.flush();
         } finally {
@@ -195,13 +184,17 @@ final class Media3FriendlyCacheExporter {
             } catch (Exception ignored) {
             }
         }
+
         if (written <= 0L || output.length() != written) {
-            throw new IllegalStateException("Media3缓存导出为空");
+            throw new IllegalStateException("缓存文件导出为空");
         }
         if (expectedLength > 0L && written != expectedLength) {
-            throw new IllegalStateException("Media3缓存导出长度不完整：期望 "
+            throw new IllegalStateException("缓存文件长度不完整：期望 "
                 + expectedLength + "，实际 " + written);
         }
+        if (callback != null) callback.onProgress(
+            expectedLength > 0L ? expectedLength : written, written);
+        return written;
     }
 
     private static String extensionFor(String hint, String mimeType) {
