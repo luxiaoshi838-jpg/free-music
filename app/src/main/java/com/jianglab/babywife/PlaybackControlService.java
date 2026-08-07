@@ -7,16 +7,20 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Build;
 import android.os.IBinder;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 /**
  * Foreground media-control service used by the notification shade and lock screen.
- * The current Activity keeps audio ownership; this service exposes a MediaSession
- * and sends explicit in-app playback commands back to the Activity.
+ * The Activity keeps command compatibility while this service publishes full
+ * MediaSession metadata, including asynchronously loaded song artwork.
  */
 public final class PlaybackControlService extends Service {
     static final String ACTION_COMMAND = "com.jianglab.babywife.PLAYBACK_COMMAND";
@@ -38,14 +42,25 @@ public final class PlaybackControlService extends Service {
     private static final String EXTRA_PLAYING = "playing";
     private static final String EXTRA_DURATION = "duration";
     private static final String EXTRA_POSITION = "position";
+    private static final String EXTRA_CATALOG_JSON = "catalog_json";
+    private static final String EXTRA_ARTWORK_URL = "artwork_url";
+    private static final String EXTRA_MEDIA_URI = "media_uri";
 
     private static final String CHANNEL_ID = "babywife_media_playback";
     private static final int NOTIFICATION_ID = 1514;
 
+    private final ExecutorService artworkExecutor = Executors.newSingleThreadExecutor();
     private MediaSession mediaSession;
     private NotificationManager notificationManager;
     private String title = "尚未播放";
     private String artist = "大宝贝儿老婆";
+    private String catalogJson = "";
+    private String artworkUrl = "";
+    private String mediaUri = "";
+    private String artworkIdentity = "";
+    private String artworkRequestedIdentity = "";
+    private volatile int artworkRequestSerial = 0;
+    private Bitmap artwork;
     private boolean playing = false;
     private long duration = 0L;
     private long position = 0L;
@@ -62,13 +77,29 @@ public final class PlaybackControlService extends Service {
 
     static void publishState(Context context, String title, String artist,
                              boolean playing, long duration, long position) {
+        publishState(context, title, artist, playing, duration, position, "", "", "");
+    }
+
+    static void publishState(Context context, String title, String artist,
+                             boolean playing, long duration, long position,
+                             String catalogJson, String mediaUri) {
+        publishState(context, title, artist, playing, duration, position,
+            catalogJson, "", mediaUri);
+    }
+
+    static void publishState(Context context, String title, String artist,
+                             boolean playing, long duration, long position,
+                             String catalogJson, String artworkUrl, String mediaUri) {
         Intent intent = new Intent(context, PlaybackControlService.class)
             .setAction(ACTION_UPDATE)
             .putExtra(EXTRA_TITLE, title == null ? "尚未播放" : title)
             .putExtra(EXTRA_ARTIST, artist == null ? "" : artist)
             .putExtra(EXTRA_PLAYING, playing)
             .putExtra(EXTRA_DURATION, Math.max(0L, duration))
-            .putExtra(EXTRA_POSITION, Math.max(0L, position));
+            .putExtra(EXTRA_POSITION, Math.max(0L, position))
+            .putExtra(EXTRA_CATALOG_JSON, catalogJson == null ? "" : catalogJson)
+            .putExtra(EXTRA_ARTWORK_URL, artworkUrl == null ? "" : artworkUrl)
+            .putExtra(EXTRA_MEDIA_URI, mediaUri == null ? "" : mediaUri);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent);
         } else {
@@ -82,6 +113,8 @@ public final class PlaybackControlService extends Service {
         notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         createNotificationChannel();
         mediaSession = new MediaSession(this, "BabyWifePlayback");
+        mediaSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS
+            | MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
         mediaSession.setCallback(new MediaSession.Callback() {
             @Override
             public void onPlay() {
@@ -127,11 +160,58 @@ public final class PlaybackControlService extends Service {
             playing = intent.getBooleanExtra(EXTRA_PLAYING, false);
             duration = intent.getLongExtra(EXTRA_DURATION, 0L);
             position = intent.getLongExtra(EXTRA_POSITION, 0L);
+            catalogJson = safe(intent.getStringExtra(EXTRA_CATALOG_JSON));
+            artworkUrl = safe(intent.getStringExtra(EXTRA_ARTWORK_URL));
+            mediaUri = safe(intent.getStringExtra(EXTRA_MEDIA_URI));
             if (title == null || title.trim().isEmpty()) title = "尚未播放";
             if (artist == null) artist = "";
+            updateArtworkIdentity();
         }
         updateSessionAndNotification();
+        requestArtworkIfNeeded();
         return START_STICKY;
+    }
+
+    private void updateArtworkIdentity() {
+        String next = PlaybackArtworkLoader.identity(
+            title, artist, catalogJson, mediaUri)
+            + "|art=" + artworkUrl.trim();
+        if (next.equals(artworkIdentity)) return;
+        artworkIdentity = next;
+        artworkRequestedIdentity = "";
+        artwork = null;
+        artworkRequestSerial++;
+    }
+
+    private void requestArtworkIfNeeded() {
+        final String identity = artworkIdentity;
+        if (identity.isEmpty() || identity.equals(artworkRequestedIdentity)) return;
+        artworkRequestedIdentity = identity;
+        final int requestSerial = ++artworkRequestSerial;
+        final String requestTitle = title;
+        final String requestArtist = artist;
+        final String requestCatalog = catalogJson;
+        final String requestArtworkUrl = artworkUrl;
+        final String requestUri = mediaUri;
+        artworkExecutor.execute(() -> {
+            Bitmap loaded = PlaybackArtworkLoader.load(
+                this, requestTitle, requestArtist, requestCatalog,
+                requestArtworkUrl, requestUri);
+            runOnMainThread(() -> {
+                if (requestSerial != artworkRequestSerial
+                    || !identity.equals(artworkIdentity)) return;
+                artwork = loaded;
+                updateSessionAndNotification();
+            });
+        });
+    }
+
+    private void runOnMainThread(Runnable action) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            action.run();
+        } else {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(action);
+        }
     }
 
     private void dispatch(String command, long seekPosition) {
@@ -155,11 +235,19 @@ public final class PlaybackControlService extends Service {
             .setActions(actions)
             .setState(state, Math.max(0L, position), playing ? 1.0f : 0.0f)
             .build());
-        mediaSession.setMetadata(new MediaMetadata.Builder()
+
+        MediaMetadata.Builder metadata = new MediaMetadata.Builder()
             .putString(MediaMetadata.METADATA_KEY_TITLE, title)
             .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
-            .putLong(MediaMetadata.METADATA_KEY_DURATION, Math.max(0L, duration))
-            .build());
+            .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE, title)
+            .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, artist)
+            .putLong(MediaMetadata.METADATA_KEY_DURATION, Math.max(0L, duration));
+        if (artwork != null) {
+            metadata.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, artwork)
+                .putBitmap(MediaMetadata.METADATA_KEY_ART, artwork)
+                .putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, artwork);
+        }
+        mediaSession.setMetadata(metadata.build());
 
         Notification notification = buildNotification();
         if (!foregroundStarted) {
@@ -199,7 +287,7 @@ public final class PlaybackControlService extends Service {
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? new Notification.Builder(this, CHANNEL_ID)
             : new Notification.Builder(this);
-        return builder
+        builder
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(title)
             .setContentText(artist)
@@ -214,8 +302,17 @@ public final class PlaybackControlService extends Service {
             .addAction(next)
             .setStyle(new Notification.MediaStyle()
                 .setMediaSession(mediaSession.getSessionToken())
-                .setShowActionsInCompactView(0, 1, 2))
-            .build();
+                .setShowActionsInCompactView(0, 1, 2));
+        if (artwork != null) {
+            builder.setLargeIcon(artwork)
+                .setColor(PlaybackArtworkLoader.averageColor(artwork));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                builder.setColorized(true);
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setColorized(false);
+        }
+        return builder.build();
     }
 
     private PendingIntent servicePendingIntent(String action, int requestCode) {
@@ -241,6 +338,10 @@ public final class PlaybackControlService extends Service {
         notificationManager.createNotificationChannel(channel);
     }
 
+    private static String safe(String value) {
+        return value == null ? "" : value;
+    }
+
     @Override
     public IBinder onBind(Intent intent) {
         return null;
@@ -248,6 +349,8 @@ public final class PlaybackControlService extends Service {
 
     @Override
     public void onDestroy() {
+        artworkRequestSerial++;
+        artworkExecutor.shutdownNow();
         if (mediaSession != null) {
             mediaSession.setActive(false);
             mediaSession.release();

@@ -212,3 +212,121 @@
 ## v127 - 2026-08-03
 - Network sources returning M4A are now accepted, cached with the original `.m4a` extension, and reused as playable cache.
 - MP3 remains preferred; unsupported formats remain rejected.
+
+
+## v128 - 2026-08-03
+- Fixed Soda Music M4A playback by extracting PlayAuth from the resolved URL and decrypting CENC/AES-CTR audio before caching.
+- Existing encrypted M4A caches from v127 are detected as invalid and replaced on the next playback.
+
+- Cache audio and lyric files now use `歌曲名 - 歌手` without an opaque hash suffix; true name collisions use `(2)`, `(3)`, etc.
+
+- v129: normalize every managed cache file at startup to `歌曲名 - 歌手`, removing legacy hash suffixes even for songs outside playlists.
+- v129: rank exact `歌名 + 歌手` matches first, split adjacent Latin/Chinese query text, and merge multi-source results by global relevance.
+
+- v130: correct dialog action labels: deleting a song, deleting a playlist, and text-entry dialogs now use “确定”; merging playlists uses “合并”.
+
+- v131: remove the fixed format allowlist. Resolve candidates in MP3 > FLAC > M4A > other order, but only cache a candidate after Android MediaExtractor and MediaPlayer both verify it. Failed candidates are discarded and the next format/source is tried automatically.
+- v131: every final audio file uses the same `歌曲名 - 歌手.真实扩展名` rule. A newly selected format replaces older same-name formats instead of creating hash or numbered duplicates.
+
+- v132: submitting either the song search or the current-playlist search now hides the soft keyboard and clears input focus. The playlist search field gains the same circular clear button as the song search field.
+- v132: all main button-like controls use the same subtle 96% press-and-release feedback as previous/next, including settings, broom cleanup, current playlist, search, replacement actions, playback mode, clear buttons, back buttons and other clickable controls.
+
+## 2026.08.03.full-cache-folder-migration
+
+- Changing the cache folder now moves all regular files from the previous cache folder, including friendly audio and lyric filenames.
+- Added Android all-files management permission flow for reliable old-folder cleanup.
+- Added SHA-256 copy verification and explicit reporting for old files that remain after migration.
+
+## 2026.08.04.single-cache-search-flow
+
+- Fixed playlist tracks searching again even when the same title and artist already had a playable cache from another source.
+- Prevented concurrent duplicate downloads for the same song.
+- Candidate FLAC/MP3/M4A files stay in the app temporary directory and are deleted after comparison.
+- The selected winner is the only formal cache; duplicate same-song source caches are cleaned.
+- Reworded progress messages so a downloaded candidate is never reported as a completed cache.
+
+## 2026.08.04.playlist-cache-immediate-play
+
+- Fixed playlist songs searching for a source even though a playable cache already existed.
+- Kept search candidate deduplication as a separate flow from playlist cache lookup.
+- Started cached audio immediately after final verification; lyrics continue asynchronously.
+- Moved duplicate same-song cache cleanup to a background thread.
+- Changed local/content playback from synchronous prepare to prepareAsync.
+
+## 2026.08.04.no-playback-cache-scan
+
+- Removed all cache-folder scanning from the click-to-play path.
+- Playlist and search playback now use only their already-recorded cache URI.
+- Missing or stale recorded URIs fall back immediately to audio retrieval.
+- Lyrics no longer run before audio playback begins.
+
+## 2026.08.04.restore-search-add-playlist
+
+- Restored the `加入当前歌单` option for songs opened from search results.
+- Existing matches in other playlists no longer hide the option.
+- Duplicate detection still prevents duplicate entries in the selected target playlist.
+
+## 2026.08.04.complete-search-song-actions
+
+- Restored the full search-result action logic instead of forcing the add-to-playlist button.
+- Unmatched search results show `加入当前歌单`.
+- Matching playlist songs show `替换歌曲` and `替换歌词`.
+- Replacement actions now update the actual playlist entry and no longer fail because the search result is a separate object.
+
+
+## 2026.08.04.stable-local-lyric-cache
+
+- Fixed cached lyrics being ignored after a song switched to another source.
+- Local lyric cache is now resolved by stable song identity as well as exact source ID.
+- Existing lyrics are migrated to the retained source before duplicate cache cleanup.
+- Online lyric matching starts only after audio playback and resolved-source commit.
+
+
+## 2026.08.04.first-playable-source
+
+- Search playback no longer downloads every format before choosing a result.
+- Sources are tried in order and the first candidate that really plays is used immediately.
+- Removed MP3/FLAC/M4A format priority and all later candidate downloads after success.
+- Real playback verification and the single-formal-cache rule remain enabled.
+
+
+## 2026.08.04.nonblocking-media-source
+
+- Fixed possible long UI freezes when opening cached audio through Android document-provider content URIs.
+- Opening the MediaPlayer data source now happens off the main thread.
+- Removed synchronous restored-song preparation.
+- No-response monitoring pauses while the app is backgrounded, unfocused or the screen is not interactive.
+- Includes first-playable-source search behavior from v141.
+
+
+## 2026.08.05.search-stream-and-cache
+
+- Search results start streaming from the selected source without waiting for a full download.
+- Failed selected-source playback falls back only to Kuwo and then NetEase.
+- The exact successfully played address is cached in the background as `song title - artist.ext`.
+- Search playback reuses matching playlist cache records and synchronizes new cache URIs back to matching playlist songs.
+- Playlist one-click caching remains unchanged and still performs full download and validation.
+
+## v152 - 2026-08-05
+
+- Version: `2026080152 / 2026.08.05.v152-rapid-next-stability`.
+- Rapid manual previous/next presses are merged within a 220 ms window and execute only the final queue jump.
+- MediaPlayer creation, data-source opening, and prepare entry are serialized through one worker executor.
+- New playback requests cancel stale media-source and search-cache tasks.
+- Player listeners are detached before stop/reset/release.
+- Search Range caching now checks interruption when the user changes songs.
+- Android 11+ reads system process-exit history on the next launch for native crash, ANR, low-memory, and signal-exit diagnostics.
+- The last playback-transition song/token is recorded until playback starts successfully.
+- v151 Range regression checks, v152 stability checks, four-brand compilation, package-name checks, and version checks passed.
+- Real-device rapid-switch stress testing is still required.
+
+## v153 - 2026-08-06
+
+- Version: `2026080153 / 2026.08.06.v153-playback-stop-report`.
+- Fixed Range caching so a short partial response is no longer mistaken for a complete song.
+- Enforced continuous `Content-Range` offsets, exact range-body length, and exact final total length.
+- Added copyable reports for MediaPlayer error, silent stop, stalled progress, missing player, early cached-file completion, and Activity destruction during active playback.
+- Added one automatic restart attempt when MediaPlayer silently changes to a stopped state.
+- Added cached-duration comparison and deletion/retrieval of clearly truncated cache files.
+- Kept v152 rapid-next serialization and cancellation behavior.
+- Automated checks and four-brand Android compilation passed; phone playback testing is still required.

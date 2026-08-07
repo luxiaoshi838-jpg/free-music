@@ -6,6 +6,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Environment;
 import android.provider.DocumentsContract;
 
 import org.json.JSONObject;
@@ -19,6 +21,8 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -35,6 +39,8 @@ import java.util.Set;
  */
 final class CacheStorage {
     private static final String PREFS = "cache_storage";
+    private static final String LYRIC_INDEX_PREFS = "lyric_cache_index";
+    private static final String LYRIC_INDEX_PREFIX = "song|";
     private static final String KEY_TREE_URI = "tree_uri";
     private static final String INTERNAL_FOLDER = "network_music";
     private static final String META_PREFIX = ".babywife_";
@@ -47,17 +53,32 @@ final class CacheStorage {
     static final class MigrationResult {
         final int copied;
         final int removedFromOldLocation;
+        final int retainedInOldLocation;
         final boolean changed;
 
         MigrationResult(int copied, int removedFromOldLocation, boolean changed) {
             this.copied = copied;
             this.removedFromOldLocation = removedFromOldLocation;
+            this.retainedInOldLocation = Math.max(0, copied - removedFromOldLocation);
             this.changed = changed;
+        }
+    }
+
+    static final class AudioMatch {
+        final String key;
+        final String audioUri;
+        final String catalogJson;
+
+        AudioMatch(String key, String audioUri, String catalogJson) {
+            this.key = key == null ? "" : key;
+            this.audioUri = audioUri == null ? "" : audioUri;
+            this.catalogJson = catalogJson == null ? "" : catalogJson;
         }
     }
 
     static MigrationResult useDocumentTree(Context context, Uri treeUri) throws Exception {
         if (context == null || treeUri == null) throw new IllegalArgumentException("缓存文件夹无效");
+        requireFileManagementPermission();
         int flags = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
         context.getContentResolver().takePersistableUriPermission(treeUri, flags);
         verifyWritableTree(context, treeUri);
@@ -71,12 +92,13 @@ final class CacheStorage {
         int copied;
         int removed;
         if (oldTree != null) {
-            List<DocumentEntry> source = listDocumentsStrict(context, oldTree, true);
+            List<DocumentEntry> source = listDocumentsStrict(context, oldTree, false);
             copied = copyDocumentsToTree(context, source, treeUri);
             saveSelectedTree(context, treeUri);
             removed = deleteDocuments(context, source);
+            if (removed == source.size()) releaseTreePermission(context, oldTree);
         } else {
-            List<File> source = listManagedInternalFiles(context);
+            List<File> source = listAllInternalFiles(context);
             copied = copyFilesToTree(context, source, treeUri);
             saveSelectedTree(context, treeUri);
             removed = deleteFiles(source);
@@ -86,15 +108,17 @@ final class CacheStorage {
 
     static MigrationResult useInternalStorage(Context context) throws Exception {
         if (context == null) return new MigrationResult(0, 0, false);
+        requireFileManagementPermission();
         Uri oldTree = selectedTree(context);
         if (oldTree == null) return new MigrationResult(0, 0, false);
 
-        List<DocumentEntry> source = listDocumentsStrict(context, oldTree, true);
+        List<DocumentEntry> source = listDocumentsStrict(context, oldTree, false);
         File root = internalRoot(context);
         if (!root.exists() && !root.mkdirs()) throw new IllegalStateException("无法创建应用内部缓存目录");
         int copied = copyDocumentsToInternal(context, source, root);
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_TREE_URI).apply();
         int removed = deleteDocuments(context, source);
+        if (removed == source.size()) releaseTreePermission(context, oldTree);
         return new MigrationResult(copied, removed, true);
     }
 
@@ -129,7 +153,10 @@ final class CacheStorage {
             text.append(treeLabel(tree)).append("\n").append(tree.toString())
                 .append("\n（自选总文件夹；卸载软件后仍保留，可转移和手动管理）");
         }
-        text.append("\n\n删除歌单或歌曲只移除歌单记录，不删除歌曲和歌词文件；")
+        text.append("\n\n")
+            .append(Media3PlaybackCacheIndex.summary(context).displayText())
+            .append("\n")
+            .append("删除歌单或歌曲只移除歌单记录，不删除歌曲和歌词文件；")
             .append("顶部扫把只清理不再属于任何歌单的缓存。");
         return text.toString();
     }
@@ -143,16 +170,17 @@ final class CacheStorage {
             MetadataRecord existing = readMetadataFromTree(context, tree, key);
             DocumentEntry audio = findDocumentAudioForKey(context, tree, key, existing);
             DocumentEntry lyric = findDocumentLyricForKey(context, tree, key, existing);
+            String friendly = friendlyBaseForTree(context, tree, record, existing);
             if (audio != null) {
                 String ext = extensionOf(audio.name);
-                String desired = friendlyBase(record) + "." + ext;
+                String desired = friendly + "." + ext;
                 if (!desired.equals(audio.name)) moveDocument(context, tree, audio, desired, audioMime(ext));
                 record.audioFile = desired;
             } else if (existing != null) {
                 record.audioFile = existing.audioFile;
             }
             if (lyric != null) {
-                String desired = friendlyBase(record) + ".lrc";
+                String desired = friendly + ".lrc";
                 if (!desired.equals(lyric.name)) moveDocument(context, tree, lyric, desired, "text/plain");
                 record.lyricFile = desired;
             } else if (existing != null) {
@@ -168,9 +196,10 @@ final class CacheStorage {
         MetadataRecord existing = readMetadataFromInternal(root, key);
         File audio = findInternalAudioForKey(root, key, existing);
         File lyric = findInternalLyricForKey(root, key, existing);
+        String friendly = friendlyBaseForInternal(root, record, existing);
         if (audio != null) {
             String ext = extensionOf(audio.getName());
-            String desired = friendlyBase(record) + "." + ext;
+            String desired = friendly + "." + ext;
             File target = new File(root, desired);
             if (!desired.equals(audio.getName())) moveFile(audio, target);
             record.audioFile = desired;
@@ -178,7 +207,7 @@ final class CacheStorage {
             record.audioFile = existing.audioFile;
         }
         if (lyric != null) {
-            String desired = friendlyBase(record) + ".lrc";
+            String desired = friendly + ".lrc";
             File target = new File(root, desired);
             if (!desired.equals(lyric.getName())) moveFile(lyric, target);
             record.lyricFile = desired;
@@ -187,6 +216,62 @@ final class CacheStorage {
         }
         if (existing == null && audio == null && lyric == null) return;
         writeMetadataToInternal(root, record);
+    }
+
+
+    static int normalizeAllFriendlyNames(Context context) {
+        if (context == null) return 0;
+        Set<String> keys = new HashSet<>();
+        Uri tree = selectedTree(context);
+        if (tree != null) {
+            try {
+                for (DocumentEntry entry : listDocumentsStrict(context, tree, true)) {
+                    String key = metadataKey(entry.name);
+                    if (validKey(key)) keys.add(key);
+                }
+                int normalized = 0;
+                for (String key : keys) {
+                    try {
+                        MetadataRecord record = readMetadataFromTree(context, tree, key);
+                        if (record == null) continue;
+                        if (!record.lyricFile.isEmpty()) {
+                            rememberLyricKey(context, record.title, record.artist, key);
+                        }
+                        ensureFriendlyNames(context, key, record.title, record.artist,
+                            record.album, record.catalogJson);
+                        normalized++;
+                    } catch (Exception ignored) {
+                    }
+                }
+                return normalized;
+            } catch (Exception ignored) {
+                return 0;
+            }
+        }
+
+        File root = internalRoot(context);
+        File[] files = root.listFiles();
+        if (files == null) return 0;
+        for (File file : files) {
+            if (!file.isFile()) continue;
+            String key = metadataKey(file.getName());
+            if (validKey(key)) keys.add(key);
+        }
+        int normalized = 0;
+        for (String key : keys) {
+            try {
+                MetadataRecord record = readMetadataFromInternal(root, key);
+                if (record == null) continue;
+                if (!record.lyricFile.isEmpty()) {
+                    rememberLyricKey(context, record.title, record.artist, key);
+                }
+                ensureFriendlyNames(context, key, record.title, record.artist,
+                    record.album, record.catalogJson);
+                normalized++;
+            } catch (Exception ignored) {
+            }
+        }
+        return normalized;
     }
 
     static String findAudioUri(Context context, String key) {
@@ -212,6 +297,135 @@ final class CacheStorage {
         }
         File fallback = findInternalAudioForKey(root, key, record);
         return fallback == null ? "" : Uri.fromFile(fallback).toString();
+    }
+
+    static List<AudioMatch> findAudioMatches(Context context, String title, String artist) {
+        List<AudioMatch> matches = new ArrayList<>();
+        if (context == null) return matches;
+        String wanted = logicalIdentity(title, artist);
+        if (wanted.isEmpty()) return matches;
+        Set<String> keys = metadataKeys(context);
+        for (String key : keys) {
+            MetadataRecord record = metadataRecord(context, key);
+            if (record == null || !wanted.equals(logicalIdentity(record.title, record.artist))) continue;
+            String uri = findAudioUri(context, key);
+            if (!uri.isEmpty()) matches.add(new AudioMatch(key, uri, record.catalogJson));
+        }
+        return matches;
+    }
+
+    static int deleteOtherSongCaches(Context context, String title, String artist, String keepKey) {
+        if (context == null) return 0;
+        String wanted = logicalIdentity(title, artist);
+        if (wanted.isEmpty()) return 0;
+        List<String> remove = new ArrayList<>();
+        for (String key : metadataKeys(context)) {
+            if (key.equalsIgnoreCase(keepKey == null ? "" : keepKey)) continue;
+            MetadataRecord record = metadataRecord(context, key);
+            if (record != null && wanted.equals(logicalIdentity(record.title, record.artist))) {
+                remove.add(key);
+            }
+        }
+
+        String preservedLyric = validKey(keepKey) ? readLyric(context, keepKey) : "";
+        if (preservedLyric.trim().isEmpty() && validKey(keepKey)) {
+            for (String oldKey : remove) {
+                String oldLyric = readLyric(context, oldKey);
+                if (oldLyric.trim().isEmpty()) continue;
+                MetadataRecord keepRecord = metadataRecord(context, keepKey);
+                String keepTitle = keepRecord == null ? title : keepRecord.title;
+                String keepArtist = keepRecord == null ? artist : keepRecord.artist;
+                String keepAlbum = keepRecord == null ? "" : keepRecord.album;
+                String keepCatalog = keepRecord == null ? "" : keepRecord.catalogJson;
+                try {
+                    writeLyric(context, keepKey, oldLyric, keepTitle, keepArtist,
+                        keepAlbum, keepCatalog);
+                    preservedLyric = oldLyric;
+                } catch (Exception ignored) {
+                }
+                break;
+            }
+        }
+        if (!preservedLyric.trim().isEmpty() && validKey(keepKey)) {
+            rememberLyricKey(context, title, artist, keepKey);
+        }
+
+        int removed = 0;
+        for (String key : remove) removed += deleteKey(context, key);
+        return removed;
+    }
+
+    static String logicalIdentity(String title, String artist) {
+        String normalizedTitle = normalizeIdentityPart(title);
+        String normalizedArtist = normalizeIdentityPart(artist);
+        if (normalizedTitle.isEmpty() || normalizedArtist.isEmpty()) return "";
+        return normalizedTitle + "|" + normalizedArtist;
+    }
+
+    private static String lyricIndexEntry(String title, String artist) {
+        String identity = logicalIdentity(title, artist);
+        return identity.isEmpty() ? "" : LYRIC_INDEX_PREFIX + identity;
+    }
+
+    private static void rememberLyricKey(Context context, String title, String artist, String key) {
+        if (context == null || !validKey(key)) return;
+        String entry = lyricIndexEntry(title, artist);
+        if (entry.isEmpty()) return;
+        context.getSharedPreferences(LYRIC_INDEX_PREFS, Context.MODE_PRIVATE)
+            .edit().putString(entry, key.toLowerCase(Locale.ROOT)).apply();
+    }
+
+    private static String indexedLyricKey(Context context, String title, String artist) {
+        if (context == null) return "";
+        String entry = lyricIndexEntry(title, artist);
+        if (entry.isEmpty()) return "";
+        String key = context.getSharedPreferences(LYRIC_INDEX_PREFS, Context.MODE_PRIVATE)
+            .getString(entry, "");
+        return validKey(key) ? key : "";
+    }
+
+    private static String normalizeIdentityPart(String value) {
+        String raw = value == null ? "" : Normalizer.normalize(value, Normalizer.Form.NFKC)
+            .toLowerCase(Locale.ROOT);
+        StringBuilder normalized = new StringBuilder(raw.length());
+        for (int offset = 0; offset < raw.length();) {
+            int codePoint = raw.codePointAt(offset);
+            if (Character.isLetterOrDigit(codePoint)) normalized.appendCodePoint(codePoint);
+            offset += Character.charCount(codePoint);
+        }
+        return normalized.toString();
+    }
+
+    private static Set<String> metadataKeys(Context context) {
+        Set<String> keys = new HashSet<>();
+        Uri tree = selectedTree(context);
+        if (tree != null) {
+            try {
+                for (DocumentEntry entry : listDocumentsStrict(context, tree, true)) {
+                    String key = metadataKey(entry.name);
+                    if (validKey(key)) keys.add(key);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        File[] files = internalRoot(context).listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (!file.isFile()) continue;
+                String key = metadataKey(file.getName());
+                if (validKey(key)) keys.add(key);
+            }
+        }
+        return keys;
+    }
+
+    private static MetadataRecord metadataRecord(Context context, String key) {
+        Uri tree = selectedTree(context);
+        if (tree != null) {
+            MetadataRecord record = readMetadataFromTree(context, tree, key);
+            if (record != null) return record;
+        }
+        return readMetadataFromInternal(internalRoot(context), key);
     }
 
     static String readLyric(Context context, String key) {
@@ -248,6 +462,29 @@ final class CacheStorage {
         }
     }
 
+    static String readLyricForSong(Context context, String preferredKey,
+                                         String title, String artist) {
+        String direct = readLyric(context, preferredKey);
+        if (!direct.trim().isEmpty()) {
+            rememberLyricKey(context, title, artist, preferredKey);
+            return direct;
+        }
+        String indexedKey = indexedLyricKey(context, title, artist);
+        if (indexedKey.isEmpty() || indexedKey.equalsIgnoreCase(preferredKey)) return "";
+        String fallback = readLyric(context, indexedKey);
+        if (fallback.trim().isEmpty()) return "";
+
+        MetadataRecord preferred = metadataRecord(context, preferredKey);
+        if (preferred != null && validKey(preferredKey)) {
+            try {
+                writeLyric(context, preferredKey, fallback, preferred.title, preferred.artist,
+                    preferred.album, preferred.catalogJson);
+            } catch (Exception ignored) {
+            }
+        }
+        return fallback;
+    }
+
     static void writeLyric(Context context, String key, String text, String title, String artist,
                            String album, String catalogJson) throws Exception {
         if (context == null || !validKey(key) || text == null || text.trim().isEmpty()) return;
@@ -256,8 +493,9 @@ final class CacheStorage {
         if (tree != null) {
             MetadataRecord existing = readMetadataFromTree(context, tree, key);
             if (existing != null) record.audioFile = existing.audioFile;
+            String friendly = friendlyBaseForTree(context, tree, record, existing);
             removeDocumentsForKey(context, tree, key, true, false, false);
-            String name = friendlyBase(record) + ".lrc";
+            String name = friendly + ".lrc";
             Uri outputUri = createOrReplaceDocument(context, tree, name, "text/plain");
             try (OutputStream output = context.getContentResolver().openOutputStream(outputUri, "w")) {
                 if (output == null) throw new IllegalStateException("无法写入歌词缓存");
@@ -265,6 +503,7 @@ final class CacheStorage {
             }
             record.lyricFile = name;
             writeMetadataToTree(context, tree, record);
+            rememberLyricKey(context, record.title, record.artist, key);
             return;
         }
 
@@ -272,8 +511,9 @@ final class CacheStorage {
         if (!root.exists() && !root.mkdirs()) throw new IllegalStateException("无法创建缓存目录");
         MetadataRecord existing = readMetadataFromInternal(root, key);
         if (existing != null) record.audioFile = existing.audioFile;
+        String friendly = friendlyBaseForInternal(root, record, existing);
         removeInternalForKey(root, key, true, false, false);
-        String name = friendlyBase(record) + ".lrc";
+        String name = friendly + ".lrc";
         File output = new File(root, name);
         File partial = new File(root, name + ".part");
         try (FileOutputStream stream = new FileOutputStream(partial)) {
@@ -282,6 +522,7 @@ final class CacheStorage {
         replaceFile(partial, output);
         record.lyricFile = name;
         writeMetadataToInternal(root, record);
+        rememberLyricKey(context, record.title, record.artist, key);
     }
 
     static String storeAudio(Context context, String key, String extension, File source, String title,
@@ -291,12 +532,14 @@ final class CacheStorage {
         }
         String safeExtension = sanitizeExtension(extension);
         MetadataRecord record = metadata(key, title, artist, album, catalogJson);
-        String fileName = friendlyBase(record) + "." + safeExtension;
         Uri tree = selectedTree(context);
         if (tree != null) {
             MetadataRecord existing = readMetadataFromTree(context, tree, key);
             if (existing != null) record.lyricFile = existing.lyricFile;
+            String baseName = friendlyBase(record);
             removeDocumentsForKey(context, tree, key, false, true, false);
+            removeTreeAudioWithBase(context, tree, baseName);
+            String fileName = baseName + "." + safeExtension;
             Uri target = createOrReplaceDocument(context, tree, fileName, audioMime(safeExtension));
             try (InputStream input = new BufferedInputStream(new FileInputStream(source));
                  OutputStream raw = context.getContentResolver().openOutputStream(target, "w");
@@ -313,7 +556,10 @@ final class CacheStorage {
         if (!root.exists() && !root.mkdirs()) throw new IllegalStateException("无法创建缓存目录");
         MetadataRecord existing = readMetadataFromInternal(root, key);
         if (existing != null) record.lyricFile = existing.lyricFile;
+        String baseName = friendlyBase(record);
         removeInternalForKey(root, key, false, true, false);
+        removeInternalAudioWithBase(root, baseName);
+        String fileName = baseName + "." + safeExtension;
         File target = new File(root, fileName);
         try (InputStream input = new BufferedInputStream(new FileInputStream(source));
              OutputStream output = new BufferedOutputStream(new FileOutputStream(target))) {
@@ -382,14 +628,112 @@ final class CacheStorage {
     }
 
     private static String friendlyBase(MetadataRecord record) {
-        String shortKey = record.key.length() >= 8 ? record.key.substring(0, 8) : record.key;
-        String base = record.title + " - " + record.artist + " [" + shortKey + "]";
-        if (base.length() > 150) base = base.substring(0, 150).trim();
+        String base = record.title + " - " + record.artist;
+        if (base.length() > 140) base = base.substring(0, 140).trim();
         return base;
+    }
+
+    private static void removeInternalAudioWithBase(File root, String baseName) {
+        File[] files = root == null ? null : root.listFiles();
+        if (files == null) return;
+        for (File file : files) {
+            if (!file.isFile()) continue;
+            String name = file.getName();
+            if (isMetadataName(name) || isLyricName(name)
+                || name.endsWith(".part") || name.endsWith(".move_part")) continue;
+            if (fileBase(name).equalsIgnoreCase(baseName)) deleteFile(file);
+        }
+    }
+
+    private static void removeTreeAudioWithBase(Context context, Uri tree,
+                                                String baseName) throws Exception {
+        for (DocumentEntry entry : listDocumentsStrict(context, tree, false)) {
+            String name = entry.name;
+            if (isMetadataName(name) || isLyricName(name)
+                || name.endsWith(".part") || name.endsWith(".move_part")) continue;
+            if (!fileBase(name).equalsIgnoreCase(baseName)) continue;
+            try {
+                DocumentsContract.deleteDocument(context.getContentResolver(), entry.uri);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private static String friendlyBaseForInternal(File root, MetadataRecord record,
+                                                  MetadataRecord existing) {
+        Set<String> occupied = new HashSet<>();
+        File[] files = root == null ? null : root.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (!file.isFile()) continue;
+                String name = file.getName();
+                if (isMetadataName(name) || name.endsWith(".part") || name.endsWith(".move_part")) continue;
+                if (existing != null && (name.equals(existing.audioFile) || name.equals(existing.lyricFile))) continue;
+                occupied.add(fileBase(name).toLowerCase(Locale.ROOT));
+            }
+        }
+        return chooseFriendlyBase(record, existing, occupied);
+    }
+
+    private static String friendlyBaseForTree(Context context, Uri tree, MetadataRecord record,
+                                              MetadataRecord existing) throws Exception {
+        Set<String> occupied = new HashSet<>();
+        for (DocumentEntry entry : listDocumentsStrict(context, tree, true)) {
+            String name = entry.name;
+            if (isMetadataName(name) || name.endsWith(".part") || name.endsWith(".move_part")) continue;
+            if (existing != null && (name.equals(existing.audioFile) || name.equals(existing.lyricFile))) continue;
+            occupied.add(fileBase(name).toLowerCase(Locale.ROOT));
+        }
+        return chooseFriendlyBase(record, existing, occupied);
+    }
+
+    private static String chooseFriendlyBase(MetadataRecord record, MetadataRecord existing,
+                                             Set<String> occupied) {
+        String plain = friendlyBase(record);
+        String current = existingFriendlyBase(plain, existing);
+        if (!current.isEmpty() && !occupied.contains(current.toLowerCase(Locale.ROOT))) return current;
+        for (int index = 1; index <= 9999; index++) {
+            String candidate = index == 1 ? plain : plain + " (" + index + ")";
+            if (!occupied.contains(candidate.toLowerCase(Locale.ROOT))) return candidate;
+        }
+        throw new IllegalStateException("歌曲缓存文件名冲突过多");
+    }
+
+    private static String existingFriendlyBase(String plain, MetadataRecord existing) {
+        if (existing == null) return "";
+        String audioBase = fileBase(existing.audioFile);
+        if (isFriendlyVariant(plain, audioBase)) return audioBase;
+        String lyricBase = fileBase(existing.lyricFile);
+        return isFriendlyVariant(plain, lyricBase) ? lyricBase : "";
+    }
+
+    private static boolean isFriendlyVariant(String plain, String candidate) {
+        if (candidate == null || candidate.isEmpty()) return false;
+        if (candidate.equals(plain)) return true;
+        if (!candidate.startsWith(plain + " (") || !candidate.endsWith(")")) return false;
+        String number = candidate.substring(plain.length() + 2, candidate.length() - 1);
+        if (number.isEmpty()) return false;
+        for (int i = 0; i < number.length(); i++) {
+            if (!Character.isDigit(number.charAt(i))) return false;
+        }
+        return true;
+    }
+
+    private static String fileBase(String name) {
+        if (name == null || name.isEmpty()) return "";
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
     }
 
     private static String metadataName(String key) {
         return META_PREFIX + key.toLowerCase(Locale.ROOT) + META_SUFFIX;
+    }
+
+    private static String metadataKey(String name) {
+        if (name == null || !name.startsWith(META_PREFIX) || !name.endsWith(META_SUFFIX)) return "";
+        int start = META_PREFIX.length();
+        int end = name.length() - META_SUFFIX.length();
+        return end > start ? name.substring(start, end).toLowerCase(Locale.ROOT) : "";
     }
 
     private static MetadataRecord readMetadataFromInternal(File root, String key) {
@@ -599,6 +943,65 @@ final class CacheStorage {
         return removed;
     }
 
+    private static void requireFileManagementPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+            && !Environment.isExternalStorageManager()) {
+            throw new SecurityException("请先授予文件管理权限");
+        }
+    }
+
+    private static void releaseTreePermission(Context context, Uri treeUri) {
+        if (context == null || treeUri == null) return;
+        try {
+            context.getContentResolver().releasePersistableUriPermission(treeUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void verifyDocumentDigest(Context context, Uri target,
+                                             String expected, String name) throws Exception {
+        String actual = digest(context.getContentResolver().openInputStream(target));
+        if (expected.equals(actual)) return;
+        try {
+            DocumentsContract.deleteDocument(context.getContentResolver(), target);
+        } catch (Exception ignored) {
+        }
+        throw new IllegalStateException("迁移后校验失败：" + name);
+    }
+
+    private static String copyAndDigest(InputStream input, OutputStream output) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] buffer = new byte[64 * 1024];
+        int count;
+        while ((count = input.read(buffer)) >= 0) {
+            if (count <= 0) continue;
+            output.write(buffer, 0, count);
+            digest.update(buffer, 0, count);
+        }
+        output.flush();
+        return hex(digest.digest());
+    }
+
+    private static String digest(InputStream raw) throws Exception {
+        if (raw == null) throw new IllegalStateException("无法读取迁移后的文件");
+        try (InputStream input = new BufferedInputStream(raw)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[64 * 1024];
+            int count;
+            while ((count = input.read(buffer)) >= 0) {
+                if (count > 0) digest.update(buffer, 0, count);
+            }
+            return hex(digest.digest());
+        }
+    }
+
+    private static String hex(byte[] bytes) {
+        StringBuilder text = new StringBuilder(bytes.length * 2);
+        for (byte value : bytes) text.append(String.format(Locale.ROOT, "%02x", value & 0xff));
+        return text.toString();
+    }
+
     private static void saveSelectedTree(Context context, Uri treeUri) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY_TREE_URI, treeUri.toString()).apply();
@@ -622,12 +1025,14 @@ final class CacheStorage {
         int copied = 0;
         for (File file : source) {
             Uri target = createOrReplaceDocument(context, targetTree, file.getName(), mimeForName(file.getName()));
+            String sourceDigest;
             try (InputStream input = new BufferedInputStream(new FileInputStream(file));
                  OutputStream raw = context.getContentResolver().openOutputStream(target, "w");
                  OutputStream output = raw == null ? null : new BufferedOutputStream(raw)) {
                 if (output == null) throw new IllegalStateException("无法写入新缓存文件夹：" + file.getName());
-                copy(input, output);
+                sourceDigest = copyAndDigest(input, output);
             }
+            verifyDocumentDigest(context, target, sourceDigest, file.getName());
             copied++;
         }
         return copied;
@@ -637,13 +1042,15 @@ final class CacheStorage {
         int copied = 0;
         for (DocumentEntry entry : source) {
             Uri target = createOrReplaceDocument(context, targetTree, entry.name, mimeForName(entry.name));
+            String sourceDigest;
             try (InputStream rawInput = context.getContentResolver().openInputStream(entry.uri);
                  InputStream input = rawInput == null ? null : new BufferedInputStream(rawInput);
                  OutputStream rawOutput = context.getContentResolver().openOutputStream(target, "w");
                  OutputStream output = rawOutput == null ? null : new BufferedOutputStream(rawOutput)) {
                 if (input == null || output == null) throw new IllegalStateException("无法迁移缓存文件：" + entry.name);
-                copy(input, output);
+                sourceDigest = copyAndDigest(input, output);
             }
+            verifyDocumentDigest(context, target, sourceDigest, entry.name);
             copied++;
         }
         return copied;
@@ -654,11 +1061,17 @@ final class CacheStorage {
         for (DocumentEntry entry : source) {
             File partial = new File(root, entry.name + ".move_part");
             File target = new File(root, entry.name);
+            String sourceDigest;
             try (InputStream rawInput = context.getContentResolver().openInputStream(entry.uri);
                  InputStream input = rawInput == null ? null : new BufferedInputStream(rawInput);
                  OutputStream output = new BufferedOutputStream(new FileOutputStream(partial))) {
                 if (input == null) throw new IllegalStateException("无法读取旧缓存文件：" + entry.name);
-                copy(input, output);
+                sourceDigest = copyAndDigest(input, output);
+            }
+            String targetDigest = digest(new FileInputStream(partial));
+            if (!sourceDigest.equals(targetDigest)) {
+                partial.delete();
+                throw new IllegalStateException("迁移后校验失败：" + entry.name);
             }
             replaceFile(partial, target);
             copied++;
@@ -685,12 +1098,15 @@ final class CacheStorage {
         return removed;
     }
 
-    private static List<File> listManagedInternalFiles(Context context) {
+    private static List<File> listAllInternalFiles(Context context) {
         List<File> files = new ArrayList<>();
         File[] entries = internalRoot(context).listFiles();
         if (entries == null) return files;
         for (File file : entries) {
-            if (file != null && file.isFile() && isManagedCacheName(file.getName())) files.add(file);
+            if (file == null || !file.isFile()) continue;
+            String name = file.getName();
+            if (name.endsWith(".part") || name.endsWith(".move_part")) continue;
+            files.add(file);
         }
         return files;
     }
@@ -853,18 +1269,14 @@ final class CacheStorage {
 
     private static String extensionOf(String name) {
         int dot = name == null ? -1 : name.lastIndexOf('.');
-        return sanitizeExtension(dot < 0 ? "mp3" : name.substring(dot + 1));
+        return sanitizeExtension(dot < 0 ? "audio" : name.substring(dot + 1));
     }
 
     private static String sanitizeExtension(String value) {
         String extension = value == null ? "" : value.toLowerCase(Locale.ROOT)
             .replaceAll("[^a-z0-9]", "");
-        if (extension.equals("flac") || extension.equals("m4a") || extension.equals("aac")
-            || extension.equals("ogg") || extension.equals("opus") || extension.equals("wav")
-            || extension.equals("wma") || extension.equals("mp3") || extension.equals("webm")) {
-            return extension;
-        }
-        return "mp3";
+        if (extension.isEmpty()) return "audio";
+        return extension.length() > 12 ? extension.substring(0, 12) : extension;
     }
 
     private static String safeNamePart(String value, String fallback, int maxLength) {
@@ -924,12 +1336,21 @@ final class CacheStorage {
     }
 
     private static String audioMime(String extension) {
+        if ("mp3".equals(extension)) return "audio/mpeg";
         if ("flac".equals(extension)) return "audio/flac";
-        if ("m4a".equals(extension) || "aac".equals(extension) || "mp4".equals(extension)) return "audio/mp4";
-        if ("ogg".equals(extension) || "opus".equals(extension)) return "audio/ogg";
+        if ("m4a".equals(extension) || "mp4".equals(extension)) return "audio/mp4";
+        if ("aac".equals(extension)) return "audio/aac";
+        if ("ogg".equals(extension)) return "audio/ogg";
+        if ("opus".equals(extension)) return "audio/opus";
         if ("wav".equals(extension)) return "audio/wav";
         if ("webm".equals(extension)) return "audio/webm";
-        return "audio/mpeg";
+        if ("amr".equals(extension)) return "audio/amr";
+        if ("aiff".equals(extension) || "aif".equals(extension)) return "audio/aiff";
+        if ("mid".equals(extension) || "midi".equals(extension)) return "audio/midi";
+        if ("wma".equals(extension)) return "audio/x-ms-wma";
+        if ("ac3".equals(extension)) return "audio/ac3";
+        if ("eac3".equals(extension)) return "audio/eac3";
+        return "application/octet-stream";
     }
 
     private static final class DocumentEntry {

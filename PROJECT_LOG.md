@@ -357,3 +357,132 @@
 - Added M4A to managed playable network-cache formats.
 - Kept MP3 as the preferred resolve format and FLAC/M4A as source-format fallbacks.
 - Bumped the four-brand Android build to v127.
+
+
+## 2026-08-03 - Decrypt encrypted M4A before playback
+- Confirmed the supplied sample is CENC-encrypted AAC in an M4A container.
+- Ported the dependency library PlayAuth and AES-CTR decryption path to Android cache handling.
+- Invalidates encrypted v127 cache entries and bumps all four brands to v128.
+
+- Corrected user-visible cache filenames from `歌曲名 - 歌手 [哈希]` to `歌曲名 - 歌手`; old managed cache names migrate on the next access, with numeric suffixes only for real collisions.
+
+- v129 corrects remaining legacy cache names and search ordering: `miyaki米芽奇` now prioritizes tracks whose title/artist combination exactly matches both terms.
+
+- v130 fixes an accidental UI-label replacement where destructive and edit confirmation dialogs displayed “复制”. The real crash-report copy action remains unchanged.
+
+- v131 accepts any format that the current Android device can actually prepare for playback. Acquisition priority is MP3 > FLAC > M4A > other; unplayable downloads are deleted before becoming cache files.
+- v131 enforces one consistent cache basename (`title - artist`) across formats and removes older same-basename audio when the chosen format changes.
+
+- v132 closes the IME after song/playlist search submission, adds a circular clear control to playlist search, and applies consistent subtle press feedback to all main button-like controls.
+
+## 2026-08-03 - Full cache folder migration with all-files permission
+
+- Fixed cache-folder changes skipping friendly files named `歌曲名 - 歌手.扩展名`.
+- External-to-external and external-to-internal moves now enumerate every regular file in the old cache folder.
+- Each copied file is SHA-256 verified before the selected cache location changes or old files are removed.
+- Android 11+ now requests the system all-files management permission before opening the destination folder picker.
+- Migration reports any old files that could not be deleted instead of silently claiming a complete move.
+
+## 2026-08-04 - Single logical cache per song and deterministic search flow
+
+- Cache reuse is now keyed first by normalized song title and artist, not only by source platform and catalog ID.
+- Same-song playback/cache requests are serialized to stop repeated taps from downloading multiple source candidates concurrently.
+- Source and format downloads remain temporary candidates until one final playable winner is selected.
+- Only the winner is written to the user cache folder; other same-song source caches and temporary candidates are removed.
+- Status text now distinguishes candidate download, candidate verification, final selection, and final cache completion.
+
+## 2026-08-04 - Playlist cache lookup and immediate playback are independent
+
+- Playlist playback now has a dedicated cache-first path: recorded URI, exact source key, then normalized title+artist cache.
+- Network source search starts only when all three playlist cache checks fail.
+- Search result format/source trials remain temporary and still produce only one formal cache.
+- Audio cache completion no longer waits for lyric network requests or duplicate cache cleanup.
+- File/content MediaPlayer preparation now uses prepareAsync so a completed cache starts without blocking the main thread.
+
+## 2026-08-04 - Remove all cache-folder scans from playback
+
+- Removed the v135 same-title scan and the proposed exact-key document-tree lookup from the playback path.
+- Playlist playback now uses only the URI already stored in the playlist record; a missing record immediately starts retrieval.
+- Search replay uses only the URI held by the current search result; otherwise retrieval starts immediately.
+- No `findAudioUri`, `findAudioMatches`, or metadata directory enumeration is allowed before playback.
+- Lyrics start only after MediaPlayer has actually started audio.
+
+## 2026-08-04 - Restore add-to-playlist action for every search result
+
+- Restored the visible `加入当前歌单` action whenever the player was opened from search results.
+- The action is no longer hidden merely because a matching title/artist exists in any playlist.
+- Duplicate handling remains inside the actual target-playlist insertion logic.
+- Long-pressing a search result still adds it to the target playlist.
+
+## 2026-08-04 - Complete search-result action state machine
+
+- Corrected the v138 assumption that every search result should expose `加入当前歌单`.
+- Search-only songs show `加入当前歌单`.
+- A search result matching an existing playlist song by normalized title and artist hides the add action and shows `替换歌曲` plus `替换歌词`.
+- Replacement previews and confirmations bind to the real playlist song object rather than the temporary search-result object.
+- Confirmed song replacement switches playback to the updated playlist entry.
+
+
+## 2026-08-04 - Restore stable local lyric cache reads
+
+- Removed the remaining pre-playback lyric matching call from the audio cache completion path.
+- Playback now commits the resolved source/catalog before reading local lyrics or starting online matching.
+- Added a lightweight title+artist lyric-key index so source fallback does not orphan an existing local LRC.
+- Duplicate source cache cleanup migrates an existing lyric to the retained source key before deleting old files.
+- Startup cache normalization rebuilds the lyric-key index for previously saved LRC files.
+
+
+## 2026-08-04 - Stop at the first playable search source
+
+- Removed MP3, FLAC, M4A and other-format priority rounds from search playback.
+- Each catalog source is now resolved and downloaded only once using its default playable response.
+- The first downloaded candidate that passes real playback validation is immediately selected.
+- Remaining sources are not resolved or downloaded after a playable candidate is found.
+- The selected file is still the only file written to formal cache.
+
+
+## 2026-08-04 - Prevent external content URI playback from blocking the UI
+
+- Moved MediaPlayer data-source opening for file/content/http URIs to a worker thread.
+- Main thread now only receives the prepared MediaPlayer object and calls prepareAsync.
+- Removed the dormant synchronous last-song cache validation and MediaPlayer.prepare path.
+- Responsiveness watchdog now runs only while the activity is resumed, focused and the device is interactive.
+- Added lifecycle state to no-response reports to distinguish foreground ANRs from screen/background suspension.
+
+
+## 2026-08-05 - Separate instant search playback from playlist bulk caching
+
+- Search-result taps now reuse an existing same-title-and-artist playlist cache when available.
+- Without cache, the selected catalog address is streamed immediately; only on playback failure does the app try Kuwo and then NetEase.
+- The exact address that actually started playback is downloaded in the background and stored with the existing `title - artist.ext` filename rule.
+- Completed search caches are synchronized to matching playlist entries so adding the search result later does not require another download.
+- Playlist one-click caching keeps the full NetworkMediaCache/PlayableAudioResolver validation workflow.
+
+## 2026-08-05 - v152 continuous next-track stability and system exit report
+
+- Version bumped to `2026080152 / 2026.08.05.v152-rapid-next-stability`.
+- Manual rapid previous/next presses are accumulated within a 220 ms debounce window and execute only the final queue jump.
+- MediaPlayer creation, data-source opening, and prepare entry are serialized through a single-thread executor.
+- A new playback request cancels stale media-source and search-cache tasks.
+- MediaPlayer listeners are detached before stop/reset/release to prevent callbacks from racing with a newer player.
+- Search Range caching checks interruption so stale downloads stop after the user changes songs.
+- Android 11+ reads `ApplicationExitInfo` on the next launch to supplement reports for native crashes, ANRs, low-memory exits, and signal termination.
+- A playback-transition breadcrumb records the last requested song and token until playback starts successfully.
+- Original lifecycle cleanup and new executor cleanup were merged into one `onDestroy()` method.
+- v151 Range-cache regression checks, v152 rapid-next checks, four-brand compilation, package-name checks, and version checks passed in GitHub Actions run `31020681642`.
+- Phone stress testing remains required; build validation cannot prove that every vendor MediaPlayer implementation is crash-free.
+
+## 2026-08-06 - v153 playlist playback-stop diagnosis and reporting
+
+- User reported that playlist playback can stop partway through a song without an app crash or an existing crash/no-response report.
+- Confirmed a cache-completeness defect in the v151/v152 Range downloader: any response shorter than the requested 4 MiB chunk was treated as end-of-file, although some CDNs may legally return a smaller partial range before the real end.
+- Replaced that shortcut with strict `Content-Range` validation: every HTTP 206 response must have a valid range, start at the exact accumulated byte offset, contain the declared number of bytes, and continue until the declared total length is reached. HTTP 416 is accepted only when the accumulated length exactly equals the server total.
+- Added `PlaybackProblemReporter` so MediaPlayer errors and non-crash interruptions are stored in the existing copyable report slot with error codes, playback position/duration, queue, playlist/song, URI/cache URI, lifecycle state, and device/version context.
+- Added a two-second playback health monitor. A player that disappears, stops without callback, or makes no position progress for 12 seconds now creates a report; a silently stopped player receives one automatic restart attempt.
+- Added cached-duration validation against catalog duration metadata. Clearly truncated cached files are reported, deleted, and routed back through the existing retrieval path.
+- Active playback followed by Activity destruction is now reported as `activity-destroyed-during-active-playback`; the current architecture still owns MediaPlayer in the Activity, so this report determines whether a later service-ownership refactor is required.
+- Manual pause is excluded from interruption reporting.
+- Version: `2026080153 / 2026.08.06.v153-playback-stop-report`.
+- GitHub Actions run `31079587556` passed v151 Range regression, v152 rapid-next regression, v153 interruption checks, four-brand Android compilation, package-name checks, and version checks.
+- Artifact: `8958922118`, digest `sha256:49c80e7132e9fc311add56fea8470858a4dd564356e687c38a12e63bca157cf8`.
+- Real-device continuous playlist playback remains required; build success is not treated as proof that the phone-side stop is resolved.

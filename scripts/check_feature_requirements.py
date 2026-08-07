@@ -7,9 +7,14 @@ network = (root / 'app/src/main/java/com/jianglab/babywife/NetworkMediaCache.jav
 broom = (root / 'app/src/main/java/com/jianglab/babywife/BroomIconView.java').read_text(encoding='utf-8')
 metadata = (root / 'app/src/main/java/com/jianglab/babywife/AudioMetadataWriter.java').read_text(encoding='utf-8')
 transcoder = (root / 'app/src/main/java/com/jianglab/babywife/AudioTranscoder.java').read_text(encoding='utf-8')
+soda_decryptor = (root / 'app/src/main/java/com/jianglab/babywife/SodaM4aDecryptor.java').read_text(encoding='utf-8')
 picker = (root / 'app/src/main/java/com/jianglab/babywife/SongVersionPicker.java').read_text(encoding='utf-8')
 catalog = (root / 'app/src/main/java/com/jianglab/babywife/CatalogSearch.java').read_text(encoding='utf-8')
+playable_resolver = (root / 'app/src/main/java/com/jianglab/babywife/PlayableAudioResolver.java').read_text(encoding='utf-8')
+playback_verifier = (root / 'app/src/main/java/com/jianglab/babywife/AudioPlaybackVerifier.java').read_text(encoding='utf-8')
+quick_playback = (root / 'app/src/main/java/com/jianglab/babywife/SearchQuickPlayback.java').read_text(encoding='utf-8')
 gradle = (root / 'app/build.gradle').read_text(encoding='utf-8')
+manifest = (root / 'app/src/main/AndroidManifest.xml').read_text(encoding='utf-8')
 project_log = (root / 'PROJECT_LOG.md').read_text(encoding='utf-8')
 changelog = (root / 'docs/CHANGELOG.md').read_text(encoding='utf-8')
 icon = root / 'app/src/main/res/drawable-nodpi/broom_clean_icon.webp'
@@ -62,7 +67,11 @@ checks = {
     ),
     'friendly cache filenames': (
         'friendlyBase' in cache
-        and '" - " + record.artist' in cache
+        and 'record.title + " - " + record.artist' in cache
+        and '" [" + shortKey + "]"' not in cache
+        and 'friendlyBaseForInternal' in cache
+        and 'friendlyBaseForTree' in cache
+        and 'plain + " (" + index + ")"' in cache
         and 'record.audioFile' in cache
         and 'record.lyricFile' in cache
         and 'META_PREFIX = ".babywife_"' in cache
@@ -71,7 +80,7 @@ checks = {
         'object.put("title", title)' in cache
         and 'object.put("artist", artist)' in cache
         and 'object.put("album", album)' in cache
-        and 'AudioMetadataWriter.apply' in network
+        and 'AudioMetadataWriter.apply' in playable_resolver
         and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata
     ),
     'copy-first cache migration': (
@@ -94,21 +103,65 @@ checks = {
     'delayed red marking': 'autoUnavailable && song.manualUnavailable' in main,
     'csv import/export': '歌名,歌手,专辑,时长秒,平台,平台代码,歌曲ID,歌词版本' in main,
     'jianglab flavor gate': 'REQUIRE_FIRST_RUN_PASSPHRASE' in gradle and 'signingCertificateCommonName' in main,
-    'mp3 source preference with source-format fallback': (
-        'format", "mp3' in network
-        and 'AudioTranscoder.ensureMp3' in network
-        and '按原格式缓存' in network
-        and 'detectAudioExtension' in network
-        and 'ffmpeg-kit' not in gradle.lower()
-        and 'FFmpegKit' not in transcoder
-        and 'libmp3lame' not in transcoder
+    'first playable source stops further downloads': (
+        'REQUEST_FORMATS = {""}' in playable_resolver
+        and '正在按来源顺序寻找第一个可播放资源' in playable_resolver
+        and '候选可播放：' in playable_resolver
+        and '，立即使用' in playable_resolver
+        and 'break outer;' in playable_resolver
+        and 'formatPriority' not in playable_resolver
+        and 'MP3＞FLAC＞M4A＞其他' not in playable_resolver
+        and '继续比较优先级' not in playable_resolver
     ),
-    'verified mp3 metadata': ('AudioMetadataWriter.applyAndVerify' in network and 'MP3 歌曲信息写入校验失败' in metadata and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata),
-    'managed cache source formats': ('受管理歌曲缓存必须是 MP3' not in cache and 'storeAudio(context, key, actualExtension' in network),
-    'm4a network source accepted': (
-        '"m4a".equals(extension)' in network
-        and 'detectAudioExtension' in network
-        and 'audio/mp4' in cache
+    'verified mp3 metadata': ('AudioMetadataWriter.applyAndVerify' in playable_resolver and 'MP3 歌曲信息写入校验失败' in metadata and '"TIT2"' in metadata and '"TPE1"' in metadata and '"TALB"' in metadata),
+    'managed cache source formats': ('受管理歌曲缓存必须是 MP3' not in cache and 'CacheStorage.storeAudio(context, key, best.extension' in playable_resolver),
+    'first returned format requires real playback verification': (
+        'PlayableAudioResolver.prepare' in network
+        and 'PlayableAudioResolver.cachedAudioExists' in network
+        and 'REQUEST_FORMATS = {""}' in playable_resolver
+        and 'AudioPlaybackVerifier.probeFile' in playable_resolver
+        and 'AudioPlaybackVerifier.isPlayableUri' in playable_resolver
+        and 'MediaExtractor' in playback_verifier
+        and 'MediaPlayer' in playback_verifier
+        and 'playableCachedExtension' not in network
+    ),
+    'consistent filenames across formats': (
+        'String baseName = friendlyBase(record);' in cache
+        and 'removeInternalAudioWithBase' in cache
+        and 'removeTreeAudioWithBase' in cache
+        and 'String fileName = baseName + "." + safeExtension;' in cache
+        and 'return "mp3";' not in cache[cache.find('private static String sanitizeExtension'):cache.find('private static String safeNamePart')]
+    ),
+    'encrypted soda m4a decrypted': (
+        'Address.parse' in playable_resolver
+        and '#auth=' in playable_resolver
+        and 'SodaM4aDecryptor.decrypt' in playable_resolver
+        and 'SodaM4aDecryptor.isEncryptedM4a(context, uriText)' in playable_resolver
+        and 'AES/CTR/NoPadding' in soda_decryptor
+        and 'PlayAuth' in soda_decryptor
+        and 'enca' in soda_decryptor and 'mp4a' in soda_decryptor
+        and 'SodaM4aDecryptor.isEncryptedM4a(partial)' in playable_resolver
+    ),
+    'all managed cache names normalized on startup': (
+        'normalizeAllFriendlyNames' in cache
+        and 'metadataKey(' in cache
+        and 'normalizeAllCacheFilesAsync()' in main
+        and '"cache-name-normalizer"' in main
+    ),
+    'title and artist search priority': (
+        'wanted.equals(titleArtist)' in catalog
+        and 'wanted.equals(artistTitle)' in catalog
+        and 'queryTokens(keyword)' in catalog
+        and 'candidateScore = score(candidate, keyword)' in catalog
+        and 'SOURCE_GROUP_SIZE = 6' in catalog
+    ),
+    'dialog action labels match operations': (
+        'setTitle("删除歌曲")' in main
+        and main[main.find('private void confirmDeletePlaylistSong'):main.find('private void addSongToCurrentPlaylist')].find('setPositiveButton("\\u786e\\u5b9a"') >= 0
+        and main[main.find('private void promptText'):main.find('private void deleteCurrentPlaylist')].find('setPositiveButton("\\u786e\\u5b9a"') >= 0
+        and main[main.find('private void deleteCurrentPlaylist'):main.find('private void clearCurrentPlaylist')].find('setPositiveButton("\\u786e\\u5b9a"') >= 0
+        and main[main.find('private void mergePlaylistsIntoCurrent'):main.find('private boolean containsSong')].find('setPositiveButton("\\u5408\\u5e76"') >= 0
+        and main.count('setPositiveButton("\\u590d\\u5236"') == 1
     ),
     'settings width and status bar': ('0.70f' in main and 'setStatusBarColor(opening ? Color.rgb(22, 24, 34)' in main and 'statusBarHeight() + dp(20)' in main),
     'deferred flag commit after playback starts': (
@@ -120,7 +173,161 @@ checks = {
     ),
     'short manager labels': ('makeSmallButton("新建"' in main and 'makeSmallButton("导出"' in main and '新建在线"' not in main and '导出CSV"' not in main),
     'short cache folder label': ('（卸载后保留）' not in cache[cache.find('static String description'):cache.find('static String details')]),
-    'version bumped': 'versionCode 2026080127' in gradle,
+    'search keyboards close after submit': (
+        'import android.view.inputmethod.InputMethodManager;' in main
+        and 'hideKeyboardAndClearFocus(searchInput);' in main
+        and 'playlistSearchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);' in main
+        and 'hideKeyboardAndClearFocus(playlistSearchInput);' in main
+    ),
+    'playlist search clear control': (
+        'TextView clearPlaylistSearchButton = new TextView(this);' in main
+        and 'clearPlaylistSearchButton.setText("×")' in main
+        and 'clearPlaylistSearchButton.setVisibility(View.GONE)' in main
+        and 'playlistSearchInput.setText("")' in main
+        and 'panel.addView(playlistSearchBox, searchParams);' in main
+    ),
+    'all main button press feedback': (
+        'attachPressFeedbackTree(shellView);' in main
+        and 'attachSubtlePressFeedback(button);' in main
+        and 'root instanceof BroomIconView' in main
+        and 'root instanceof BackChevronView' in main
+        and 'root instanceof TextView' in main
+        and '.scaleX(0.96f)' in main
+        and '.scaleY(0.96f)' in main
+    ),
+    'full cache folder migration and file management permission': (
+        'android.permission.MANAGE_EXTERNAL_STORAGE' in manifest
+        and 'Environment.isExternalStorageManager()' in main
+        and 'Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION' in main
+        and 'requestFileManagementThenChooseCacheFolder()' in main
+        and 'listDocumentsStrict(context, oldTree, false)' in cache
+        and 'listAllInternalFiles(context)' in cache
+        and 'copyAndDigest' in cache
+        and 'verifyDocumentDigest' in cache
+        and 'retainedInOldLocation' in cache
+        and 'listDocumentsStrict(context, oldTree, true)' not in cache
+    ),
+    'playlist playback uses recorded URI without folder scan': (
+        'playPlaylistSongFromCacheFirst(song, playToken)' in main
+        and '已读取歌单记录缓存，正在启动播放' in main
+        and '歌单没有记录缓存，立即获取音频' in main
+        and '歌单记录缓存无法播放，立即重新获取音频' in main
+        and '"playlist-cache-lookup"' not in main
+        and '"playlist-exact-cache-lookup"' not in main
+        and 'CacheStorage.findAudioUri(this, exactKey)' not in main
+        and 'CacheStorage.findAudioMatches(this, song.title, song.artist)' not in main
+    ),
+    'search candidates write only one formal cache': (
+        'static final class AudioMatch' in cache
+        and 'logicalIdentity(String title, String artist)' in cache
+        and 'findAudioMatches(Context context, String title, String artist)' in cache
+        and 'CACHE_LOCKS = createCacheLocks()' in network
+        and 'cacheLocked(context, requestedCatalog, callback)' in network
+        and '唯一正式缓存已完成，其他来源候选已清理' in network
+        and '尚未写入正式缓存' in playable_resolver
+        and '候选下载进度' in playable_resolver
+        and '唯一正式缓存写入完成' in playable_resolver
+        and 'CacheStorage.findAudioUri(context, key)' not in playable_resolver[playable_resolver.find('for (JSONObject catalog : catalogs)'):playable_resolver.find('if (best == null')]
+        and '播放请求已切换，停止旧候选下载' in main
+    ),
+    'cached audio starts without waiting for lyrics or cleanup': (
+        'cleanupDuplicateSongCachesAsync' in network
+        and '"duplicate-cache-cleanup"' in network
+        and '缓存已就绪，正在异步打开音频' in main
+        and 'mediaPlayer.prepareAsync();' in main
+        and 'mediaPlayer.prepare();' not in main[main.find('private void startLocalPlayback'):main.find('private void onPlaybackStarted')]
+        and 'fetchLyrics(matchedCatalog.toString())' not in network
+        and 'fetchLyrics(actualCatalog.toString())' not in network
+    ),
+    'no cache-folder scan in playback path': (
+        'playPlaylistSongFromCacheFirst' in main
+        and 'playPlaylistSongFromExactCache' not in main
+        and '歌单没有记录缓存，立即获取音频' in main
+        and '已使用歌单中的同名歌曲缓存' in main
+        and '搜索歌曲缓存' in main
+        and '正在准备音频，播放开始后再匹配歌词' in main
+        and 'if (song.isNetworkCatalog()) showSongLyrics(song);' in main
+        and '未使用播放前缓存扫描，立即获取可播放音频' in network
+        and 'findAudioMatches(context, requestedTitle, requestedArtist)' not in network[network.find('private static CacheResult cacheLocked'):network.find('private static Object[] createCacheLocks')]
+        and 'CacheStorage.findAudioUri(context, requestedKey)' not in network[network.find('private static CacheResult cacheLocked'):network.find('private static Object[] createCacheLocks')]
+        and 'CacheStorage.findAudioUri(this, exactKey)' not in main
+    ),
+    'search result exposes complete context actions': (
+        'Song playlistMatch = findPlaylistSongMatch(song);' in main
+        and 'boolean unmatchedSearch = fromSearch && !existsInPlaylist;' in main
+        and 'addCurrentButton.setVisibility(unmatchedSearch ? View.VISIBLE : View.GONE);' in main
+        and 'songVersionButton.setVisibility(existsInPlaylist ? View.VISIBLE : View.GONE);' in main
+        and 'lyricVersionButton.setVisibility(existsInPlaylist ? View.VISIBLE : View.GONE);' in main
+        and 'Song target = findPlaylistSongMatch(selected);' in main
+        and 'pendingSongTarget = target;' in main
+        and 'pendingLyricSong = target;' in main
+        and 'isPlaylistSongObject(target)' in main
+        and 'switchPlaybackToPlaylistSong(target);' in main
+        and 'addCurrentButton.setVisibility(fromSearch ? View.VISIBLE : View.GONE);' not in main
+    ),
+    'stable local lyric cache across source changes': (
+        'LYRIC_INDEX_PREFS = "lyric_cache_index"' in cache
+        and 'readLyricForSong(Context context, String preferredKey' in cache
+        and 'rememberLyricKey(context, record.title, record.artist, key);' in cache
+        and 'writeLyric(context, keepKey, oldLyric' in cache
+        and 'CacheStorage.readLyricForSong(context, actualKey' in network
+        and 'CacheStorage.readLyricForSong(this, key, song.title, song.artist)' in main
+        and main.find('if (onStarted != null) onStarted.run();')
+            < main.find('if (song.isNetworkCatalog()) showSongLyrics(song);',
+                main.find('private void onPlaybackStarted'))
+        and main[main.find('private void cacheAndPlay'):main.find('private String stripVisibleLyricTags')].count('showSongLyrics(song);') == 0
+        and '音频未开始播放，未启动在线歌词匹配' in main
+    ),
+    'content uri data source opens off main thread': (
+        '"media-source-open"' in main
+        and 'preparedPlayer.setDataSource(this, Uri.parse(playbackUri));' in main
+        and main.find('new Thread(() -> {', main.find('private void startLocalPlayback'))
+            < main.find('preparedPlayer.setDataSource(this, Uri.parse(playbackUri));', main.find('private void startLocalPlayback'))
+        and 'mediaPlayer.setDataSource(this, Uri.parse(song.uri));' not in main
+        and 'mediaPlayer.prepare();' not in main[main.find('private void prepareLastSong'):main.find('private void playSong')]
+        and 'NetworkMediaCache.cachedAudioExists(this, currentSong.cachedUri)' not in main[main.find('private void prepareLastSong'):main.find('private void playSong')]
+    ),
+    'watchdog only monitors interactive foreground window': (
+        'activityResumed = false' in main
+        and 'windowFocused = false' in main
+        and 'protected void onPause()' in main
+        and 'onWindowFocusChanged(boolean hasFocus)' in main
+        and '!activityResumed || !windowFocused || !isDeviceInteractive()' in main
+        and 'deviceInteractive=' in main
+    ),
+    'search playback streams first and caches same address in background': (
+        'if (playingSearchQueue)' in main
+        and 'playSearchSongFast(song, playToken);' in main
+        and 'trySearchPlaybackCandidate(song, playToken, 0);' in main
+        and 'startLocalPlayback(song, playToken, () -> {' in main
+        and 'cacheSearchPlaybackAsync(song, resolved, playToken);' in main
+        and '"search-address-resolver"' in main
+        and '"search-audio-cache"' in main
+        and 'SearchQuickPlayback.resolveStage' in main
+        and 'SearchQuickPlayback.cache' in main
+    ),
+    'search playback reuses playlist cache and keeps friendly filename': (
+        'findPlaylistSongMatch(song)' in main
+        and '已使用歌单中的同名歌曲缓存' in main
+        and 'CacheStorage.logicalIdentity(song.title, song.artist)' in main
+        and 'item.cachedUri = storedUri;' in main
+        and 'CacheStorage.storeAudio(context, key, extension, source' in quick_playback
+        and 'String base = record.title + " - " + record.artist;' in cache
+    ),
+    'search fallback is selected source then kuwo then netease': (
+        'stage == 0' in quick_playback
+        and 'stage == 1 ? "kuwo"' in quick_playback
+        and 'stage == 2 ? "netease"' in quick_playback
+        and 'findBestExactOnSource' in catalog
+        and 'replacementScore(title, artist, track)' in catalog
+        and 'formatPriority' not in quick_playback
+    ),
+    'playlist one-click cache remains full cache path': (
+        'cacheCurrentPlaylistOneClick' in main
+        and 'NetworkMediaCache.cache(' in main[main.find('private void cacheCurrentPlaylistOneClick'):]
+        and 'PlayableAudioResolver.prepare' in network
+    ),
+    'version bumped': 'versionCode 2026080143' in gradle,
     'logs synchronized': (
         'Guard cache migration I/O and add playback/search feedback' in project_log
         and 'migration-refresh ANR' in changelog
