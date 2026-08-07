@@ -1,4 +1,4 @@
-name: Build v157 Source-Faithful Cache Export Four Brands
+name: Build v158 Active Playback Cache Export Four Brands
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: v157-source-faithful-cache-direct
+  group: v158-active-playback-cache-export
   cancel-in-progress: true
 
 env:
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - name: Direct checkout without Marketplace Actions
+      - name: Direct checkout
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -32,39 +32,35 @@ jobs:
           git checkout -B agent/v128-m4a-decrypt origin/agent/v128-m4a-decrypt
           git log -1 --oneline
 
-      - name: Verify v157 and all retained functions
+      - name: Verify retained features and v158 cache export
         run: |
           set -euo pipefail
           python3 scripts/check_public_repo.py
           python3 - <<'PY'
           from pathlib import Path
-          replacements = {
-              'scripts/check_v154_preserve_current_features.py': [
-                  ('versionCode 2026080154', 'versionCode 2026080757'),
-                  ('2026.08.06.v154-media3-shared-cache', '2026.08.06.v157-source-faithful-cache-export'),
-              ],
-              'scripts/check_v154_media3_shared_cache_artwork.py': [
-                  ('versionCode 2026080154', 'versionCode 2026080757'),
-                  ('2026.08.06.v154-media3-shared-cache', '2026.08.06.v157-source-faithful-cache-export'),
-                  ('"v154 metadata"', '"v157 metadata through v154 regression"'),
-              ],
-              'scripts/check_v153_playback_stop.py': [
-                  ('versionCode 2026080153', 'versionCode 2026080757'),
-                  ('2026.08.06.v153-playback-stop-report', '2026.08.06.v157-source-faithful-cache-export'),
-                  ('"v153 metadata"', '"v157 metadata through v153 regression"'),
-                  ('searchCacheExecutor = Executors.newSingleThreadExecutor()', 'searchCacheExecutor = Executors.newFixedThreadPool(2)'),
-                  ('"existing v152 serialized player retained"', '"v152 serialized media-source player retained with v157 cache workers"'),
-              ],
-              'scripts/check_v155_cache_index_playlist_artwork.py': [
-                  ('versionCode 2026080155', 'versionCode 2026080757'),
-                  ('2026.08.06.v155-cache-index-playlist-artwork', '2026.08.06.v157-source-faithful-cache-export'),
-                  ('"v155 metadata"', '"v157 metadata with v155 functions"'),
-              ],
-          }
-          for filename, pairs in replacements.items():
+          files = [
+              'scripts/check_v154_preserve_current_features.py',
+              'scripts/check_v154_media3_shared_cache_artwork.py',
+              'scripts/check_v153_playback_stop.py',
+              'scripts/check_v155_cache_index_playlist_artwork.py',
+              'scripts/check_v157_source_fidelity_cache_export.py',
+          ]
+          replacements = [
+              ('versionCode 2026080154', 'versionCode 2026080758'),
+              ('versionCode 2026080153', 'versionCode 2026080758'),
+              ('versionCode 2026080155', 'versionCode 2026080758'),
+              ('versionCode 2026080757', 'versionCode 2026080758'),
+              ('2026.08.06.v154-media3-shared-cache', '2026.08.07.v158-active-playback-cache-export'),
+              ('2026.08.06.v153-playback-stop-report', '2026.08.07.v158-active-playback-cache-export'),
+              ('2026.08.06.v155-cache-index-playlist-artwork', '2026.08.07.v158-active-playback-cache-export'),
+              ('2026.08.06.v157-source-faithful-cache-export', '2026.08.07.v158-active-playback-cache-export'),
+              ('searchCacheExecutor = Executors.newSingleThreadExecutor()', 'searchCacheExecutor = Executors.newFixedThreadPool(2)'),
+              ('"existing v152 serialized player retained"', '"v152 serialized media-source player retained with v158 cache workers"'),
+          ]
+          for filename in files:
               path = Path(filename)
               text = path.read_text(encoding='utf-8')
-              for old, new in pairs:
+              for old, new in replacements:
                   text = text.replace(old, new)
               path.write_text(text, encoding='utf-8')
           PY
@@ -73,10 +69,16 @@ jobs:
           python3 scripts/check_v153_playback_stop.py
           python3 scripts/check_v155_cache_index_playlist_artwork.py
           python3 scripts/check_v157_source_fidelity_cache_export.py
-          grep -q 'versionCode 2026080757' app/build.gradle
-          grep -q 'versionName "2026.08.06.v157-source-faithful-cache-export"' app/build.gradle
+          grep -q 'versionCode 2026080758' app/build.gradle
+          grep -q 'versionName "2026.08.07.v158-active-playback-cache-export"' app/build.gradle
+          grep -q 'setCacheWriteDataSinkFactory(null)' app/src/main/java/com/jianglab/babywife/Media3FriendlyCacheExporter.java
+          grep -q 'copyReadThroughResource' app/src/main/java/com/jianglab/babywife/Media3FriendlyCacheExporter.java
+          grep -q 'FLAG_IGNORE_CACHE_ON_ERROR' app/src/main/java/com/jianglab/babywife/Media3FriendlyCacheExporter.java
+          ! grep -q 'CacheWriter' app/src/main/java/com/jianglab/babywife/Media3FriendlyCacheExporter.java
+          ! grep -q 'FLAG_BLOCK_ON_CACHE' app/src/main/java/com/jianglab/babywife/Media3FriendlyCacheExporter.java
+          git diff --name-only 74d1832bb3b3cf61d11ee56bdcca35ade771ff67 HEAD | grep -E '^app/src/main/res/' && exit 1 || true
 
-      - name: Prepare fixed JDK 17 Android SDK and Gradle 8.7
+      - name: Prepare JDK 17 Android SDK and Gradle 8.7
         run: |
           set -euo pipefail
           mkdir -p build
@@ -93,7 +95,7 @@ jobs:
           unzip -q /tmp/gradle-8.7-bin.zip -d /tmp
           /tmp/gradle-8.7/bin/gradle --version | tee build/gradle-version.log
 
-      - name: Build four v157 APKs
+      - name: Build four v158 APKs
         run: |
           set -euo pipefail
           export JAVA_HOME="${JAVA_HOME_17_X64}"
@@ -101,9 +103,9 @@ jobs:
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
           export PATH="$JAVA_HOME/bin:/tmp/gradle-8.7/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
           set -o pipefail
-          /tmp/gradle-8.7/bin/gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v157.log
+          /tmp/gradle-8.7/bin/gradle --no-daemon assembleDebug 2>&1 | tee build/assemble-v158.log
 
-      - name: Verify packages and prepare build archive
+      - name: Verify packages and prepare archive
         run: |
           set -euo pipefail
           export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
@@ -123,21 +125,21 @@ jobs:
             package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
             version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
             test "$package_name" = "${expected[$flavor]}"
-            test "$version_code" = "2026080757"
+            test "$version_code" = "2026080758"
             "$apksigner" verify --verbose "$apk"
-            cp "$apk" "verified-apks/${flavor}_v157_source_faithful_cache_export.apk"
+            cp "$apk" "verified-apks/${flavor}_v158_active_playback_cache_export.apk"
           done
-          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v157.txt
-          zip -r -9 v157-source-faithful-cache-export-four-brand-apks.zip verified-apks build/java-version.log build/gradle-version.log build/sdkmanager.log build/assemble-v157.log
-          sha256sum v157-source-faithful-cache-export-four-brand-apks.zip | tee v157-build-archive-sha256.txt
+          sha256sum verified-apks/*.apk | tee verified-apks/SHA256_v158.txt
+          zip -r -9 v158-active-playback-cache-export-four-brand-apks.zip verified-apks build/assemble-v158.log
+          sha256sum v158-active-playback-cache-export-four-brand-apks.zip | tee v158-build-archive-sha256.txt
 
-      - name: Upload v157 workflow artifact
+      - name: Upload v158 workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: v157-source-faithful-cache-export-four-brand-apks
+          name: v158-active-playback-cache-export-four-brand-apks
           path: |
             verified-apks/
-            build/assemble-v157.log
+            build/assemble-v158.log
           if-no-files-found: error
           retention-days: 14
 
@@ -146,5 +148,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="v157-ci-${GITHUB_RUN_ID}"
-          gh release create "$tag" v157-source-faithful-cache-export-four-brand-apks.zip v157-build-archive-sha256.txt --repo "$GITHUB_REPOSITORY" --target agent/v128-m4a-decrypt --title "v157 CI build ${GITHUB_RUN_ID}" --notes "Temporary unsigned CI build for v157 verification." --prerelease
+          tag="v158-ci-${GITHUB_RUN_ID}"
+          gh release create "$tag" v158-active-playback-cache-export-four-brand-apks.zip v158-build-archive-sha256.txt --repo "$GITHUB_REPOSITORY" --target agent/v128-m4a-decrypt --title "v158 CI build ${GITHUB_RUN_ID}" --notes "Temporary unsigned CI build for v158 verification." --prerelease
