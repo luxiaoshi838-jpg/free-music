@@ -26,6 +26,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply_v160_fast_cache_dark_media.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              '// “正在检查缓存状态”. Real file validation still happens when playback',
+              '// the slow cache-verification screen. Real file validation still happens when playback')
+          text = text.replace(
+              'if "正在检查缓存状态" in main:',
+              'if \'playlistCacheButton.setText("正在检查缓存状态\' in main:')
+          path.write_text(text, encoding='utf-8')
+          PY
           python3 scripts/apply_v160_fast_cache_dark_media.py
           if git diff --quiet; then
             echo "patched=false" >> "$GITHUB_OUTPUT"
@@ -37,6 +49,7 @@ jobs:
               app/src/main/java/com/jianglab/babywife/MainActivity.java \
               app/src/main/java/com/jianglab/babywife/PlaybackControlService.java \
               app/src/main/java/com/jianglab/babywife/PlaybackArtworkLoader.java \
+              scripts/apply_v160_fast_cache_dark_media.py \
               PROJECT_LOG.md
             git commit -m "v160: speed playlist cache status and darken media card"
             git push origin HEAD:agent/v160-fast-cache-dark-media
@@ -54,7 +67,7 @@ jobs:
           set -euo pipefail
           grep -q 'versionCode 2026080760' app/build.gradle
           grep -q 'versionName "2026.08.07.v160-fast-cache-dark-media"' app/build.gradle
-          ! grep -q '正在检查缓存状态' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          ! grep -q 'playlistCacheButton.setText("正在检查缓存状态' app/src/main/java/com/jianglab/babywife/MainActivity.java
           grep -q 'if (songHasRecordedCache(song)) continue;' app/src/main/java/com/jianglab/babywife/MainActivity.java
           grep -q 'Media3PlaybackCacheIndex.friendlyUri(this, media3Key)' app/src/main/java/com/jianglab/babywife/MainActivity.java
           grep -q 'FALLBACK_MEDIA_COLOR' app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
