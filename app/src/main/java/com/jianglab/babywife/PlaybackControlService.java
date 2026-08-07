@@ -49,7 +49,7 @@ public final class PlaybackControlService extends Service {
 
     private static final String CHANNEL_ID = "babywife_media_playback";
     private static final int NOTIFICATION_ID = 1514;
-    private static final int FALLBACK_MEDIA_COLOR = Color.rgb(34, 31, 40);
+    private static final int FIXED_MEDIA_COLOR = Color.rgb(38, 34, 42);
 
     private final ExecutorService artworkExecutor = Executors.newSingleThreadExecutor();
     private MediaSession mediaSession;
@@ -306,27 +306,16 @@ public final class PlaybackControlService extends Service {
             .setStyle(new Notification.MediaStyle()
                 .setMediaSession(mediaSession.getSessionToken())
                 .setShowActionsInCompactView(0, 1, 2));
-        int mediaColor = artwork == null
-            ? FALLBACK_MEDIA_COLOR : darkMediaColor(PlaybackArtworkLoader.averageColor(artwork));
-        builder.setColor(mediaColor);
+        // v163: fixed dark media-card tint for HyperOS. Artwork remains artwork only;
+        // it no longer changes the card color from song to song.
+        builder.setColor(FIXED_MEDIA_COLOR);
         if (artwork != null) {
-            // High-resolution square art is supplied to both MediaSession and
-            // the notification. Android/OEM lock screens can then crop/enlarge
-            // it as the media-card backdrop instead of falling back to white.
             builder.setLargeIcon(artwork);
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             builder.setColorized(true);
         }
         return builder.build();
-    }
-
-    private int darkMediaColor(int color) {
-        if (color == 0) return FALLBACK_MEDIA_COLOR;
-        int red = Math.max(18, Color.red(color) * 58 / 100);
-        int green = Math.max(18, Color.green(color) * 58 / 100);
-        int blue = Math.max(22, Color.blue(color) * 58 / 100);
-        return Color.rgb(red, green, blue);
     }
 
     private PendingIntent servicePendingIntent(String action, int requestCode) {
