@@ -86,10 +86,19 @@ checks = {
         and "return existingUri;" in exporter
     ),
     "unknown Content-Length still exports completed cache": (
-        "contiguousCachedBytesFromZero" in store
-        and "contentLength = Media3CacheStore.contiguousCachedBytesFromZero" in exporter
-        and ".setLength(contentLength)" in exporter
-        and "copyCachedResource(cacheFactory, exportSpec" in exporter
+        (
+            "contiguousCachedBytesFromZero" in store
+            and "contentLength = Media3CacheStore.contiguousCachedBytesFromZero" in exporter
+            and ".setLength(contentLength)" in exporter
+            and "copyCachedResource(cacheFactory, exportSpec" in exporter
+        )
+        or (
+            "copyReadThroughResource" in exporter
+            and "long openedLength = source.open(dataSpec)" in exporter
+            and "if (expectedLength <= 0L)" in exporter
+            and "if (read == C.RESULT_END_OF_INPUT) break;" in exporter
+            and "setCacheWriteDataSinkFactory(null)" in exporter
+        )
     ),
     "friendly filename format retained": (
         'record.title + " - " + record.artist' in cache_storage
