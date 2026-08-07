@@ -20,11 +20,12 @@ jobs:
           ref: agent/v161-custom-dark-media-card
           fetch-depth: 0
 
-      - name: Apply v161 patch and persist source
+      - name: Apply v161 patches and persist source
         id: patch
         run: |
           set -euo pipefail
           python3 scripts/apply_v161_custom_media_card.py
+          python3 scripts/apply_v161_reference_followup.py
           if git diff --quiet; then
             echo "patched=false" >> "$GITHUB_OUTPUT"
           else
@@ -35,8 +36,11 @@ jobs:
               app/src/main/java/com/jianglab/babywife/PlaybackControlService.java \
               app/src/main/res/layout/notification_media_compact.xml \
               app/src/main/res/layout/notification_media_expanded.xml \
+              app/src/main/res/drawable/notification_media_play_circle.xml \
+              app/src/main/res/drawable/notification_media_corner_circle.xml \
+              app/src/main/res/drawable/ic_media_headphones.xml \
               PROJECT_LOG.md
-            git commit -m "v161: force custom dark lockscreen media card"
+            git commit -m "v161: match standalone reference media layout"
             git push origin HEAD:agent/v161-custom-dark-media-card
             echo "patched=true" >> "$GITHUB_OUTPUT"
           fi
@@ -54,9 +58,16 @@ jobs:
           grep -q 'R.layout.notification_media_compact' app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
           grep -q 'R.layout.notification_media_expanded' app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
           grep -q 'DecoratedCustomViewStyle' app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
+          grep -q 'audioOutputPendingIntent' app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
+          grep -q 'media_headset' app/src/main/res/layout/notification_media_expanded.xml
+          grep -q 'media_queue' app/src/main/res/layout/notification_media_expanded.xml
+          grep -q 'media_source' app/src/main/res/layout/notification_media_expanded.xml
           ! grep -q 'new Notification.MediaStyle()' app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
           test -s app/src/main/res/layout/notification_media_compact.xml
           test -s app/src/main/res/layout/notification_media_expanded.xml
+          test -s app/src/main/res/drawable/notification_media_play_circle.xml
+          test -s app/src/main/res/drawable/notification_media_corner_circle.xml
+          test -s app/src/main/res/drawable/ic_media_headphones.xml
 
       - name: Prepare Android toolchain
         if: steps.patch.outputs.patched != 'true'
