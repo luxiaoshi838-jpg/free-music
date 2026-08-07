@@ -17,6 +17,8 @@ import android.os.IBinder;
 import android.view.View;
 import android.widget.RemoteViews;
 
+import org.json.JSONObject;
+
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -349,6 +351,9 @@ public final class PlaybackControlService extends Service {
         }
 
         if (expanded) {
+            views.setTextViewText(R.id.media_source, mediaSourceLabel());
+            views.setOnClickPendingIntent(R.id.media_headset, audioOutputPendingIntent());
+            views.setOnClickPendingIntent(R.id.media_queue, openPlayerPendingIntent());
             int max = duration > 0L ? (int) Math.min(Integer.MAX_VALUE, duration) : 1;
             int progress = duration > 0L
                 ? (int) Math.min(max, Math.max(0L, position)) : 0;
@@ -356,6 +361,32 @@ public final class PlaybackControlService extends Service {
             views.setTextViewText(R.id.media_position, formatMediaTime(position));
             views.setTextViewText(R.id.media_duration, formatMediaTime(duration));
         }
+    }
+
+    private String mediaSourceLabel() {
+        try {
+            JSONObject object = new JSONObject(catalogJson == null ? "{}" : catalogJson);
+            String source = object.optString("source", "").trim();
+            if (!source.isEmpty()) return source.toUpperCase(java.util.Locale.ROOT);
+        } catch (Exception ignored) {
+        }
+        String uri = mediaUri == null ? "" : mediaUri.trim();
+        if (uri.startsWith("content:") || uri.startsWith("file:")) return "LOCAL";
+        return "";
+    }
+
+    private PendingIntent audioOutputPendingIntent() {
+        Intent intent = new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        return PendingIntent.getActivity(
+            this, 31, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    private PendingIntent openPlayerPendingIntent() {
+        Intent intent = new Intent(this, MainActivity.class)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        return PendingIntent.getActivity(
+            this, 32, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     private String formatMediaTime(long millis) {
