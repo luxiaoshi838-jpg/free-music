@@ -27,14 +27,11 @@ jobs:
           git checkout v159-ci-31142430060 -- \
             app/src/main/java/com/jianglab/babywife/PlaybackControlService.java \
             app/src/main/java/com/jianglab/babywife/PlaybackArtworkLoader.java
-          if git diff --quiet; then
+          if git diff --cached --quiet; then
             echo "rolled_back=false" >> "$GITHUB_OUTPUT"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add \
-              app/src/main/java/com/jianglab/babywife/PlaybackControlService.java \
-              app/src/main/java/com/jianglab/babywife/PlaybackArtworkLoader.java
             git commit -m "v164: directly roll media subsystem back to v159"
             git push origin HEAD:agent/v164-clean-media-baseline
             echo "rolled_back=true" >> "$GITHUB_OUTPUT"
