@@ -1,6 +1,7 @@
 package com.jianglab.babywife;
 
 import android.content.Context;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -49,7 +50,32 @@ final class UnifiedMediaPlayer {
     }
 
     private final Context appContext;
+    private final AudioManager audioManager;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private boolean userRequestedPlayback;
+    private boolean communicationActive;
+    private boolean communicationPaused;
+    private final Runnable communicationModeWatcher = new Runnable() {
+        @Override
+        public void run() {
+            if (released) return;
+            boolean active = isCommunicationMode();
+            if (active && !communicationActive) {
+                communicationActive = true;
+                if (player != null && userRequestedPlayback) {
+                    communicationPaused = true;
+                    player.pause();
+                }
+            } else if (!active && communicationActive) {
+                communicationActive = false;
+                if (communicationPaused && userRequestedPlayback && player != null) {
+                    player.play();
+                }
+                communicationPaused = false;
+            }
+            mainHandler.postDelayed(this, 400L);
+        }
+    };
     private Uri sourceUri;
     private String cacheKey = "";
     private Map<String, String> requestHeaders = Collections.emptyMap();
@@ -62,6 +88,7 @@ final class UnifiedMediaPlayer {
 
     UnifiedMediaPlayer(Context context) {
         appContext = context.getApplicationContext();
+        audioManager = (AudioManager) appContext.getSystemService(Context.AUDIO_SERVICE);
     }
 
     void setWakeMode(Context context, int mode) {
@@ -155,6 +182,7 @@ final class UnifiedMediaPlayer {
                 }
             });
             player = next;
+            scheduleCommunicationModeWatch();
 
             MediaItem.Builder itemBuilder = new MediaItem.Builder().setUri(sourceUri);
             if (!cacheKey.isEmpty()) itemBuilder.setCustomCacheKey(cacheKey);
@@ -171,24 +199,39 @@ final class UnifiedMediaPlayer {
 
     void start() {
         runOnMain(() -> {
-            if (player != null && !released) player.play();
+            userRequestedPlayback = true;
+            scheduleCommunicationModeWatch();
+            if (player == null || released) return;
+            if (isCommunicationMode()) {
+                communicationActive = true;
+                communicationPaused = true;
+                player.pause();
+                return;
+            }
+            player.play();
         });
     }
 
     void pause() {
         runOnMain(() -> {
+            userRequestedPlayback = false;
+            communicationPaused = false;
             if (player != null && !released) player.pause();
         });
     }
 
     void stop() {
         runOnMain(() -> {
+            userRequestedPlayback = false;
+            communicationPaused = false;
             if (player != null && !released) player.stop();
         });
     }
 
     void reset() {
         runOnMain(() -> {
+            userRequestedPlayback = false;
+            communicationPaused = false;
             if (player != null && !released) {
                 player.stop();
                 player.clearMediaItems();
@@ -198,9 +241,12 @@ final class UnifiedMediaPlayer {
 
     void release() {
         released = true;
+        userRequestedPlayback = false;
+        communicationPaused = false;
         preparedListener = null;
         completionListener = null;
         errorListener = null;
+        mainHandler.removeCallbacks(communicationModeWatcher);
         runOnMain(this::releaseInternalPlayer);
     }
 
@@ -224,6 +270,18 @@ final class UnifiedMediaPlayer {
         runOnMain(() -> {
             if (player != null && !released) player.seekTo(Math.max(0, positionMs));
         });
+    }
+
+    private boolean isCommunicationMode() {
+        if (audioManager == null) return false;
+        int mode = audioManager.getMode();
+        return mode == AudioManager.MODE_IN_CALL
+            || mode == AudioManager.MODE_IN_COMMUNICATION;
+    }
+
+    private void scheduleCommunicationModeWatch() {
+        mainHandler.removeCallbacks(communicationModeWatcher);
+        if (!released) mainHandler.post(communicationModeWatcher);
     }
 
     private void notifyError(int what, int extra) {
