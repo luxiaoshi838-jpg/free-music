@@ -102,6 +102,8 @@ public class MainActivity extends Activity {
     private static final String KEY_CRASH_REPORT = "last_crash_report";
     private static final String KEY_CRASH_REPORT_TIME = "last_crash_report_time";
     private static final String KEY_CRASH_REPORT_DISMISSED = "last_crash_report_dismissed";
+    private static final String KEY_PROBLEM_REPORT_HISTORY = "problem_report_history_v1";
+    private static final int MAX_PROBLEM_REPORT_HISTORY = 10;
     private static final String KEY_PLAYLISTS = "playlists_v2";
     private static final String KEY_CURRENT_PLAYLIST = "current_playlist";
     private static final String KEY_BACKGROUND_URI = "background_uri";
@@ -331,6 +333,7 @@ public class MainActivity extends Activity {
         installCrashReporter();
         normalStatusBarColor = getWindow().getStatusBarColor();
         loadPlaylists();
+        migrateLegacyProblemReportIfNeeded();
         suppressCrashReportAfterAppUpdate();
         captureLastProcessExitReport();
         loadSavedUiSettings();
@@ -455,12 +458,9 @@ public class MainActivity extends Activity {
             SharedPreferences.Editor editor = prefs.edit()
                 .putLong(KEY_LAST_APP_VERSION_CODE, currentVersion);
             if (firstLaunchWithMarkerSupportAfterUpdate || versionChanged) {
-                // Installing a newer APK legitimately kills/restarts the old process.
-                // Treat all exit history before this launch as handled, and discard
-                // pending reports left by the previous package version.
+                // APK update is a normal process restart, not a diagnostic failure.
+                // Mark all pre-launch exit history as handled while preserving older real logs.
                 editor.putLong(KEY_LAST_HANDLED_EXIT_TIME, System.currentTimeMillis())
-                    .remove(KEY_CRASH_REPORT)
-                    .remove(KEY_CRASH_REPORT_TIME)
                     .putBoolean(KEY_CRASH_REPORT_DISMISSED, true)
                     .putBoolean(KEY_PLAYBACK_TRANSITION_PENDING, false)
                     .remove(KEY_PLAYBACK_TRANSITION_DETAIL)
@@ -773,11 +773,14 @@ public class MainActivity extends Activity {
 
     private void storeProblemReport(String reportText) {
         String text = trimForReport(reportText, 60000);
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+        long now = System.currentTimeMillis();
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        appendProblemReportHistory(prefs, text, now);
+        prefs.edit()
             .putString(KEY_CRASH_REPORT, text)
-            .putLong(KEY_CRASH_REPORT_TIME, System.currentTimeMillis())
+            .putLong(KEY_CRASH_REPORT_TIME, now)
             .putBoolean(KEY_CRASH_REPORT_DISMISSED, false)
-            .commit();
+            .apply();
     }
 
     private void startResponsivenessWatchdog() {
@@ -876,15 +879,158 @@ public class MainActivity extends Activity {
     }
 
     private void openSavedCrashReport() {
-        String report = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            .getString(KEY_CRASH_REPORT, "");
-        if (report == null || report.trim().isEmpty()) {
+        migrateLegacyProblemReportIfNeeded();
+        JSONArray history = readProblemReportHistory();
+        if (history.length() == 0) {
             toast("暂无播放/闪退问题报告");
             return;
         }
-        showCrashReportDialog(report);
+        showProblemReportHistoryDialog(history);
     }
 
+
+    private void migrateLegacyProblemReportIfNeeded() {
+        try {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            JSONArray existingHistory = readProblemReportHistory();
+            if (existingHistory.length() > 0) return;
+            String legacy = prefs.getString(KEY_CRASH_REPORT, "");
+            if (legacy == null || legacy.trim().isEmpty()) return;
+            long time = prefs.getLong(KEY_CRASH_REPORT_TIME, System.currentTimeMillis());
+            appendProblemReportHistory(prefs, legacy, time);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private JSONArray readProblemReportHistory() {
+        try {
+            String raw = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(KEY_PROBLEM_REPORT_HISTORY, "[]");
+            return new JSONArray(raw == null || raw.trim().isEmpty() ? "[]" : raw);
+        } catch (Throwable ignored) {
+            return new JSONArray();
+        }
+    }
+
+    private String problemReportName(long timestamp) {
+        try {
+            return new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.ROOT)
+                .format(new java.util.Date(timestamp));
+        } catch (Throwable ignored) {
+            return String.valueOf(timestamp);
+        }
+    }
+
+    private void appendProblemReportHistory(SharedPreferences prefs, String report, long timestamp) {
+        try {
+            JSONArray old = readProblemReportHistory();
+            JSONArray next = new JSONArray();
+            JSONObject newest = new JSONObject();
+            newest.put("name", problemReportName(timestamp));
+            newest.put("time", timestamp);
+            newest.put("text", trimForReport(report, 60000));
+            next.put(newest);
+            for (int i = 0; i < old.length() && next.length() < MAX_PROBLEM_REPORT_HISTORY; i++) {
+                JSONObject item = old.optJSONObject(i);
+                if (item == null) continue;
+                long oldTime = item.optLong("time", 0L);
+                String oldText = item.optString("text", "");
+                if (oldTime == timestamp && oldText.equals(report)) continue;
+                next.put(item);
+            }
+            prefs.edit().putString(KEY_PROBLEM_REPORT_HISTORY, next.toString()).apply();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void showProblemReportHistoryDialog(JSONArray history) {
+        if (isFinishing()) return;
+        int count = Math.min(history.length(), MAX_PROBLEM_REPORT_HISTORY);
+        CharSequence[] names = new CharSequence[count];
+        for (int i = 0; i < count; i++) {
+            JSONObject item = history.optJSONObject(i);
+            names[i] = item == null ? "未知日志" : item.optString("name", "未知日志");
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("播放/闪退日志（最多10条）")
+            .setItems(names, (dialog, which) -> {
+                JSONObject item = history.optJSONObject(which);
+                if (item != null) showProblemReportActions(item);
+            })
+            .setNegativeButton("关闭", null)
+            .show();
+    }
+
+    private void showProblemReportActions(JSONObject item) {
+        String name = item.optString("name", "未知日志");
+        String report = item.optString("text", "");
+        new AlertDialog.Builder(this)
+            .setTitle(name)
+            .setItems(new CharSequence[] {"查看", "复制", "删除"}, (dialog, which) -> {
+                if (which == 0) {
+                    showCrashReportDialog(report);
+                } else if (which == 1) {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(ClipData.newPlainText(name, report));
+                        toast("已复制日志：" + name);
+                    }
+                } else if (which == 2) {
+                    confirmDeleteProblemReport(item);
+                }
+            })
+            .setNegativeButton("取消", null)
+            .show();
+    }
+
+    private void confirmDeleteProblemReport(JSONObject target) {
+        String name = target.optString("name", "未知日志");
+        new AlertDialog.Builder(this)
+            .setTitle("删除日志")
+            .setMessage("确定删除 " + name + "？")
+            .setPositiveButton("删除", (dialog, which) -> deleteProblemReport(target))
+            .setNegativeButton("取消", null)
+            .show();
+    }
+
+    private void deleteProblemReport(JSONObject target) {
+        try {
+            JSONArray old = readProblemReportHistory();
+            JSONArray next = new JSONArray();
+            long targetTime = target.optLong("time", Long.MIN_VALUE);
+            String targetText = target.optString("text", "");
+            for (int i = 0; i < old.length(); i++) {
+                JSONObject item = old.optJSONObject(i);
+                if (item == null) continue;
+                if (item.optLong("time", Long.MAX_VALUE) == targetTime
+                    && item.optString("text", "").equals(targetText)) {
+                    continue;
+                }
+                next.put(item);
+            }
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            SharedPreferences.Editor editor = prefs.edit()
+                .putString(KEY_PROBLEM_REPORT_HISTORY, next.toString());
+            if (next.length() == 0) {
+                editor.remove(KEY_CRASH_REPORT)
+                    .remove(KEY_CRASH_REPORT_TIME)
+                    .putBoolean(KEY_CRASH_REPORT_DISMISSED, true);
+            } else {
+                JSONObject latest = next.optJSONObject(0);
+                if (latest != null) {
+                    editor.putString(KEY_CRASH_REPORT, latest.optString("text", ""))
+                        .putLong(KEY_CRASH_REPORT_TIME, latest.optLong("time", 0L))
+                        .putBoolean(KEY_CRASH_REPORT_DISMISSED, true);
+                }
+            }
+            editor.apply();
+            toast("已删除日志：" + target.optString("name", ""));
+            JSONArray refreshed = readProblemReportHistory();
+            if (refreshed.length() > 0) showProblemReportHistoryDialog(refreshed);
+        } catch (Throwable ignored) {
+            toast("删除日志失败");
+        }
+    }
 
     private void maybeRequireJiangLabPassphrase() {
         if (!BuildConfig.REQUIRE_FIRST_RUN_PASSPHRASE) return;
