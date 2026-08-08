@@ -1376,7 +1376,10 @@ public class MainActivity extends Activity {
         searchMatchModeButton.setText(savedSearchMatchMode);
         searchMatchModeButton.setTextColor(TEXT_MUTED);
         searchMatchModeButton.setTextSize(9);
-        searchMatchModeButton.setGravity(Gravity.CENTER);
+        searchMatchModeButton.setGravity(Gravity.CENTER_HORIZONTAL | Gravity.CENTER_VERTICAL);
+        searchMatchModeButton.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+        searchMatchModeButton.setIncludeFontPadding(false);
+        searchMatchModeButton.setPadding(0, 0, 0, 0);
         searchMatchModeButton.setSingleLine(true);
         searchMatchModeButton.setContentDescription("搜索模式");
         searchMatchModeButton.setOnClickListener(view -> showSearchMatchModeDialog());

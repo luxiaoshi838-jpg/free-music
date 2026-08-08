@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080873
-        versionName "2026.08.08.v173-log-history"
+        versionCode 2026080874
+        versionName "2026.08.08.v174-search-mode-centered"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
