@@ -1686,7 +1686,7 @@ public class MainActivity extends Activity {
     }
 
     private void showCurrentPlaylistSortDialog() {
-        final String[] options = {"歌名↑", "歌名↓", "歌手↑", "歌手↓"};
+        final String[] options = {"歌名↑", "歌名↓", "歌手↑", "歌手↓", "添加时间↑", "添加时间↓"};
         new AlertDialog.Builder(this)
             .setTitle("排序当前歌单")
             .setItems(options, (dialog, which) -> sortCurrentPlaylist(which, options[which]))
@@ -1700,24 +1700,36 @@ public class MainActivity extends Activity {
             toast("当前歌单无需排序");
             return;
         }
-        final boolean byArtist = mode >= 2;
-        final boolean descending = mode == 1 || mode == 3;
+        final boolean byAddedTime = mode == 4 || mode == 5;
+        final boolean byArtist = mode == 2 || mode == 3;
+        final boolean descending = mode == 1 || mode == 3 || mode == 5;
         final java.text.Collator collator = java.text.Collator.getInstance(java.util.Locale.CHINA);
         collator.setStrength(java.text.Collator.PRIMARY);
+
         Collections.sort(playlist.songs, new Comparator<Song>() {
             @Override
             public int compare(Song left, Song right) {
-                String leftPrimary = playlistSortText(byArtist ? left.artist : left.title);
-                String rightPrimary = playlistSortText(byArtist ? right.artist : right.title);
-                int result = collator.compare(leftPrimary, rightPrimary);
-                if (descending) result = -result;
+                if (byAddedTime) {
+                    int timeResult = Long.compare(left.addedAt, right.addedAt);
+                    if (descending) timeResult = -timeResult;
+                    if (timeResult != 0) return timeResult;
+
+                    // Same import batch/same timestamp: always name ascending.
+                    int nameResult = comparePlaylistText(left.title, right.title, false, collator);
+                    if (nameResult != 0) return nameResult;
+                    return comparePlaylistText(left.artist, right.artist, false, collator);
+                }
+
+                String leftPrimary = byArtist ? left.artist : left.title;
+                String rightPrimary = byArtist ? right.artist : right.title;
+                int result = comparePlaylistText(leftPrimary, rightPrimary, descending, collator);
                 if (result != 0) return result;
 
-                String leftSecondary = playlistSortText(byArtist ? left.title : left.artist);
-                String rightSecondary = playlistSortText(byArtist ? right.title : right.artist);
-                result = collator.compare(leftSecondary, rightSecondary);
+                String leftSecondary = byArtist ? left.title : left.artist;
+                String rightSecondary = byArtist ? right.title : right.artist;
+                result = comparePlaylistText(leftSecondary, rightSecondary, false, collator);
                 if (result != 0) return result;
-                return collator.compare(playlistSortText(left.source), playlistSortText(right.source));
+                return comparePlaylistText(left.source, right.source, false, collator);
             }
         });
 
@@ -1728,6 +1740,45 @@ public class MainActivity extends Activity {
         renderCurrentPlaylist();
         if (playlistSongsList != null) playlistSongsList.setSelection(0);
         toast("当前歌单已按" + label + "排序");
+    }
+
+    private void stampImportedPlaylistBatch(Playlist playlist) {
+        if (playlist == null || playlist.songs.isEmpty()) return;
+        long batchAddedAt = System.currentTimeMillis();
+        for (Song song : playlist.songs) {
+            if (song != null) song.addedAt = batchAddedAt;
+        }
+    }
+
+    private int comparePlaylistText(String leftValue,
+                                    String rightValue,
+                                    boolean descending,
+                                    java.text.Collator collator) {
+        String left = playlistSortText(leftValue);
+        String right = playlistSortText(rightValue);
+        int leftGroup = playlistSortGroup(left);
+        int rightGroup = playlistSortGroup(right);
+
+        // Script group order is fixed regardless of ↑/↓: Latin first, Han next.
+        if (leftGroup != rightGroup) return Integer.compare(leftGroup, rightGroup);
+
+        int result = collator.compare(left, right);
+        if (descending) result = -result;
+        return result;
+    }
+
+    private int playlistSortGroup(String value) {
+        String normalized = playlistSortText(value);
+        for (int offset = 0; offset < normalized.length();) {
+            int codePoint = normalized.codePointAt(offset);
+            offset += Character.charCount(codePoint);
+            if (!Character.isLetterOrDigit(codePoint)) continue;
+            Character.UnicodeScript script = Character.UnicodeScript.of(codePoint);
+            if (script == Character.UnicodeScript.LATIN || Character.isDigit(codePoint)) return 0;
+            if (script == Character.UnicodeScript.HAN) return 1;
+            return 2;
+        }
+        return 3;
     }
 
     private String playlistSortText(String value) {
@@ -2333,6 +2384,7 @@ public class MainActivity extends Activity {
         }
         Song playlistSong = currentSong == song ? song : copySongForPlaylist(song);
         playlist.songs.add(playlistSong);
+        playlistSong.addedAt = System.currentTimeMillis();
         int addedIndex = playlist.songs.size() - 1;
         playlistSong.unavailable = false;
         playlistSong.cacheFailed = false;
@@ -5002,6 +5054,7 @@ public class MainActivity extends Activity {
                         return;
                     }
                     dedupePlaylist(imported);
+                    stampImportedPlaylistBatch(imported);
                     playlists.add(imported);
                     currentPlaylistIndex = playlists.size() - 1;
                     savePlaylists();
@@ -5563,6 +5616,7 @@ public class MainActivity extends Activity {
                     return;
                 }
                 dedupePlaylist(imported);
+                stampImportedPlaylistBatch(imported);
                 playlists.add(imported);
                 currentPlaylistIndex = playlists.size() - 1;
                 savePlaylists();
@@ -5821,6 +5875,7 @@ public class MainActivity extends Activity {
             String lyric = lyricsByBase.get(baseName(entry.name));
             Song song = new Song(title, "\u672c\u5730\u6587\u4ef6", "\u672c\u5730", lyric == null ? "" : lyric, entry.uri.toString());
             if (!containsSong(localPlaylist(), song)) {
+                song.addedAt = System.currentTimeMillis();
                 localPlaylist().songs.add(song);
                 added++;
             }
@@ -5836,6 +5891,7 @@ public class MainActivity extends Activity {
         String name = displayNameForUri(uri);
         Song song = new Song(stripExtension(name), "\u672c\u5730\u6587\u4ef6", "\u672c\u5730", "", uri.toString());
         if (containsSong(localPlaylist(), song)) return false;
+        song.addedAt = System.currentTimeMillis();
         localPlaylist().songs.add(song);
         return true;
     }
@@ -6344,6 +6400,7 @@ public class MainActivity extends Activity {
         String catalogJson;
         String artworkUrl;
         String cachedUri;
+        long addedAt;
         boolean unavailable;
         boolean autoUnavailable;
         boolean manualUnavailable;
@@ -6368,6 +6425,7 @@ public class MainActivity extends Activity {
             this.catalogJson = catalogJson == null ? "" : catalogJson;
             this.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(this.catalogJson);
             this.cachedUri = cachedUri == null ? "" : cachedUri;
+            this.addedAt = 0L;
             this.unavailable = false;
             this.autoUnavailable = false;
             this.manualUnavailable = false;
@@ -6430,6 +6488,7 @@ public class MainActivity extends Activity {
                 object.put("catalogJson", catalogJson);
                 object.put("artworkUrl", artworkUrl);
                 object.put("cachedUri", cachedUri);
+                object.put("addedAt", addedAt);
                 object.put("unavailable", unavailable);
                 object.put("autoUnavailable", autoUnavailable);
                 object.put("manualUnavailable", manualUnavailable);
@@ -6461,6 +6520,7 @@ public class MainActivity extends Activity {
             song.manualUnavailable = object.optBoolean("manualUnavailable", song.unavailable);
             song.manualAttempt = false;
             song.cacheFailed = object.optBoolean("cacheFailed", false);
+            song.addedAt = Math.max(0L, object.optLong("addedAt", 0L));
             return song;
         }
     }
