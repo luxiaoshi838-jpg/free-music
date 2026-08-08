@@ -118,6 +118,7 @@ public class MainActivity extends Activity {
     private static final String KEY_PLAY_MODE = "play_mode";
     private static final String KEY_SEARCH_SOURCE = "search_source";
     private static final String KEY_SEARCH_MATCH_MODE = "search_match_mode";
+    private static final String KEY_SEARCH_MATCH_MODE = "search_match_mode";
     private static final int REQUEST_BACKGROUND_IMAGE = 7301;
     private static final int REQUEST_AUDIO_FILES = 7302;
     private static final int REQUEST_AUDIO_FOLDER = 7303;
@@ -207,6 +208,8 @@ public class MainActivity extends Activity {
     private int searchSongIndex = -1;
     private int playMode = 0;
     private String savedSearchSource = "\u5feb\u901f\u641c\u7d22";
+    private String savedSearchMatchMode = "默认";
+    private String activeSearchMatchMode = "默认";
     private String savedSearchMatchMode = "默认";
     private String activeSearchMatchMode = "默认";
     private final Random random = new Random();
