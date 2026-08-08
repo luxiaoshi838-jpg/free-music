@@ -261,6 +261,11 @@ public class MainActivity extends Activity {
     private long playbackLastProgressTime = 0L;
     private volatile boolean playlistCacheRunning = false;
     private volatile boolean transientCacheCleanupRunning = false;
+    // Built when the playlist cache button is refreshed. One-click caching consumes
+    // this exact list instead of scanning the full playlist a second time.
+    private final List<Song> playlistOneClickTargets = new ArrayList<>();
+    private Playlist playlistOneClickTargetPlaylist = null;
+    private int playlistOneClickManualOnlyCount = 0;
     private final ExecutorService playlistCacheScanExecutor = Executors.newSingleThreadExecutor();
     private volatile int playlistCacheScanSerial = 0;
     private final ExecutorService playlistPersistenceExecutor = Executors.newSingleThreadExecutor();
@@ -2872,19 +2877,40 @@ public class MainActivity extends Activity {
         if (playlistCacheRunning) {
             playlistCacheButton.setVisibility(View.VISIBLE);
             playlistCacheButton.setEnabled(false);
-            playlistCacheButton.setText("正在缓存当前歌单…");
             return;
         }
 
-        // This is deliberately a metadata/index-only pass. It never enumerates
-        // the SAF cache directory, so entering a playlist cannot get stuck on
-        // the slow cache-verification screen. Real file validation still happens when playback
-        // or an explicit cache attachment actually needs the file.
-        List<Song> songSnapshot = new ArrayList<>(currentPlaylist().songs);
-        int missing = uncachedNetworkSongs(songSnapshot).size();
-        playlistCacheButton.setEnabled(true);
+        // This is the single classification pass for the current playlist. The
+        // resulting target list is retained and consumed directly by one-click cache.
+        Playlist playlist = currentPlaylist();
+        playlistOneClickTargetPlaylist = playlist;
+        playlistOneClickTargets.clear();
+        playlistOneClickManualOnlyCount = 0;
+        for (Song song : new ArrayList<>(playlist.songs)) {
+            if (song == null || !song.isNetworkCatalog()) continue;
+            if (isManualOnlyCacheSong(song)) {
+                playlistOneClickManualOnlyCount++;
+                continue;
+            }
+            if (!songHasRecordedCache(song)) playlistOneClickTargets.add(song);
+        }
+
+        int missing = playlistOneClickTargets.size();
+        playlistCacheButton.setEnabled(missing > 0);
         playlistCacheButton.setVisibility(missing > 0 ? View.VISIBLE : View.GONE);
         playlistCacheButton.setText("一键缓存未缓存歌曲（" + missing + "）");
+    }
+
+    private boolean isManualOnlyCacheSong(Song song) {
+        return song != null && (song.unavailable || song.cacheFailed);
+    }
+
+    private boolean songHasRecordedCacheQuick(Song song) {
+        if (song == null || !song.isNetworkCatalog()) return true;
+        String cached = song.cachedUri == null ? "" : song.cachedUri.trim();
+        if (!cached.isEmpty()) return true;
+        String direct = song.uri == null ? "" : song.uri.trim();
+        return direct.startsWith("file:") || direct.startsWith("content:");
     }
 
     private List<Song> uncachedNetworkSongs(Playlist playlist) {
@@ -3584,39 +3610,42 @@ public class MainActivity extends Activity {
             return;
         }
 
-        final List<Song> songSnapshot = new ArrayList<>(playlist.songs);
+        // updatePlaylistCacheButtonVisibility() already identified the missing songs.
+        // Never rescan the complete playlist when the user presses one-click cache.
+        if (playlistOneClickTargetPlaylist != playlist) {
+            updatePlaylistCacheButtonVisibility();
+            toast("缓存状态已刷新，请再次点击一键缓存");
+            return;
+        }
+        final List<Song> targets = new ArrayList<>(playlistOneClickTargets);
+        final int manualOnlyAtStart = playlistOneClickManualOnlyCount;
+        if (targets.isEmpty()) {
+            if (manualOnlyAtStart > 0) {
+                toast("没有可自动缓存歌曲；红色歌曲需手动处理");
+            } else {
+                toast("当前歌单都已缓存");
+            }
+            return;
+        }
+
         final int cacheStartSerial = foregroundPlaybackSerial;
         playlistCacheRunning = true;
         ++playlistCacheScanSerial;
         if (playlistCacheButton != null) {
             playlistCacheButton.setVisibility(View.VISIBLE);
             playlistCacheButton.setEnabled(false);
-            playlistCacheButton.setText("正在检查缓存状态…");
+            playlistCacheButton.setText("缓存 0/" + targets.size());
         }
-        if (statusView != null) statusView.setText("正在检查当前歌单的缓存状态…");
+        if (statusView != null) {
+            statusView.setText("开始缓存：" + playlist.name + "，共 " + targets.size() + " 首");
+        }
 
         new Thread(() -> {
-            List<Song> targets = uncachedNetworkSongs(songSnapshot);
-            if (targets.isEmpty()) {
-                runOnUiThread(() -> {
-                    playlistCacheRunning = false;
-                    updatePlaylistCacheButtonVisibility();
-                    toast("当前歌单都已缓存");
-                });
-                return;
-            }
-
-            runOnUiThread(() -> {
-                if (statusView != null) {
-                    statusView.setText("开始缓存未缓存歌曲：" + playlist.name
-                        + "，共 " + targets.size() + " 首");
-                }
-            });
-
             int done = 0;
             int skipped = 0;
             int waitingExisting = 0;
             int failed = 0;
+            int manualSkipped = manualOnlyAtStart;
             boolean pausedForPlayback = false;
             for (int i = 0; i < targets.size(); i++) {
                 if (foregroundPlaybackSerial != cacheStartSerial) {
@@ -3628,13 +3657,20 @@ public class MainActivity extends Activity {
                     skipped++;
                     continue;
                 }
-                if (songHasRecordedCache(song)) {
+                // A song can turn red after the target list was built (for example,
+                // another playback attempt failed). Red songs are manual-only forever
+                // until the user explicitly operates/replaces them.
+                if (isManualOnlyCacheSong(song)) {
+                    manualSkipped++;
+                    continue;
+                }
+                // Only check the in-memory URI fields for this already-classified target.
+                // Do not perform another full playlist/index scan.
+                if (songHasRecordedCacheQuick(song)) {
                     done++;
                     continue;
                 }
 
-                // Search playback/replacement/one-click all share this key. If the
-                // song is already being cached, never start a second download.
                 final String operationKey = cacheOperationKey(song);
                 if (!beginSongCacheTask(operationKey)) {
                     waitingExisting++;
@@ -3654,10 +3690,8 @@ public class MainActivity extends Activity {
                     if (playlistCacheButton != null) playlistCacheButton.setText("缓存 " + index + "/" + targets.size());
                 });
                 try {
-                    // Do not skip old cacheFailed entries. The resolver is now
-                    // format-agnostic; previous MP3/FLAC-biased failures may succeed.
-                    song.cacheFailed = false;
-                    NetworkMediaCache.CacheResult cached = cachePlaylistSongWithTimeout(song, cacheStartSerial, index, targets.size());
+                    NetworkMediaCache.CacheResult cached = cachePlaylistSongWithTimeout(
+                        song, cacheStartSerial, index, targets.size());
                     if (foregroundPlaybackSerial != cacheStartSerial) {
                         pausedForPlayback = true;
                         break;
@@ -3688,8 +3722,7 @@ public class MainActivity extends Activity {
                         pausedForPlayback = true;
                         break;
                     }
-                    // Cache failure is not equivalent to "song unavailable". It can
-                    // be a transient network/download problem; playback remains allowed.
+                    // Failure becomes red/manual-only. Future one-click runs skip it.
                     song.cacheFailed = true;
                     failed++;
                 } finally {
@@ -3700,19 +3733,21 @@ public class MainActivity extends Activity {
             int finalSkipped = skipped;
             int finalWaitingExisting = waitingExisting;
             int finalFailed = failed;
+            int finalManualSkipped = manualSkipped;
             boolean finalPausedForPlayback = pausedForPlayback;
             runOnUiThread(() -> {
                 playlistCacheRunning = false;
                 savePlaylists();
                 renderCurrentPlaylist();
-                updatePlaylistCacheButtonVisibility();
                 if (statusView == null) return;
                 if (finalPausedForPlayback) {
                     statusView.setText("已因前台播放切换而暂停一键缓存");
                 } else {
                     statusView.setText("一键缓存完成：成功 " + finalDone
                         + "，复用已有任务 " + finalWaitingExisting
-                        + "，跳过 " + finalSkipped + "，新失败 " + finalFailed);
+                        + "，普通跳过 " + finalSkipped
+                        + "，失败标红 " + finalFailed
+                        + "，红色手动处理 " + finalManualSkipped);
                 }
             });
         }, "playlist-one-click-cache").start();
@@ -6714,6 +6749,20 @@ public class MainActivity extends Activity {
             });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
         }
+    }
+
+    private Song copySongForPersistence(Song song) {
+        Song copy = new Song(song.title, song.artist, song.source, song.lyric,
+            song.uri, song.catalogJson, song.cachedUri);
+        copy.lyricLabel = song.lyricLabel;
+        copy.artworkUrl = song.artworkUrl;
+        copy.addedAt = song.addedAt;
+        copy.unavailable = song.unavailable;
+        copy.autoUnavailable = song.autoUnavailable;
+        copy.manualUnavailable = song.manualUnavailable;
+        copy.manualAttempt = song.manualAttempt;
+        copy.cacheFailed = song.cacheFailed;
+        return copy;
     }
 
     private Song copySongForPersistence(Song song) {
