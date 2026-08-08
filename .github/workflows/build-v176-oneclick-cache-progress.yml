@@ -22,7 +22,12 @@ jobs:
       - name: Apply v176 patches
         run: |
           set -euo pipefail
-          python3 scripts/apply_v176_oneclick_progress_center.py
+          if grep -q 'playlistCacheProgressText' app/src/main/java/com/jianglab/babywife/MainActivity.java \
+             && grep -q 'searchModeParams.setMargins(dp(10), 0, 0, 0);' app/src/main/java/com/jianglab/babywife/MainActivity.java; then
+            echo 'v176 progress/centering patch already applied; skip'
+          else
+            python3 scripts/apply_v176_oneclick_progress_center.py
+          fi
           python3 scripts/apply_v176_replacement_playlist_sync.py
           python3 scripts/apply_v176_stability_rules.py
           python3 scripts/apply_v176_reuse_uncached_targets.py
