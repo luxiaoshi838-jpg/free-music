@@ -1,0 +1,202 @@
+name: Build v167 Cache ANR Keyboard
+
+on:
+  push:
+    branches: [agent/v167-cache-anr-keyboard-transition]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-or-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/v167-cache-anr-keyboard-transition
+          fetch-depth: 0
+
+      - name: Apply v167 fixes
+        id: patch
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          gradle = Path('app/build.gradle')
+          text = gradle.read_text(encoding='utf-8')
+          text = text.replace('versionCode 2026080866', 'versionCode 2026080867')
+          text = text.replace('versionName "2026.08.08.v166-call-voip-audio-focus"', 'versionName "2026.08.08.v167-cache-anr-keyboard-transition"')
+          gradle.write_text(text, encoding='utf-8')
+
+          main = Path('app/src/main/java/com/jianglab/babywife/MainActivity.java')
+          text = main.read_text(encoding='utf-8')
+
+          anchor = '    private volatile boolean playlistCacheRunning = false;\n'
+          if 'transientCacheCleanupRunning' not in text:
+              if anchor not in text: raise SystemExit('field anchor missing')
+              text = text.replace(anchor, anchor + '    private volatile boolean transientCacheCleanupRunning = false;\n', 1)
+
+          for name in ('showPlayerPage', 'showSearchPage', 'showPlaylistPage'):
+              old = f'    private void {name}() {{\n'
+              new = old + '        hideKeyboardAndClearFocus(null);\n'
+              if new not in text:
+                  if old not in text: raise SystemExit(f'{name} missing')
+                  text = text.replace(old, new, 1)
+
+          start = text.find('    private void clearTransientCache() {')
+          end = text.find('\n    private void cacheCurrentPlaylistOneClick()', start)
+          if start < 0 or end < 0: raise SystemExit('clearTransientCache block missing')
+          replacement = r'''    private void clearTransientCache() {
+        if (transientCacheCleanupRunning) {
+            toast("缓存正在后台清理，请稍候");
+            return;
+        }
+
+        final List<Song> songSnapshot = new ArrayList<>();
+        for (Playlist playlist : playlists) {
+            if (playlist != null && playlist.songs != null) {
+                songSnapshot.addAll(new ArrayList<>(playlist.songs));
+            }
+        }
+        final Song activeSong = currentSong;
+        transientCacheCleanupRunning = true;
+        if (statusView != null) statusView.setText("正在后台清理非歌单缓存…");
+
+        new Thread(() -> {
+            try {
+                Set<String> keepKeys = new HashSet<>();
+                Set<String> keepMedia3Keys = new HashSet<>();
+                for (Song song : songSnapshot) {
+                    if (song == null || !song.isNetworkCatalog()) continue;
+                    String cacheKey = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
+                    if (!cacheKey.isEmpty()) keepKeys.add(cacheKey);
+                    String media3Key = Media3CacheStore.keyFor(song.title, song.artist, song.catalogJson);
+                    String friendlyUri = cacheKey.isEmpty() ? "" : CacheStorage.findAudioUri(this, cacheKey);
+                    if (friendlyUri.isEmpty() && !media3Key.isEmpty()) {
+                        friendlyUri = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
+                    }
+                    boolean hasFriendly = !friendlyUri.isEmpty() && CacheFileState.exists(this, friendlyUri);
+                    if (!media3Key.isEmpty() && !hasFriendly) keepMedia3Keys.add(media3Key);
+                }
+
+                if (activeSong != null && activeSong.isNetworkCatalog()) {
+                    String activeNetworkKey = NetworkMediaCache.cacheKeyForCatalog(activeSong.catalogJson);
+                    if (!activeNetworkKey.isEmpty()) keepKeys.add(activeNetworkKey);
+                    String activeMedia3Key = Media3CacheStore.keyFor(activeSong.title, activeSong.artist, activeSong.catalogJson);
+                    if (!activeMedia3Key.isEmpty()) keepMedia3Keys.add(activeMedia3Key);
+                }
+
+                int removed = NetworkMediaCache.clearExcept(this, keepKeys);
+                int removedMedia3 = Media3CacheStore.removeExcept(this, keepMedia3Keys);
+                getSharedPreferences("lyric_version_picker_cache", MODE_PRIVATE).edit().clear().apply();
+                int totalRemoved = removed + removedMedia3;
+                runOnUiThread(() -> {
+                    transientCacheCleanupRunning = false;
+                    if (statusView != null) statusView.setText("缓存清理完成");
+                    toast("已清理非歌单缓存：" + totalRemoved + " 个文件/资源");
+                });
+            } catch (Throwable error) {
+                runOnUiThread(() -> {
+                    transientCacheCleanupRunning = false;
+                    if (statusView != null) statusView.setText("缓存清理失败");
+                    String message = error.getMessage();
+                    toast("缓存清理失败：" + (message == null ? error.getClass().getSimpleName() : message));
+                });
+            }
+        }, "transient-cache-cleaner").start();
+    }
+'''
+          text = text[:start] + replacement + text[end:]
+          main.write_text(text, encoding='utf-8')
+          PY
+
+          if git diff --quiet; then
+            echo 'patched=false' >> "$GITHUB_OUTPUT"
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add app/build.gradle app/src/main/java/com/jianglab/babywife/MainActivity.java
+            git commit -m 'v167: fix cache cleanup ANR and dismiss keyboard on page changes'
+            git push origin HEAD:agent/v167-cache-anr-keyboard-transition
+            echo 'patched=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stop first pass
+        if: steps.patch.outputs.patched == 'true'
+        run: echo source committed
+
+      - name: Verify source
+        if: steps.patch.outputs.patched != 'true'
+        run: |
+          grep -q 'versionCode 2026080867' app/build.gradle
+          grep -q 'v167-cache-anr-keyboard-transition' app/build.gradle
+          grep -q 'transientCacheCleanupRunning' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'transient-cache-cleaner' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'hideKeyboardAndClearFocus(null);' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'next.setAudioAttributes(audioAttributes, true);' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
+
+      - name: Prepare Android
+        if: steps.patch.outputs.patched != 'true'
+        run: |
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+          curl -fL --retry 5 --retry-delay 5 https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle-8.7-bin.zip
+          rm -rf /tmp/gradle-8.7 && unzip -q /tmp/gradle-8.7-bin.zip -d /tmp
+
+      - name: Build
+        if: steps.patch.outputs.patched != 'true'
+        env:
+          JIANG_LAB_PASSPHRASE_SHA256: ${{ secrets.JIANG_LAB_PASSPHRASE_SHA256 }}
+        run: |
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$JAVA_HOME/bin:/tmp/gradle-8.7/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          mkdir -p build
+          /tmp/gradle-8.7/bin/gradle --no-daemon assembleRelease 2>&1 | tee build/assemble-v167-release.log
+
+      - name: Align and verify
+        if: steps.patch.outputs.patched != 'true'
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          aapt="$ANDROID_HOME/build-tools/37.0.0/aapt"
+          zipalign="$ANDROID_HOME/build-tools/37.0.0/zipalign"
+          mkdir -p v167-unsigned-aligned signing-tools/lib
+          declare -A expected=([babywifeclassic]='com.jianglab.babywife' [lidacaizhu]='com.jianglab.babywife.lidacaizhu' [jianglab]='com.jianglab.babywife.jianglab' [niubi]='com.jianglab.babywife.niubi')
+          for flavor in babywifeclassic lidacaizhu jianglab niubi; do
+            input="app/build/outputs/apk/${flavor}/release/app-${flavor}-release-unsigned.apk"
+            output="v167-unsigned-aligned/${flavor}_v167_unsigned_aligned.apk"
+            "$zipalign" -f -p 4 "$input" "$output"
+            "$zipalign" -c -p 4 "$output"
+            badging=$("$aapt" dump badging "$output")
+            package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
+            test "$package_name" = "${expected[$flavor]}"
+            test "$version_code" = '2026080867'
+          done
+          cp "$ANDROID_HOME/build-tools/37.0.0/apksigner" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/zipalign" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/lib/apksigner.jar" signing-tools/lib/
+          chmod +x signing-tools/apksigner signing-tools/zipalign
+          sha256sum v167-unsigned-aligned/*.apk | tee v167-unsigned-aligned/SHA256.txt
+          git rev-parse HEAD | tee v167-unsigned-aligned/SOURCE_HEAD.txt
+
+      - name: Upload
+        if: steps.patch.outputs.patched != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: v167-unsigned-aligned-and-signing-tools
+          path: |
+            v167-unsigned-aligned/
+            signing-tools/
+            build/assemble-v167-release.log
+          retention-days: 7
