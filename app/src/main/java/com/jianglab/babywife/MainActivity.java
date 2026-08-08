@@ -250,6 +250,7 @@ public class MainActivity extends Activity {
     private final ExecutorService searchCacheExecutor = Executors.newFixedThreadPool(2);
     private Future<?> mediaSourceOpenFuture;
     private final ConcurrentHashMap<String, Future<?>> searchCacheTasks = new ConcurrentHashMap<>();
+    private final Set<String> activeSongCacheKeys = ConcurrentHashMap.newKeySet();
     private volatile int mediaOpenSerial = 0;
     private volatile boolean activityDestroyed = false;
     private boolean playbackPreparing = false;
@@ -3201,64 +3202,78 @@ public class MainActivity extends Activity {
         if (song == null || !song.isNetworkCatalog()) return;
         final String requestedCatalog = song.catalogJson == null ? "" : song.catalogJson.trim();
         final String originalKey = song.key();
+        final String operationKey = cacheOperationKey(song.title, song.artist, requestedCatalog);
         if (requestedCatalog.isEmpty()) return;
-
-        searchCacheExecutor.submit(() -> {
-            try {
-                NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
-                    this,
-                    requestedCatalog,
-                    true,
-                    message -> {
-                        if (message == null || message.trim().isEmpty()) return;
-                        runOnUiThread(() -> {
-                            if (activityDestroyed || cacheSerial != replacementCacheSerial) return;
-                            if (currentSong == song && statusView != null) {
-                                statusView.setText("替换版本正在后台缓存：" + message);
-                            }
-                        });
-                    }
-                );
-                runOnUiThread(() -> {
-                    if (activityDestroyed || cacheSerial != replacementCacheSerial) return;
-                    if (cached.catalogJson != null && !cached.catalogJson.trim().isEmpty()) {
-                        song.catalogJson = cached.catalogJson;
-                    }
-                    if (cached.sourceCode != null && !cached.sourceCode.trim().isEmpty()) {
-                        song.source = CatalogSearch.labelForSource(cached.sourceCode);
-                    }
-                    if (song.artworkUrl == null || song.artworkUrl.trim().isEmpty()) {
-                        song.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(song.catalogJson);
-                    }
-                    song.cachedUri = cached.audioUri;
-                    song.uri = cached.audioUri;
-                    song.cacheFailed = false;
-                    song.unavailable = false;
-                    song.autoUnavailable = false;
-                    song.manualUnavailable = false;
-                    if ((song.lyric == null || song.lyric.trim().isEmpty())
-                        && cached.lyric != null && !cached.lyric.trim().isEmpty()) {
-                        song.lyric = cached.lyric;
-                        song.lyricLabel = song.title + " · " + song.artist + " · " + song.source;
-                    }
-                    persistResolvedCatalogToPlaylistCopies(song, originalKey);
-                    savePlaylists();
-                    renderCurrentPlaylist();
-                    updatePlaylistCacheButtonVisibility();
-                    if (currentSong == song && statusView != null) {
-                        statusView.setText("替换歌曲版本缓存已完成");
-                    }
-                });
-            } catch (Exception error) {
-                runOnUiThread(() -> {
-                    if (activityDestroyed || cacheSerial != replacementCacheSerial) return;
-                    updatePlaylistCacheButtonVisibility();
-                    if (currentSong == song && statusView != null) {
-                        statusView.setText("替换版本可继续播放；自动缓存未完成，可稍后一键缓存");
-                    }
-                });
+        if (!beginSongCacheTask(operationKey)) {
+            if (currentSong == song && statusView != null) {
+                statusView.setText("该歌曲已有缓存任务，替换后直接复用现有任务");
             }
-        });
+            return;
+        }
+
+        try {
+            searchCacheExecutor.submit(() -> {
+                try {
+                    NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
+                        this,
+                        requestedCatalog,
+                        true,
+                        message -> {
+                            if (message == null || message.trim().isEmpty()) return;
+                            runOnUiThread(() -> {
+                                if (activityDestroyed || cacheSerial != replacementCacheSerial) return;
+                                if (currentSong == song && statusView != null) {
+                                    statusView.setText("替换版本正在后台缓存：" + message);
+                                }
+                            });
+                        }
+                    );
+                    runOnUiThread(() -> {
+                        if (activityDestroyed || cacheSerial != replacementCacheSerial) return;
+                        if (cached.catalogJson != null && !cached.catalogJson.trim().isEmpty()) {
+                            song.catalogJson = cached.catalogJson;
+                        }
+                        if (cached.sourceCode != null && !cached.sourceCode.trim().isEmpty()) {
+                            song.source = CatalogSearch.labelForSource(cached.sourceCode);
+                        }
+                        if (song.artworkUrl == null || song.artworkUrl.trim().isEmpty()) {
+                            song.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(song.catalogJson);
+                        }
+                        song.cachedUri = cached.audioUri;
+                        song.uri = cached.audioUri;
+                        song.cacheFailed = false;
+                        song.unavailable = false;
+                        song.autoUnavailable = false;
+                        song.manualUnavailable = false;
+                        if ((song.lyric == null || song.lyric.trim().isEmpty())
+                            && cached.lyric != null && !cached.lyric.trim().isEmpty()) {
+                            song.lyric = cached.lyric;
+                            song.lyricLabel = song.title + " · " + song.artist + " · " + song.source;
+                        }
+                        persistResolvedCatalogToPlaylistCopies(song, originalKey);
+                        savePlaylists();
+                        renderCurrentPlaylist();
+                        updatePlaylistCacheButtonVisibility();
+                        if (currentSong == song && statusView != null) {
+                            statusView.setText("替换歌曲版本缓存已完成");
+                        }
+                    });
+                } catch (Exception error) {
+                    runOnUiThread(() -> {
+                        if (activityDestroyed || cacheSerial != replacementCacheSerial) return;
+                        updatePlaylistCacheButtonVisibility();
+                        if (currentSong == song && statusView != null) {
+                            statusView.setText("替换版本可继续播放；自动缓存未完成，可稍后重试");
+                        }
+                    });
+                } finally {
+                    endSongCacheTask(operationKey);
+                }
+            });
+        } catch (Throwable submitError) {
+            endSongCacheTask(operationKey);
+            throw submitError;
+        }
     }
 
     private void persistResolvedCatalogToPlaylistCopies(Song song, String originalKey) {
@@ -3529,11 +3544,11 @@ public class MainActivity extends Activity {
     private void cacheCurrentPlaylistOneClick() {
         final Playlist playlist = currentPlaylist();
         if (playlist == null || playlist.songs.isEmpty()) {
-            toast("\u5f53\u524d\u6b4c\u5355\u4e3a\u7a7a");
+            toast("当前歌单为空");
             return;
         }
         if (playlistCacheRunning) {
-            toast("\u5f53\u524d\u6b4c\u5355\u6b63\u5728\u7f13\u5b58");
+            toast("当前歌单正在缓存");
             return;
         }
 
@@ -3568,6 +3583,7 @@ public class MainActivity extends Activity {
 
             int done = 0;
             int skipped = 0;
+            int waitingExisting = 0;
             int failed = 0;
             boolean pausedForPlayback = false;
             for (int i = 0; i < targets.size(); i++) {
@@ -3584,23 +3600,39 @@ public class MainActivity extends Activity {
                     done++;
                     continue;
                 }
-                if (song.cacheFailed) {
-                    skipped++;
+
+                // Search playback/replacement/one-click all share this key. If the
+                // song is already being cached, never start a second download.
+                final String operationKey = cacheOperationKey(song);
+                if (!beginSongCacheTask(operationKey)) {
+                    waitingExisting++;
+                    final int index = i + 1;
+                    runOnUiThread(() -> {
+                        if (statusView != null) {
+                            statusView.setText("已有缓存任务 " + index + "/" + targets.size()
+                                + "：" + song.title + "，不重复下载");
+                        }
+                    });
                     continue;
                 }
+
                 final int index = i + 1;
                 runOnUiThread(() -> {
                     if (statusView != null) {
-                        statusView.setText("\u6b63\u5728\u7f13\u5b58 " + index + "/" + targets.size()
-                            + "\uff1a" + song.title);
+                        statusView.setText("正在缓存 " + index + "/" + targets.size()
+                            + "：" + song.title);
                     }
                 });
                 try {
+                    // Do not skip old cacheFailed entries. The resolver is now
+                    // format-agnostic; previous MP3/FLAC-biased failures may succeed.
+                    song.cacheFailed = false;
                     NetworkMediaCache.CacheResult cached = cachePlaylistSongWithTimeout(song, cacheStartSerial);
                     if (foregroundPlaybackSerial != cacheStartSerial) {
                         pausedForPlayback = true;
                         break;
                     }
+                    String originalKey = song.key();
                     song.cachedUri = cached.audioUri;
                     song.uri = cached.audioUri;
                     if (cached.catalogJson != null && !cached.catalogJson.trim().isEmpty()) {
@@ -3619,31 +3651,38 @@ public class MainActivity extends Activity {
                     song.manualUnavailable = false;
                     song.manualAttempt = false;
                     recoverCachedSongState(song, cached.audioUri);
+                    persistResolvedCatalogToPlaylistCopies(song, originalKey);
                     done++;
                 } catch (Exception error) {
                     if (foregroundPlaybackSerial != cacheStartSerial) {
                         pausedForPlayback = true;
                         break;
                     }
+                    // Cache failure is not equivalent to "song unavailable". It can
+                    // be a transient network/download problem; playback remains allowed.
                     song.cacheFailed = true;
-                    song.unavailable = true;
                     failed++;
+                } finally {
+                    endSongCacheTask(operationKey);
                 }
             }
             int finalDone = done;
             int finalSkipped = skipped;
+            int finalWaitingExisting = waitingExisting;
             int finalFailed = failed;
             boolean finalPausedForPlayback = pausedForPlayback;
             runOnUiThread(() -> {
                 playlistCacheRunning = false;
                 savePlaylists();
                 renderCurrentPlaylist();
+                updatePlaylistCacheButtonVisibility();
                 if (statusView == null) return;
                 if (finalPausedForPlayback) {
-                    statusView.setText("\u5df2\u56e0\u524d\u53f0\u64ad\u653e\u5207\u6362\u800c\u6682\u505c\u4e00\u952e\u7f13\u5b58");
+                    statusView.setText("已因前台播放切换而暂停一键缓存");
                 } else {
-                    statusView.setText("\u4e00\u952e\u7f13\u5b58\u5b8c\u6210\uff1a\u6210\u529f " + finalDone
-                        + "\uff0c\u8df3\u8fc7 " + finalSkipped + "\uff0c\u65b0\u5931\u8d25 " + finalFailed);
+                    statusView.setText("一键缓存完成：成功 " + finalDone
+                        + "，复用已有任务 " + finalWaitingExisting
+                        + "，跳过 " + finalSkipped + "，新失败 " + finalFailed);
                 }
             });
         }, "playlist-one-click-cache").start();
@@ -4302,7 +4341,8 @@ public class MainActivity extends Activity {
         final String media3Key = Media3CacheStore.keyFor(
             song.title, song.artist, candidate.catalogJson);
         if (media3Key.isEmpty()) return;
-
+        final String operationKey = cacheOperationKey(
+            song.title, song.artist, candidate.catalogJson);
         final String originalKey = song.key();
         if (song.artworkUrl == null || song.artworkUrl.trim().isEmpty()) {
             song.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(candidate.catalogJson);
@@ -4311,83 +4351,92 @@ public class MainActivity extends Activity {
         synchronized (searchCacheTasks) {
             Future<?> existingTask = searchCacheTasks.get(media3Key);
             if (existingTask != null && !existingTask.isDone()) return;
-
-            Future<?> submitted = searchCacheExecutor.submit(() -> {
-                try {
-                    // Search playback and one-click caching deliberately share the
-                    // exact same format-agnostic real-playback validation path.
-                    // This prevents a song that already played from being downloaded
-                    // a second time merely because its source is not MP3/FLAC.
-                    NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
-                        this,
-                        candidate.catalogJson,
-                        true,
-                        message -> {
-                            if (activityDestroyed) {
-                                throw new IllegalStateException("页面已关闭，停止后台缓存");
-                            }
-                            runOnUiThread(() -> {
-                                if (!activityDestroyed && currentSong == song && statusView != null) {
-                                    statusView.setText(message);
-                                }
-                            });
-                        }
-                    );
-
-                    runOnUiThread(() -> {
-                        if (activityDestroyed) return;
-                        if (cached.catalogJson != null && !cached.catalogJson.trim().isEmpty()) {
-                            song.catalogJson = cached.catalogJson;
-                        }
-                        if (cached.sourceCode != null && !cached.sourceCode.trim().isEmpty()) {
-                            song.source = CatalogSearch.labelForSource(cached.sourceCode);
-                        }
-                        if (cached.audioUri != null && !cached.audioUri.trim().isEmpty()) {
-                            song.cachedUri = cached.audioUri;
-                            song.uri = cached.audioUri;
-                        }
-                        if ((song.lyric == null || song.lyric.trim().isEmpty())
-                            && cached.lyric != null && !cached.lyric.trim().isEmpty()) {
-                            song.lyric = cached.lyric;
-                        }
-                        String artwork = PlaybackArtworkLoader.extractArtworkUrl(song.catalogJson);
-                        if (artwork != null && !artwork.trim().isEmpty()) song.artworkUrl = artwork;
-                        song.cacheFailed = false;
-                        song.unavailable = false;
-                        song.manualUnavailable = false;
-                        song.manualAttempt = false;
-
-                        // If the user added this search result to a playlist while the
-                        // background cache was running, update that same playlist entry
-                        // instead of requiring a later one-click cache pass.
-                        persistResolvedCatalogToPlaylistCopies(song, originalKey);
-                        savePlaylists();
-                        renderCurrentPlaylist();
-                        if (resultAdapter != null) resultAdapter.notifyDataSetChanged();
-                        if (playlistAdapter != null) playlistAdapter.notifyDataSetChanged();
-                        if (currentSong == song && statusView != null) {
-                            statusView.setText("已完成当前播放歌曲缓存：" + song.title);
-                        }
-                    });
-                } catch (Exception error) {
-                    runOnUiThread(() -> {
-                        if (activityDestroyed) return;
-                        // Playback itself remains valid even when a background cache
-                        // attempt fails. Do not mark the song unavailable or prevent it
-                        // from being added to a playlist because of its container format.
-                        song.cacheFailed = false;
-                        if (currentSong == song && statusView != null) {
-                            String detail = error.getMessage() == null ? "后台缓存暂未完成" : error.getMessage();
-                            statusView.setText("歌曲仍可正常播放；" + detail);
-                        }
-                    });
-                } finally {
-                    synchronized (searchCacheTasks) {
-                        searchCacheTasks.remove(media3Key);
-                    }
+            if (!beginSongCacheTask(operationKey)) {
+                if (currentSong == song && statusView != null) {
+                    statusView.setText("该歌曲已有缓存任务，直接复用现有任务");
                 }
-            });
-            searchCacheTasks.put(media3Key, submitted);
+                return;
+            }
+            try {
+                Future<?> submitted = searchCacheExecutor.submit(() -> {
+                    try {
+                        NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
+                            this,
+                            candidate.catalogJson,
+                            true,
+                            message -> {
+                                if (activityDestroyed) {
+                                    throw new IllegalStateException("页面已关闭，停止后台缓存");
+                                }
+                                runOnUiThread(() -> {
+                                    if (!activityDestroyed && currentSong == song && statusView != null) {
+                                        statusView.setText(message);
+                                    }
+                                });
+                            }
+                        );
+
+                        runOnUiThread(() -> {
+                            if (activityDestroyed) return;
+                            if (cached.catalogJson != null && !cached.catalogJson.trim().isEmpty()) {
+                                song.catalogJson = cached.catalogJson;
+                            }
+                            if (cached.sourceCode != null && !cached.sourceCode.trim().isEmpty()) {
+                                song.source = CatalogSearch.labelForSource(cached.sourceCode);
+                            }
+                            if (cached.audioUri != null && !cached.audioUri.trim().isEmpty()) {
+                                song.cachedUri = cached.audioUri;
+                                song.uri = cached.audioUri;
+                            }
+                            if ((song.lyric == null || song.lyric.trim().isEmpty())
+                                && cached.lyric != null && !cached.lyric.trim().isEmpty()) {
+                                song.lyric = cached.lyric;
+                            }
+                            String artwork = PlaybackArtworkLoader.extractArtworkUrl(song.catalogJson);
+                            if (artwork != null && !artwork.trim().isEmpty()) song.artworkUrl = artwork;
+                            song.cacheFailed = false;
+                            song.unavailable = false;
+                            song.autoUnavailable = false;
+                            song.manualUnavailable = false;
+                            song.manualAttempt = false;
+
+                            // The exact current playback object is also the object added
+                            // to the playlist. Copies with the same original identity are
+                            // updated as well, so one-click cache immediately sees it.
+                            persistResolvedCatalogToPlaylistCopies(song, originalKey);
+                            savePlaylists();
+                            renderCurrentPlaylist();
+                            updatePlaylistCacheButtonVisibility();
+                            if (resultAdapter != null) resultAdapter.notifyDataSetChanged();
+                            if (playlistAdapter != null) playlistAdapter.notifyDataSetChanged();
+                            if (currentSong == song && statusView != null) {
+                                statusView.setText("已完成当前播放歌曲缓存：" + song.title);
+                            }
+                        });
+                    } catch (Exception error) {
+                        runOnUiThread(() -> {
+                            if (activityDestroyed) return;
+                            // Cache failure never means the search result cannot be added
+                            // to a playlist. Container/codec is not used as an admission rule.
+                            song.cacheFailed = false;
+                            if (currentSong == song && statusView != null) {
+                                String detail = error.getMessage() == null
+                                    ? "后台缓存暂未完成" : error.getMessage();
+                                statusView.setText("歌曲仍可正常播放；" + detail);
+                            }
+                        });
+                    } finally {
+                        endSongCacheTask(operationKey);
+                        synchronized (searchCacheTasks) {
+                            searchCacheTasks.remove(media3Key);
+                        }
+                    }
+                });
+                searchCacheTasks.put(media3Key, submitted);
+            } catch (Throwable submitError) {
+                endSongCacheTask(operationKey);
+                throw submitError;
+            }
         }
     }
 
@@ -4988,6 +5037,34 @@ public class MainActivity extends Activity {
     }
 
 
+
+    private String cacheOperationKey(String title, String artist, String catalogJson) {
+        String catalogKey = NetworkMediaCache.cacheKeyForCatalog(catalogJson);
+        if (catalogKey != null && !catalogKey.trim().isEmpty()) {
+            return "catalog|" + catalogKey.trim();
+        }
+        String logical = CacheStorage.logicalIdentity(title, artist);
+        return logical == null || logical.trim().isEmpty()
+            ? "" : "logical|" + logical.trim();
+    }
+
+    private String cacheOperationKey(Song song) {
+        if (song == null) return "";
+        return cacheOperationKey(song.title, song.artist, song.catalogJson);
+    }
+
+    private boolean beginSongCacheTask(String key) {
+        return key == null || key.trim().isEmpty() || activeSongCacheKeys.add(key.trim());
+    }
+
+    private void endSongCacheTask(String key) {
+        if (key != null && !key.trim().isEmpty()) activeSongCacheKeys.remove(key.trim());
+    }
+
+    private boolean isSongCacheTaskActive(Song song) {
+        String key = cacheOperationKey(song);
+        return !key.isEmpty() && activeSongCacheKeys.contains(key);
+    }
 
     private void releaseMediaPlayer(UnifiedMediaPlayer player) {
         if (player == null) return;
