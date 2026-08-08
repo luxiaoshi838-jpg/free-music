@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080868
-        versionName "2026.08.08.v168-fast-transient-cache-cleanup"
+        versionCode 2026080869
+        versionName "2026.08.08.v169-replacement-cache-fast-navigation"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
