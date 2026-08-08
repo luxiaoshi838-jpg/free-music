@@ -1,0 +1,144 @@
+name: Build v172 Compact Search Mode Final
+
+on:
+  push:
+    branches: [agent/v172-compact-search-mode]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout v172 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v172-compact-search-mode
+          fetch-depth: 0
+
+      - name: Suppress update-triggered crash reports
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app/src/main/java/com/jianglab/babywife/MainActivity.java')
+          text = path.read_text(encoding='utf-8')
+
+          key_old = '    private static final String KEY_LAST_HANDLED_EXIT_TIME = "last_handled_exit_time";\n'
+          key_new = key_old + '    private static final String KEY_LAST_APP_VERSION_CODE = "last_app_version_code";\n'
+          if key_new not in text:
+              if key_old not in text:
+                  raise SystemExit('version marker key anchor missing')
+              text = text.replace(key_old, key_new, 1)
+
+          create_old = '''        loadPlaylists();\n        captureLastProcessExitReport();\n        loadSavedUiSettings();'''
+          create_new = '''        loadPlaylists();\n        suppressCrashReportAfterAppUpdate();\n        captureLastProcessExitReport();\n        loadSavedUiSettings();'''
+          if create_new not in text:
+              if create_old not in text:
+                  raise SystemExit('onCreate crash-report anchor missing')
+              text = text.replace(create_old, create_new, 1)
+
+          marker = '    private void captureLastProcessExitReport() {'
+          method = '''    private void suppressCrashReportAfterAppUpdate() {\n        try {\n            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);\n            PackageInfo packageInfo = getPackageManager().getPackageInfo(getPackageName(), 0);\n            long currentVersion = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P\n                ? packageInfo.getLongVersionCode() : packageInfo.versionCode;\n            boolean hasVersionMarker = prefs.contains(KEY_LAST_APP_VERSION_CODE);\n            long previousVersion = prefs.getLong(KEY_LAST_APP_VERSION_CODE, currentVersion);\n            boolean packageHasBeenUpdated = packageInfo.lastUpdateTime > packageInfo.firstInstallTime + 1000L;\n            boolean firstLaunchWithMarkerSupportAfterUpdate = !hasVersionMarker && packageHasBeenUpdated;\n            boolean versionChanged = hasVersionMarker && previousVersion != currentVersion;\n\n            SharedPreferences.Editor editor = prefs.edit()\n                .putLong(KEY_LAST_APP_VERSION_CODE, currentVersion);\n            if (firstLaunchWithMarkerSupportAfterUpdate || versionChanged) {\n                // Installing a newer APK legitimately kills/restarts the old process.\n                // Treat all exit history before this launch as handled, and discard\n                // pending reports left by the previous package version.\n                editor.putLong(KEY_LAST_HANDLED_EXIT_TIME, System.currentTimeMillis())\n                    .remove(KEY_CRASH_REPORT)\n                    .remove(KEY_CRASH_REPORT_TIME)\n                    .putBoolean(KEY_CRASH_REPORT_DISMISSED, true)\n                    .putBoolean(KEY_PLAYBACK_TRANSITION_PENDING, false)\n                    .remove(KEY_PLAYBACK_TRANSITION_DETAIL)\n                    .remove(KEY_PLAYBACK_TRANSITION_TIME);\n            }\n            editor.apply();\n        } catch (Throwable ignored) {\n        }\n    }\n\n'''
+          if method not in text:
+              if marker not in text:
+                  raise SystemExit('captureLastProcessExitReport marker missing')
+              text = text.replace(marker, method + marker, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+          if ! git diff --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add app/src/main/java/com/jianglab/babywife/MainActivity.java
+            git commit -m 'v172: ignore app-update process exits in crash reports [skip ci]'
+            git push origin HEAD:agent/v172-compact-search-mode
+          fi
+
+      - name: Verify finalized v172 source
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode 2026080872' app/build.gradle
+          grep -q 'versionName "2026.08.08.v172-compact-search-mode"' app/build.gradle
+          grep -q 'new FrameLayout.LayoutParams(dp(20), dp(32));' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'searchInput.setPadding(dp(34), 0, dp(48), 0);' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'KEY_LAST_APP_VERSION_CODE' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'suppressCrashReportAfterAppUpdate();' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'remove(KEY_CRASH_REPORT)' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'putLong(KEY_LAST_HANDLED_EXIT_TIME, System.currentTimeMillis())' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'final String\[\] modes = {"默认", "歌名", "歌手"};' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q '添加时间↑' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'cacheReplacedPlaylistSongAsync' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'next.setAudioAttributes(audioAttributes, true);' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
+
+      - name: Prepare Android toolchain
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+          curl -fL --retry 5 --retry-delay 5 https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle-8.7-bin.zip
+          rm -rf /tmp/gradle-8.7
+          unzip -q /tmp/gradle-8.7-bin.zip -d /tmp
+
+      - name: Build four finalized unsigned v172 APKs
+        env:
+          JIANG_LAB_PASSPHRASE_SHA256: ${{ secrets.JIANG_LAB_PASSPHRASE_SHA256 }}
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$JAVA_HOME/bin:/tmp/gradle-8.7/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          mkdir -p build
+          /tmp/gradle-8.7/bin/gradle --no-daemon assembleRelease 2>&1 | tee build/assemble-v172-final-release.log
+
+      - name: Align and verify package identities
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          aapt="$ANDROID_HOME/build-tools/37.0.0/aapt"
+          zipalign="$ANDROID_HOME/build-tools/37.0.0/zipalign"
+          mkdir -p v172-final-unsigned-aligned signing-tools/lib
+          declare -A expected=(
+            [babywifeclassic]='com.jianglab.babywife'
+            [lidacaizhu]='com.jianglab.babywife.lidacaizhu'
+            [jianglab]='com.jianglab.babywife.jianglab'
+            [niubi]='com.jianglab.babywife.niubi'
+          )
+          for flavor in babywifeclassic lidacaizhu jianglab niubi; do
+            input="app/build/outputs/apk/${flavor}/release/app-${flavor}-release-unsigned.apk"
+            test -s "$input"
+            output="v172-final-unsigned-aligned/${flavor}_v172_unsigned_aligned.apk"
+            "$zipalign" -f -p 4 "$input" "$output"
+            "$zipalign" -c -p 4 "$output"
+            badging=$("$aapt" dump badging "$output")
+            package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
+            test "$package_name" = "${expected[$flavor]}"
+            test "$version_code" = '2026080872'
+          done
+          cp "$ANDROID_HOME/build-tools/37.0.0/apksigner" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/zipalign" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/lib/apksigner.jar" signing-tools/lib/
+          chmod +x signing-tools/apksigner signing-tools/zipalign
+          sha256sum v172-final-unsigned-aligned/*.apk | tee v172-final-unsigned-aligned/SHA256.txt
+          git rev-parse HEAD | tee v172-final-unsigned-aligned/SOURCE_HEAD.txt
+
+      - name: Upload finalized v172 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v172-final-unsigned-aligned-and-signing-tools
+          path: |
+            v172-final-unsigned-aligned/
+            signing-tools/
+            build/assemble-v172-final-release.log
+          if-no-files-found: error
+          retention-days: 7
