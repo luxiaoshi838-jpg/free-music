@@ -1,0 +1,277 @@
+name: Build v169 Replacement Cache Fast Navigation
+
+on:
+  push:
+    branches: [agent/v169-replacement-cache-fast-navigation]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-or-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout v169 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v169-replacement-cache-fast-navigation
+          fetch-depth: 0
+
+      - name: Apply v169 fixes
+        id: patch
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          gradle = Path('app/build.gradle')
+          text = gradle.read_text(encoding='utf-8')
+          text = text.replace('versionCode 2026080868', 'versionCode 2026080869')
+          text = text.replace('versionName "2026.08.08.v168-fast-transient-cache-cleanup"', 'versionName "2026.08.08.v169-replacement-cache-fast-navigation"')
+          gradle.write_text(text, encoding='utf-8')
+
+          main = Path('app/src/main/java/com/jianglab/babywife/MainActivity.java')
+          text = main.read_text(encoding='utf-8')
+
+          field_anchor = '    private volatile int playlistCacheScanSerial = 0;\n'
+          if 'replacementCacheSerial' not in text:
+              if field_anchor not in text:
+                  raise SystemExit('replacement field anchor missing')
+              text = text.replace(field_anchor, field_anchor + '    private volatile int replacementCacheSerial = 0;\n', 1)
+
+          old_search = '''        searchResultsList.setOnItemClickListener((parent, view, position, id) -> {\n            if (position < 0 || position >= searchResults.size()) return;\n            playSongFromSearch(position);\n            showPlayerPage();\n        });'''
+          new_search = '''        searchResultsList.setOnItemClickListener((parent, view, position, id) -> {\n            if (position < 0 || position >= searchResults.size()) return;\n            final int selectedPosition = position;\n            showPlayerPage();\n            if (playerPanel != null) {\n                playerPanel.postDelayed(() -> playSongFromSearch(selectedPosition), 20L);\n            } else {\n                playSongFromSearch(selectedPosition);\n            }\n        });'''
+          if old_search in text:
+              text = text.replace(old_search, new_search, 1)
+          elif new_search not in text:
+              raise SystemExit('search click block missing')
+
+          old_playlist = '''            if (actualIndex < 0) return;\n            playSongFromPlaylist(actualIndex);\n            showPlayerPage();'''
+          new_playlist = '''            if (actualIndex < 0) return;\n            final int selectedIndex = actualIndex;\n            showPlayerPage();\n            if (playerPanel != null) {\n                playerPanel.postDelayed(() -> playSongFromPlaylist(selectedIndex), 20L);\n            } else {\n                playSongFromPlaylist(selectedIndex);\n            }'''
+          if old_playlist in text:
+              text = text.replace(old_playlist, new_playlist, 1)
+          elif new_playlist not in text:
+              raise SystemExit('playlist click block missing')
+
+          method_start = text.find('    private void attachExistingFriendlyCache(Song song) {')
+          if method_start < 0:
+              raise SystemExit('attachExistingFriendlyCache missing')
+          method_end = text.find('\n    private ', method_start + 20)
+          if method_end < 0:
+              raise SystemExit('attachExistingFriendlyCache end missing')
+          fast_method = r'''    private void attachExistingFriendlyCache(Song song) {
+        if (song == null || !song.isNetworkCatalog()) return;
+
+        // Click-to-play must never walk SAF/filesystem on the UI thread. Trust
+        // recorded state and the SharedPreferences-backed Media3 export index;
+        // a stale URI is cleared by the normal asynchronous playback failure path.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            String recorded = song.cachedUri == null ? "" : song.cachedUri.trim();
+            if (!recorded.isEmpty()) return;
+            String media3Key = Media3CacheStore.keyFor(
+                song.title, song.artist, song.catalogJson);
+            String indexedUri = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
+            if (!indexedUri.isEmpty()) {
+                recoverCachedSongState(song, indexedUri);
+            }
+            return;
+        }
+
+        String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
+        String uri = CacheStorage.findAudioUri(this, key);
+        if (uri.isEmpty()) {
+            String media3Key = Media3CacheStore.keyFor(song.title, song.artist, song.catalogJson);
+            uri = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
+        }
+        if (!uri.isEmpty() && CacheFileState.exists(this, uri)) {
+            boolean changed = recoverCachedSongState(song, uri);
+            if (changed) savePlaylists();
+        }
+    }
+'''
+          text = text[:method_start] + fast_method + text[method_end:]
+
+          replace_anchor = '''        statusView.setText("歌曲版本已替换，正在按新版本缓存播放");\n        toast("已替换歌单中的歌曲版本");\n        playSong(target);\n    }\n\n    private void persistResolvedCatalogToPlaylistCopies(Song song, String originalKey) {'''
+          replacement = r'''        statusView.setText("歌曲版本已替换，正在按新版本缓存播放");
+        toast("已替换歌单中的歌曲版本");
+        int cacheSerial = ++replacementCacheSerial;
+        playSong(target);
+        cacheReplacedPlaylistSongAsync(target, cacheSerial);
+    }
+
+    private void cacheReplacedPlaylistSongAsync(Song song, int cacheSerial) {
+        if (song == null || !song.isNetworkCatalog()) return;
+        final String requestedCatalog = song.catalogJson == null ? "" : song.catalogJson.trim();
+        final String originalKey = song.key();
+        if (requestedCatalog.isEmpty()) return;
+
+        searchCacheExecutor.submit(() -> {
+            try {
+                NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
+                    this,
+                    requestedCatalog,
+                    true,
+                    message -> {
+                        if (message == null || message.trim().isEmpty()) return;
+                        runOnUiThread(() -> {
+                            if (activityDestroyed || cacheSerial != replacementCacheSerial) return;
+                            if (currentSong == song && statusView != null) {
+                                statusView.setText("替换版本正在后台缓存：" + message);
+                            }
+                        });
+                    }
+                );
+                runOnUiThread(() -> {
+                    if (activityDestroyed || cacheSerial != replacementCacheSerial) return;
+                    if (cached.catalogJson != null && !cached.catalogJson.trim().isEmpty()) {
+                        song.catalogJson = cached.catalogJson;
+                    }
+                    if (cached.sourceCode != null && !cached.sourceCode.trim().isEmpty()) {
+                        song.source = CatalogSearch.labelForSource(cached.sourceCode);
+                    }
+                    if (song.artworkUrl == null || song.artworkUrl.trim().isEmpty()) {
+                        song.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(song.catalogJson);
+                    }
+                    song.cachedUri = cached.audioUri;
+                    song.uri = cached.audioUri;
+                    song.cacheFailed = false;
+                    song.unavailable = false;
+                    song.autoUnavailable = false;
+                    song.manualUnavailable = false;
+                    if ((song.lyric == null || song.lyric.trim().isEmpty())
+                        && cached.lyric != null && !cached.lyric.trim().isEmpty()) {
+                        song.lyric = cached.lyric;
+                        song.lyricLabel = song.title + " · " + song.artist + " · " + song.source;
+                    }
+                    persistResolvedCatalogToPlaylistCopies(song, originalKey);
+                    savePlaylists();
+                    renderCurrentPlaylist();
+                    updatePlaylistCacheButtonVisibility();
+                    if (currentSong == song && statusView != null) {
+                        statusView.setText("替换歌曲版本缓存已完成");
+                    }
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> {
+                    if (activityDestroyed || cacheSerial != replacementCacheSerial) return;
+                    updatePlaylistCacheButtonVisibility();
+                    if (currentSong == song && statusView != null) {
+                        statusView.setText("替换版本可继续播放；自动缓存未完成，可稍后一键缓存");
+                    }
+                });
+            }
+        });
+    }
+
+    private void persistResolvedCatalogToPlaylistCopies(Song song, String originalKey) {'''
+          if replace_anchor in text:
+              text = text.replace(replace_anchor, replacement, 1)
+          elif 'cacheReplacedPlaylistSongAsync' not in text:
+              raise SystemExit('replacement cache anchor missing')
+
+          main.write_text(text, encoding='utf-8')
+          PY
+
+          if git diff --quiet; then
+            echo 'patched=false' >> "$GITHUB_OUTPUT"
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add app/build.gradle app/src/main/java/com/jianglab/babywife/MainActivity.java
+            git commit -m 'v169: auto-cache replaced songs and remove click navigation stalls'
+            git push origin HEAD:agent/v169-replacement-cache-fast-navigation
+            echo 'patched=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stop first pass after source commit
+        if: steps.patch.outputs.patched == 'true'
+        run: echo 'v169 source committed; next push run will build.'
+
+      - name: Verify v169 source
+        if: steps.patch.outputs.patched != 'true'
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode 2026080869' app/build.gradle
+          grep -q 'versionName "2026.08.08.v169-replacement-cache-fast-navigation"' app/build.gradle
+          grep -q 'cacheReplacedPlaylistSongAsync' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'replacementCacheSerial' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'playerPanel.postDelayed(() -> playSongFromSearch' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'playerPanel.postDelayed(() -> playSongFromPlaylist' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'Click-to-play must never walk SAF/filesystem on the UI thread.' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'Fast cleanup: playlist membership itself is the retention rule.' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'next.setAudioAttributes(audioAttributes, true);' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
+
+      - name: Prepare Android toolchain
+        if: steps.patch.outputs.patched != 'true'
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+          curl -fL --retry 5 --retry-delay 5 https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle-8.7-bin.zip
+          rm -rf /tmp/gradle-8.7
+          unzip -q /tmp/gradle-8.7-bin.zip -d /tmp
+
+      - name: Build four unsigned v169 release APKs
+        if: steps.patch.outputs.patched != 'true'
+        env:
+          JIANG_LAB_PASSPHRASE_SHA256: ${{ secrets.JIANG_LAB_PASSPHRASE_SHA256 }}
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$JAVA_HOME/bin:/tmp/gradle-8.7/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          mkdir -p build
+          /tmp/gradle-8.7/bin/gradle --no-daemon assembleRelease 2>&1 | tee build/assemble-v169-release.log
+
+      - name: Align and verify package identities
+        if: steps.patch.outputs.patched != 'true'
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          aapt="$ANDROID_HOME/build-tools/37.0.0/aapt"
+          zipalign="$ANDROID_HOME/build-tools/37.0.0/zipalign"
+          mkdir -p v169-unsigned-aligned signing-tools/lib
+          declare -A expected=(
+            [babywifeclassic]='com.jianglab.babywife'
+            [lidacaizhu]='com.jianglab.babywife.lidacaizhu'
+            [jianglab]='com.jianglab.babywife.jianglab'
+            [niubi]='com.jianglab.babywife.niubi'
+          )
+          for flavor in babywifeclassic lidacaizhu jianglab niubi; do
+            input="app/build/outputs/apk/${flavor}/release/app-${flavor}-release-unsigned.apk"
+            test -s "$input"
+            output="v169-unsigned-aligned/${flavor}_v169_unsigned_aligned.apk"
+            "$zipalign" -f -p 4 "$input" "$output"
+            "$zipalign" -c -p 4 "$output"
+            badging=$("$aapt" dump badging "$output")
+            package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
+            test "$package_name" = "${expected[$flavor]}"
+            test "$version_code" = '2026080869'
+          done
+          cp "$ANDROID_HOME/build-tools/37.0.0/apksigner" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/zipalign" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/lib/apksigner.jar" signing-tools/lib/
+          chmod +x signing-tools/apksigner signing-tools/zipalign
+          sha256sum v169-unsigned-aligned/*.apk | tee v169-unsigned-aligned/SHA256.txt
+          git rev-parse HEAD | tee v169-unsigned-aligned/SOURCE_HEAD.txt
+
+      - name: Upload unsigned APKs and signing tools
+        if: steps.patch.outputs.patched != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: v169-unsigned-aligned-and-signing-tools
+          path: |
+            v169-unsigned-aligned/
+            signing-tools/
+            build/assemble-v169-release.log
+          if-no-files-found: error
+          retention-days: 7
