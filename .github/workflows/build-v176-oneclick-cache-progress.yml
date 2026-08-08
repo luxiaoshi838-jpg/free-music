@@ -32,13 +32,14 @@ jobs:
           python3 scripts/apply_v176_stability_rules.py
           python3 scripts/apply_v176_reuse_uncached_targets.py
           python3 scripts/apply_v176_manual_red_reset.py
+          python3 scripts/cleanup_v176_duplicate_methods.py
           if ! git diff --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add app/build.gradle \
               app/src/main/java/com/jianglab/babywife/MainActivity.java \
               app/src/main/java/com/jianglab/babywife/PlayableAudioResolver.java
-            git commit -m 'v176: finalize cache rules, manual red reset and ANR fixes [skip ci]'
+            git commit -m 'v176: finalize cache rules and remove duplicate helpers [skip ci]'
             git push origin HEAD:agent/v176-oneclick-cache-progress
           fi
 
@@ -59,6 +60,9 @@ jobs:
           grep -q 'isManualOnlyCacheSong(song)' app/src/main/java/com/jianglab/babywife/MainActivity.java
           grep -q 'final List<Song> targets = new ArrayList<>(playlistOneClickTargets);' app/src/main/java/com/jianglab/babywife/MainActivity.java
           grep -q 'clearManualCacheFailureState(existing)' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          test "$(grep -c 'private boolean isManualOnlyCacheSong(Song song)' app/src/main/java/com/jianglab/babywife/MainActivity.java)" -eq 1
+          test "$(grep -c 'private boolean songHasRecordedCacheQuick(Song song)' app/src/main/java/com/jianglab/babywife/MainActivity.java)" -eq 1
+          test "$(grep -c 'private Song copySongForPersistence(Song song)' app/src/main/java/com/jianglab/babywife/MainActivity.java)" -eq 1
           grep -q 'next.setAudioAttributes(audioAttributes, true);' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
 
       - name: Prepare Android toolchain
