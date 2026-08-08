@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080875
-        versionName "2026.08.08.v175-playback-cache-format-crashlog"
+        versionCode 2026080876
+        versionName "2026.08.08.v176-oneclick-cache-progress"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 

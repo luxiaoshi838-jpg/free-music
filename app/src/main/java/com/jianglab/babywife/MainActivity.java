@@ -1397,7 +1397,7 @@ public class MainActivity extends Activity {
         searchInput.setHint("搜索歌曲 / 歌手");
         searchInput.setTextColor(TEXT_MAIN);
         searchInput.setHintTextColor(Color.argb(190, 255, 255, 255));
-        searchInput.setPadding(dp(34), 0, dp(48), 0);
+        searchInput.setPadding(dp(42), 0, dp(48), 0);
         searchInput.setBackground(rounded(Color.argb(72, 255, 255, 255), dp(22)));
         searchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         searchInput.setOnEditorActionListener((view, actionId, event) -> {
@@ -1419,17 +1419,23 @@ public class MainActivity extends Activity {
         searchMatchModeButton.setText(savedSearchMatchMode);
         searchMatchModeButton.setTextColor(TEXT_MUTED);
         searchMatchModeButton.setTextSize(9);
-        searchMatchModeButton.setGravity(Gravity.CENTER_HORIZONTAL | Gravity.CENTER_VERTICAL);
+        searchMatchModeButton.setGravity(Gravity.CENTER);
         searchMatchModeButton.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
         searchMatchModeButton.setIncludeFontPadding(false);
         searchMatchModeButton.setPadding(0, 0, 0, 0);
+        searchMatchModeButton.setMinWidth(0);
+        searchMatchModeButton.setMinimumWidth(0);
+        searchMatchModeButton.setMinHeight(0);
+        searchMatchModeButton.setMinimumHeight(0);
         searchMatchModeButton.setSingleLine(true);
         searchMatchModeButton.setContentDescription("搜索模式");
         searchMatchModeButton.setOnClickListener(view -> showSearchMatchModeDialog());
         attachSubtlePressFeedback(searchMatchModeButton);
         FrameLayout.LayoutParams searchModeParams = new FrameLayout.LayoutParams(dp(20), dp(32));
         searchModeParams.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
-        searchModeParams.setMargins(dp(4), 0, 0, 0);
+        // 20dp entry width stays compact; 10dp left offset centers the label
+        // visually in the reserved search-mode area instead of hugging the edge.
+        searchModeParams.setMargins(dp(10), 0, 0, 0);
         searchBox.addView(searchMatchModeButton, searchModeParams);
 
         TextView clearSearchButton = new TextView(this);
@@ -3608,26 +3614,24 @@ public class MainActivity extends Activity {
                     waitingExisting++;
                     final int index = i + 1;
                     runOnUiThread(() -> {
-                        if (statusView != null) {
-                            statusView.setText("已有缓存任务 " + index + "/" + targets.size()
-                                + "：" + song.title + "，不重复下载");
-                        }
+                        String progress = playlistCacheProgressText(song, index, targets.size());
+                        if (statusView != null) statusView.setText(progress + " · 复用已有缓存任务");
+                        if (playlistCacheButton != null) playlistCacheButton.setText("缓存 " + index + "/" + targets.size());
                     });
                     continue;
                 }
 
                 final int index = i + 1;
                 runOnUiThread(() -> {
-                    if (statusView != null) {
-                        statusView.setText("正在缓存 " + index + "/" + targets.size()
-                            + "：" + song.title);
-                    }
+                    String progress = playlistCacheProgressText(song, index, targets.size());
+                    if (statusView != null) statusView.setText(progress);
+                    if (playlistCacheButton != null) playlistCacheButton.setText("缓存 " + index + "/" + targets.size());
                 });
                 try {
                     // Do not skip old cacheFailed entries. The resolver is now
                     // format-agnostic; previous MP3/FLAC-biased failures may succeed.
                     song.cacheFailed = false;
-                    NetworkMediaCache.CacheResult cached = cachePlaylistSongWithTimeout(song, cacheStartSerial);
+                    NetworkMediaCache.CacheResult cached = cachePlaylistSongWithTimeout(song, cacheStartSerial, index, targets.size());
                     if (foregroundPlaybackSerial != cacheStartSerial) {
                         pausedForPlayback = true;
                         break;
@@ -3688,7 +3692,14 @@ public class MainActivity extends Activity {
         }, "playlist-one-click-cache").start();
     }
 
-    private NetworkMediaCache.CacheResult cachePlaylistSongWithTimeout(Song song, int cacheStartSerial) throws Exception {
+    private String playlistCacheProgressText(Song song, int current, int total) {
+        String title = song == null || song.title == null || song.title.trim().isEmpty()
+            ? "未知歌曲" : song.title.trim();
+        return title + "（" + Math.max(0, current) + "/" + Math.max(0, total) + "）";
+    }
+
+    private NetworkMediaCache.CacheResult cachePlaylistSongWithTimeout(
+            Song song, int cacheStartSerial, int current, int total) throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Callable<NetworkMediaCache.CacheResult> task = () -> NetworkMediaCache.cache(
@@ -3699,7 +3710,14 @@ public class MainActivity extends Activity {
                     if (foregroundPlaybackSerial != cacheStartSerial) {
                         throw new IllegalStateException("\u524d\u53f0\u64ad\u653e\u5df2\u5207\u6362\uff0c\u6682\u505c\u4e00\u952e\u7f13\u5b58");
                     }
-                    runOnUiThread(() -> statusView.setText(message));
+                    // Never let resolver/download text hide the required numeric progress.
+                    String progress = playlistCacheProgressText(song, current, total);
+                    runOnUiThread(() -> {
+                        if (statusView != null) statusView.setText(progress);
+                        if (playlistCacheButton != null) {
+                            playlistCacheButton.setText("缓存 " + current + "/" + total);
+                        }
+                    });
                 }
             );
             Future<NetworkMediaCache.CacheResult> future = executor.submit(task);
