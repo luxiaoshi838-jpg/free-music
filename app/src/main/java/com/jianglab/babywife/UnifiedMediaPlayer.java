@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 
+import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
@@ -121,6 +122,15 @@ final class UnifiedMediaPlayer {
             ExoPlayer next = new ExoPlayer.Builder(appContext)
                 .setLooper(Looper.getMainLooper())
                 .build();
+            AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                .build();
+            // Let Media3 request and manage Android audio focus. If another app
+            // starts video/music/call audio, playback pauses or ducks as Android
+            // requests; transient focus gain resumes only when playWhenReady is
+            // still true, so a user-initiated pause is never auto-resumed.
+            next.setAudioAttributes(audioAttributes, true);
             next.setWakeMode(C.WAKE_MODE_NETWORK);
             next.addListener(new Player.Listener() {
                 @Override

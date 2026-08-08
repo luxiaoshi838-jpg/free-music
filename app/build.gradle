@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080764
-        versionName "2026.08.07.v164-clean-media-baseline"
+        versionCode 2026080865
+        versionName "2026.08.08.v165-audio-focus"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
