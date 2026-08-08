@@ -22,7 +22,7 @@ import java.util.Set;
 
 import bridge.Bridge;
 
-/** Resolves sources in order and stops at the first candidate that passes real playback validation. */
+/** Resolves sources with no format priority and stops at the first candidate that passes real playback validation. */
 final class PlayableAudioResolver {
     private static final String[] REQUEST_FORMATS = {""};
     private static final int MAX_CATALOG_CANDIDATES = 8;

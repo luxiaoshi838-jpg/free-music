@@ -722,7 +722,10 @@ public class MainActivity extends Activity {
         report.append("Crash report\n");
         appendReportContext(report, thread == null ? "" : thread.getName());
         report.append("\nstack:\n").append(stack);
-        storeProblemReport(report.toString());
+        // An uncaught exception can terminate the process immediately. Use a
+        // synchronous SharedPreferences commit here so the real Java stack trace
+        // is durable before Android records the process-exit reason.
+        storeProblemReportSync(report.toString());
     }
 
     private void persistNoResponseReport(long blockedMs) {
@@ -876,6 +879,45 @@ public class MainActivity extends Activity {
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
             .putBoolean(KEY_CRASH_REPORT_DISMISSED, true)
             .apply();
+    }
+
+
+    private void storeProblemReportSync(String reportText) {
+        String report = trimForReport(reportText, 60000);
+        long now = System.currentTimeMillis();
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        try {
+            JSONArray old = readProblemReportHistory();
+            JSONArray next = new JSONArray();
+            JSONObject newest = new JSONObject();
+            newest.put("name", problemReportName(now));
+            newest.put("time", now);
+            newest.put("text", report);
+            next.put(newest);
+            for (int i = 0; i < old.length() && next.length() < MAX_PROBLEM_REPORT_HISTORY; i++) {
+                JSONObject item = old.optJSONObject(i);
+                if (item == null) continue;
+                long oldTime = item.optLong("time", 0L);
+                String oldText = item.optString("text", "");
+                if (oldTime == now && oldText.equals(report)) continue;
+                next.put(item);
+            }
+            prefs.edit()
+                .putString(KEY_PROBLEM_REPORT_HISTORY, next.toString())
+                .putString(KEY_CRASH_REPORT, report)
+                .putLong(KEY_CRASH_REPORT_TIME, now)
+                .putBoolean(KEY_CRASH_REPORT_DISMISSED, false)
+                .commit();
+        } catch (Throwable ignored) {
+            try {
+                prefs.edit()
+                    .putString(KEY_CRASH_REPORT, report)
+                    .putLong(KEY_CRASH_REPORT_TIME, now)
+                    .putBoolean(KEY_CRASH_REPORT_DISMISSED, false)
+                    .commit();
+            } catch (Throwable ignoredAgain) {
+            }
+        }
     }
 
     private void openSavedCrashReport() {
@@ -2639,9 +2681,10 @@ public class MainActivity extends Activity {
 
     private void addSongToCurrentPlaylist(Song song) {
         if (song == null) return;
+        // Joining a playlist is a metadata operation. Never reject a network song
+        // because its playable resource is not MP3/FLAC (M4A/AAC/OGG/OPUS/WAV/etc.
+        // are all valid as long as Android can actually play the resource).
         attachExistingFriendlyCache(song);
-        // Adding a song is a metadata operation. It must never wait for a full
-        // audio download; the shared Media3 cache continues in the background.
         addSongToCurrentPlaylistReady(song);
     }
 
@@ -4255,119 +4298,93 @@ public class MainActivity extends Activity {
     private void cacheSearchPlaybackAsync(Song song,
                                           SearchQuickPlayback.Candidate candidate,
                                           int playToken) {
-        if (song == null || candidate == null) return;
+        if (song == null || candidate == null || !song.isNetworkCatalog()) return;
         final String media3Key = Media3CacheStore.keyFor(
             song.title, song.artist, candidate.catalogJson);
         if (media3Key.isEmpty()) return;
-        if (song.artworkUrl.isEmpty()) {
-            song.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(candidate.catalogJson);
-        }
-        Media3PlaybackCacheIndex.record(this, media3Key, song.title, song.artist,
-            candidate.catalogJson, song.artworkUrl);
 
-        attachExistingFriendlyCache(song);
-        if (song.cachedUri != null && !song.cachedUri.trim().isEmpty()
-            && CacheFileState.exists(this, song.cachedUri)) {
-            Media3PlaybackCacheIndex.markExported(this, media3Key, song.cachedUri);
-            return;
+        final String originalKey = song.key();
+        if (song.artworkUrl == null || song.artworkUrl.trim().isEmpty()) {
+            song.artworkUrl = PlaybackArtworkLoader.extractArtworkUrl(candidate.catalogJson);
         }
 
         synchronized (searchCacheTasks) {
             Future<?> existingTask = searchCacheTasks.get(media3Key);
             if (existingTask != null && !existingTask.isDone()) return;
+
             Future<?> submitted = searchCacheExecutor.submit(() -> {
-                SearchQuickPlayback.Candidate exportCandidate = candidate;
-                Exception lastError = null;
                 try {
-                    for (int attempt = 0; attempt < 2; attempt++) {
-                        try {
-                            final int currentAttempt = attempt;
-                            final java.util.concurrent.atomic.AtomicInteger lastPercent =
-                                new java.util.concurrent.atomic.AtomicInteger(-1);
-                            String storedUri = Media3FriendlyCacheExporter.cacheAndExport(
-                                this,
-                                exportCandidate,
-                                song.title,
-                                song.artist,
-                                "",
-                                (totalBytes, cachedBytes) -> {
-                                    Media3PlaybackCacheIndex.updateProgress(
-                                        this, media3Key, cachedBytes, totalBytes);
-                                    if (activityDestroyed || currentSong != song
-                                        || totalBytes <= 0L) return;
-                                    int percent = (int) Math.max(0L, Math.min(100L,
-                                        cachedBytes * 100L / totalBytes));
-                                    int previous = lastPercent.getAndSet(percent);
-                                    if (percent != 100 && previous >= 0
-                                        && percent - previous < 5) return;
-                                    runOnUiThread(() -> {
-                                        if (!activityDestroyed && currentSong == song
-                                            && statusView != null) {
-                                            statusView.setText("正在在线播放并生成缓存文件："
-                                                + percent + "%"
-                                                + (currentAttempt > 0 ? "（续传）" : ""));
-                                        }
-                                    });
-                                }
-                            );
-                            Media3PlaybackCacheIndex.markExported(
-                                this, media3Key, storedUri);
-                            SearchQuickPlayback.Candidate completedCandidate = exportCandidate;
-                            runOnUiThread(() -> {
-                                if (activityDestroyed) return;
-                                song.cachedUri = storedUri;
-                                persistSearchCacheToPlaylistCopies(
-                                    song, completedCandidate, storedUri);
-                                savePlaylists();
-                                if (currentSong == song) {
-                                    int position = 0;
-                                    try {
-                                        if (mediaPlayer != null) {
-                                            position = mediaPlayer.getCurrentPosition();
-                                        }
-                                    } catch (Exception ignored) {
-                                    }
-                                    saveLastSong(position);
-                                    statusView.setText("当前播放：" + song.title
-                                        + "（缓存文件已生成：“" + song.title
-                                        + " - " + song.artist + "”）");
-                                    publishPlaybackControlState(true);
-                                }
-                                updatePlaylistCacheButtonVisibility();
-                            });
-                            return;
-                        } catch (Exception error) {
-                            lastError = error;
-                            if (Thread.currentThread().isInterrupted()) return;
-                            if (attempt == 0) {
-                                try {
-                                    SearchQuickPlayback.Candidate refreshed =
-                                        SearchQuickPlayback.resolveStage(
-                                            exportCandidate.catalogJson, 0);
-                                    if (refreshed != null
-                                        && !refreshed.playbackUrl.isEmpty()
-                                        && refreshed.sourceCode.equals(
-                                            exportCandidate.sourceCode)) {
-                                        exportCandidate = refreshed;
-                                        continue;
-                                    }
-                                } catch (Exception ignored) {
-                                }
+                    // Search playback and one-click caching deliberately share the
+                    // exact same format-agnostic real-playback validation path.
+                    // This prevents a song that already played from being downloaded
+                    // a second time merely because its source is not MP3/FLAC.
+                    NetworkMediaCache.CacheResult cached = NetworkMediaCache.cache(
+                        this,
+                        candidate.catalogJson,
+                        true,
+                        message -> {
+                            if (activityDestroyed) {
+                                throw new IllegalStateException("页面已关闭，停止后台缓存");
                             }
-                            break;
+                            runOnUiThread(() -> {
+                                if (!activityDestroyed && currentSong == song && statusView != null) {
+                                    statusView.setText(message);
+                                }
+                            });
                         }
-                    }
-                    Exception failure = lastError;
+                    );
+
                     runOnUiThread(() -> {
-                        if (!activityDestroyed && currentSong == song) {
-                            String detail = failure == null
-                                || failure.getMessage() == null
-                                ? "未知错误" : failure.getMessage();
-                            statusView.setText("播放正常，但缓存文件生成失败：" + detail);
+                        if (activityDestroyed) return;
+                        if (cached.catalogJson != null && !cached.catalogJson.trim().isEmpty()) {
+                            song.catalogJson = cached.catalogJson;
+                        }
+                        if (cached.sourceCode != null && !cached.sourceCode.trim().isEmpty()) {
+                            song.source = CatalogSearch.labelForSource(cached.sourceCode);
+                        }
+                        if (cached.audioUri != null && !cached.audioUri.trim().isEmpty()) {
+                            song.cachedUri = cached.audioUri;
+                            song.uri = cached.audioUri;
+                        }
+                        if ((song.lyric == null || song.lyric.trim().isEmpty())
+                            && cached.lyric != null && !cached.lyric.trim().isEmpty()) {
+                            song.lyric = cached.lyric;
+                        }
+                        String artwork = PlaybackArtworkLoader.extractArtworkUrl(song.catalogJson);
+                        if (artwork != null && !artwork.trim().isEmpty()) song.artworkUrl = artwork;
+                        song.cacheFailed = false;
+                        song.unavailable = false;
+                        song.manualUnavailable = false;
+                        song.manualAttempt = false;
+
+                        // If the user added this search result to a playlist while the
+                        // background cache was running, update that same playlist entry
+                        // instead of requiring a later one-click cache pass.
+                        persistResolvedCatalogToPlaylistCopies(song, originalKey);
+                        savePlaylists();
+                        renderCurrentPlaylist();
+                        if (resultAdapter != null) resultAdapter.notifyDataSetChanged();
+                        if (playlistAdapter != null) playlistAdapter.notifyDataSetChanged();
+                        if (currentSong == song && statusView != null) {
+                            statusView.setText("已完成当前播放歌曲缓存：" + song.title);
+                        }
+                    });
+                } catch (Exception error) {
+                    runOnUiThread(() -> {
+                        if (activityDestroyed) return;
+                        // Playback itself remains valid even when a background cache
+                        // attempt fails. Do not mark the song unavailable or prevent it
+                        // from being added to a playlist because of its container format.
+                        song.cacheFailed = false;
+                        if (currentSong == song && statusView != null) {
+                            String detail = error.getMessage() == null ? "后台缓存暂未完成" : error.getMessage();
+                            statusView.setText("歌曲仍可正常播放；" + detail);
                         }
                     });
                 } finally {
-                    searchCacheTasks.remove(media3Key);
+                    synchronized (searchCacheTasks) {
+                        searchCacheTasks.remove(media3Key);
+                    }
                 }
             });
             searchCacheTasks.put(media3Key, submitted);

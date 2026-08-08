@@ -246,15 +246,9 @@ final class NetworkMediaCache {
     }
 
     private static JSONObject resolve(String catalogJson) throws Exception {
-        JSONObject catalog = new JSONObject(catalogJson == null ? "{}" : catalogJson);
-        catalog.put("format", "mp3");
-        catalog.put("ext", "mp3");
-        catalog.put("quality", "320k");
-        catalog.put("br", 320000);
-        JSONObject response = new JSONObject(Bridge.resolve(catalog.toString()));
-        if (!response.optBoolean("ok", false)) {
-            response = new JSONObject(Bridge.resolve(catalogJson));
-        }
+        // No container/codec preference is injected here. Let each provider return
+        // its natural playable resource; validation, not MP3/FLAC priority, decides.
+        JSONObject response = new JSONObject(Bridge.resolve(catalogJson));
         if (!response.optBoolean("ok", false)) {
             throw new IllegalStateException(response.optString("error", "歌曲解析失败"));
         }
