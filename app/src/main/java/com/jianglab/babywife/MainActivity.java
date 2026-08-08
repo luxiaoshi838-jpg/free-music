@@ -3049,13 +3049,11 @@ public class MainActivity extends Activity {
                     if (song == null || !song.isNetworkCatalog()) continue;
                     String cacheKey = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
                     if (!cacheKey.isEmpty()) keepKeys.add(cacheKey);
-                    String media3Key = Media3CacheStore.keyFor(song.title, song.artist, song.catalogJson);
-                    String friendlyUri = cacheKey.isEmpty() ? "" : CacheStorage.findAudioUri(this, cacheKey);
-                    if (friendlyUri.isEmpty() && !media3Key.isEmpty()) {
-                        friendlyUri = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
-                    }
-                    boolean hasFriendly = !friendlyUri.isEmpty() && CacheFileState.exists(this, friendlyUri);
-                    if (!media3Key.isEmpty() && !hasFriendly) keepMedia3Keys.add(media3Key);
+                    String media3Key = Media3CacheStore.keyFor(
+                        song.title, song.artist, song.catalogJson);
+                    // Fast cleanup: playlist membership itself is the retention rule.
+                    // Do not touch disk here to verify friendly files one by one.
+                    if (!media3Key.isEmpty()) keepMedia3Keys.add(media3Key);
                 }
 
                 if (activeSong != null && activeSong.isNetworkCatalog()) {
