@@ -1,0 +1,191 @@
+name: Build v166 Call VoIP Audio Focus
+
+on:
+  push:
+    branches:
+      - agent/v166-call-voip-audio-focus
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-or-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout v166 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v166-call-voip-audio-focus
+          fetch-depth: 0
+
+      - name: Apply v166 call and VoIP pause/resume patch
+        id: patch
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          gradle = Path('app/build.gradle')
+          text = gradle.read_text(encoding='utf-8')
+          text = text.replace('versionCode 2026080865', 'versionCode 2026080866')
+          text = text.replace('versionName "2026.08.08.v165-audio-focus"', 'versionName "2026.08.08.v166-call-voip-audio-focus"')
+          gradle.write_text(text, encoding='utf-8')
+
+          player = Path('app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java')
+          text = player.read_text(encoding='utf-8')
+
+          if 'import android.media.AudioManager;' not in text:
+              text = text.replace('import android.content.Context;\n', 'import android.content.Context;\nimport android.media.AudioManager;\n')
+
+          old_fields = '''    private final Context appContext;\n    private final Handler mainHandler = new Handler(Looper.getMainLooper());'''
+          new_fields = '''    private final Context appContext;\n    private final AudioManager audioManager;\n    private final Handler mainHandler = new Handler(Looper.getMainLooper());\n    private boolean userRequestedPlayback;\n    private boolean communicationActive;\n    private boolean communicationPaused;\n    private final Runnable communicationModeWatcher = new Runnable() {\n        @Override\n        public void run() {\n            if (released) return;\n            boolean active = isCommunicationMode();\n            if (active && !communicationActive) {\n                communicationActive = true;\n                if (player != null && userRequestedPlayback) {\n                    communicationPaused = true;\n                    player.pause();\n                }\n            } else if (!active && communicationActive) {\n                communicationActive = false;\n                if (communicationPaused && userRequestedPlayback && player != null) {\n                    player.play();\n                }\n                communicationPaused = false;\n            }\n            mainHandler.postDelayed(this, 400L);\n        }\n    };'''
+          if old_fields in text:
+              text = text.replace(old_fields, new_fields)
+          elif 'communicationModeWatcher' not in text:
+              raise SystemExit('Expected field block not found')
+
+          old_ctor = '''    UnifiedMediaPlayer(Context context) {\n        appContext = context.getApplicationContext();\n    }'''
+          new_ctor = '''    UnifiedMediaPlayer(Context context) {\n        appContext = context.getApplicationContext();\n        audioManager = (AudioManager) appContext.getSystemService(Context.AUDIO_SERVICE);\n    }'''
+          if old_ctor in text:
+              text = text.replace(old_ctor, new_ctor)
+          elif 'audioManager = (AudioManager)' not in text:
+              raise SystemExit('Expected constructor block not found')
+
+          old_prepare = '''            player = next;\n\n            MediaItem.Builder itemBuilder'''
+          new_prepare = '''            player = next;\n            scheduleCommunicationModeWatch();\n\n            MediaItem.Builder itemBuilder'''
+          if old_prepare in text:
+              text = text.replace(old_prepare, new_prepare)
+          elif 'scheduleCommunicationModeWatch();' not in text:
+              raise SystemExit('Expected player assignment block not found')
+
+          old_start = '''    void start() {\n        runOnMain(() -> {\n            if (player != null && !released) player.play();\n        });\n    }\n\n    void pause() {\n        runOnMain(() -> {\n            if (player != null && !released) player.pause();\n        });\n    }\n\n    void stop() {\n        runOnMain(() -> {\n            if (player != null && !released) player.stop();\n        });\n    }\n\n    void reset() {\n        runOnMain(() -> {\n            if (player != null && !released) {\n                player.stop();\n                player.clearMediaItems();\n            }\n        });\n    }'''
+          new_start = '''    void start() {\n        runOnMain(() -> {\n            userRequestedPlayback = true;\n            scheduleCommunicationModeWatch();\n            if (player == null || released) return;\n            if (isCommunicationMode()) {\n                communicationActive = true;\n                communicationPaused = true;\n                player.pause();\n                return;\n            }\n            player.play();\n        });\n    }\n\n    void pause() {\n        runOnMain(() -> {\n            userRequestedPlayback = false;\n            communicationPaused = false;\n            if (player != null && !released) player.pause();\n        });\n    }\n\n    void stop() {\n        runOnMain(() -> {\n            userRequestedPlayback = false;\n            communicationPaused = false;\n            if (player != null && !released) player.stop();\n        });\n    }\n\n    void reset() {\n        runOnMain(() -> {\n            userRequestedPlayback = false;\n            communicationPaused = false;\n            if (player != null && !released) {\n                player.stop();\n                player.clearMediaItems();\n            }\n        });\n    }'''
+          if old_start in text:
+              text = text.replace(old_start, new_start)
+          elif 'userRequestedPlayback = true;' not in text:
+              raise SystemExit('Expected playback control block not found')
+
+          old_release = '''    void release() {\n        released = true;\n        preparedListener = null;\n        completionListener = null;\n        errorListener = null;\n        runOnMain(this::releaseInternalPlayer);\n    }'''
+          new_release = '''    void release() {\n        released = true;\n        userRequestedPlayback = false;\n        communicationPaused = false;\n        preparedListener = null;\n        completionListener = null;\n        errorListener = null;\n        mainHandler.removeCallbacks(communicationModeWatcher);\n        runOnMain(this::releaseInternalPlayer);\n    }'''
+          if old_release in text:
+              text = text.replace(old_release, new_release)
+          elif 'removeCallbacks(communicationModeWatcher)' not in text:
+              raise SystemExit('Expected release block not found')
+
+          marker = '''    private void notifyError(int what, int extra) {\n'''
+          helper = '''    private boolean isCommunicationMode() {\n        if (audioManager == null) return false;\n        int mode = audioManager.getMode();\n        return mode == AudioManager.MODE_IN_CALL\n            || mode == AudioManager.MODE_IN_COMMUNICATION;\n    }\n\n    private void scheduleCommunicationModeWatch() {\n        mainHandler.removeCallbacks(communicationModeWatcher);\n        if (!released) mainHandler.post(communicationModeWatcher);\n    }\n\n'''
+          if helper not in text:
+              if marker not in text:
+                  raise SystemExit('Expected helper insertion marker not found')
+              text = text.replace(marker, helper + marker)
+
+          player.write_text(text, encoding='utf-8')
+          PY
+
+          if git diff --quiet; then
+            echo "patched=false" >> "$GITHUB_OUTPUT"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/build.gradle app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
+            git commit -m "v166: pause for phone and VoIP communication mode"
+            git push origin HEAD:agent/v166-call-voip-audio-focus
+            echo "patched=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stop first pass after source commit
+        if: steps.patch.outputs.patched == 'true'
+        run: echo "v166 source committed; next push-triggered run will build."
+
+      - name: Verify v166 source and stable baseline
+        if: steps.patch.outputs.patched != 'true'
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode 2026080866' app/build.gradle
+          grep -q 'versionName "2026.08.08.v166-call-voip-audio-focus"' app/build.gradle
+          grep -q 'next.setAudioAttributes(audioAttributes, true);' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
+          grep -q 'AudioManager.MODE_IN_CALL' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
+          grep -q 'AudioManager.MODE_IN_COMMUNICATION' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
+          grep -q 'userRequestedPlayback = true;' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
+          grep -q 'communicationPaused' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
+          git show v159-ci-31142430060:app/src/main/java/com/jianglab/babywife/PlaybackControlService.java > /tmp/v159-service.java
+          git show v159-ci-31142430060:app/src/main/java/com/jianglab/babywife/PlaybackArtworkLoader.java > /tmp/v159-artwork.java
+          cmp -s /tmp/v159-service.java app/src/main/java/com/jianglab/babywife/PlaybackControlService.java
+          cmp -s /tmp/v159-artwork.java app/src/main/java/com/jianglab/babywife/PlaybackArtworkLoader.java
+          ! grep -q 'playlistCacheButton.setText("正在检查缓存状态' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'if (songHasRecordedCache(song)) continue;' app/src/main/java/com/jianglab/babywife/MainActivity.java
+
+      - name: Prepare Android toolchain
+        if: steps.patch.outputs.patched != 'true'
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;37.0.0"
+          curl -fL --retry 5 --retry-delay 5 https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle-8.7-bin.zip
+          rm -rf /tmp/gradle-8.7
+          unzip -q /tmp/gradle-8.7-bin.zip -d /tmp
+
+      - name: Build four unsigned v166 release APKs
+        if: steps.patch.outputs.patched != 'true'
+        env:
+          JIANG_LAB_PASSPHRASE_SHA256: ${{ secrets.JIANG_LAB_PASSPHRASE_SHA256 }}
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$JAVA_HOME/bin:/tmp/gradle-8.7/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          mkdir -p build
+          /tmp/gradle-8.7/bin/gradle --no-daemon assembleRelease 2>&1 | tee build/assemble-v166-release.log
+
+      - name: Align and verify package identities
+        if: steps.patch.outputs.patched != 'true'
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          aapt="$ANDROID_HOME/build-tools/37.0.0/aapt"
+          zipalign="$ANDROID_HOME/build-tools/37.0.0/zipalign"
+          mkdir -p v166-unsigned-aligned signing-tools/lib
+          declare -A expected=(
+            [babywifeclassic]="com.jianglab.babywife"
+            [lidacaizhu]="com.jianglab.babywife.lidacaizhu"
+            [jianglab]="com.jianglab.babywife.jianglab"
+            [niubi]="com.jianglab.babywife.niubi"
+          )
+          for flavor in babywifeclassic lidacaizhu jianglab niubi; do
+            input="app/build/outputs/apk/${flavor}/release/app-${flavor}-release-unsigned.apk"
+            test -s "$input"
+            output="v166-unsigned-aligned/${flavor}_v166_unsigned_aligned.apk"
+            "$zipalign" -f -p 4 "$input" "$output"
+            "$zipalign" -c -p 4 "$output"
+            badging=$("$aapt" dump badging "$output")
+            package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
+            test "$package_name" = "${expected[$flavor]}"
+            test "$version_code" = "2026080866"
+          done
+          cp "$ANDROID_HOME/build-tools/37.0.0/apksigner" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/zipalign" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/lib/apksigner.jar" signing-tools/lib/
+          chmod +x signing-tools/apksigner signing-tools/zipalign
+          sha256sum v166-unsigned-aligned/*.apk | tee v166-unsigned-aligned/SHA256.txt
+          git rev-parse HEAD | tee v166-unsigned-aligned/SOURCE_HEAD.txt
+
+      - name: Upload unsigned APKs and signing tools
+        if: steps.patch.outputs.patched != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: v166-unsigned-aligned-and-signing-tools
+          path: |
+            v166-unsigned-aligned/
+            signing-tools/
+            build/assemble-v166-release.log
+          if-no-files-found: error
+          retention-days: 7
