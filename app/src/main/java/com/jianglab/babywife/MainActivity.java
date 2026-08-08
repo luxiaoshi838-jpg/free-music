@@ -6730,6 +6730,20 @@ public class MainActivity extends Activity {
         return copy;
     }
 
+    private Song copySongForPersistence(Song song) {
+        Song copy = new Song(song.title, song.artist, song.source, song.lyric,
+            song.uri, song.catalogJson, song.cachedUri);
+        copy.lyricLabel = song.lyricLabel;
+        copy.artworkUrl = song.artworkUrl;
+        copy.addedAt = song.addedAt;
+        copy.unavailable = song.unavailable;
+        copy.autoUnavailable = song.autoUnavailable;
+        copy.manualUnavailable = song.manualUnavailable;
+        copy.manualAttempt = song.manualAttempt;
+        copy.cacheFailed = song.cacheFailed;
+        return copy;
+    }
+
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
