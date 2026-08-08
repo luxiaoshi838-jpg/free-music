@@ -1,0 +1,329 @@
+name: Build v173 Log History
+
+on:
+  push:
+    branches: [agent/v173-log-history]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout v173 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v173-log-history
+          fetch-depth: 0
+
+      - name: Apply v173 log history
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_method(text, signature, replacement):
+              start = text.find(signature)
+              if start < 0:
+                  raise SystemExit('method not found: ' + signature)
+              brace = text.find('{', start)
+              if brace < 0:
+                  raise SystemExit('method brace not found: ' + signature)
+              depth = 0
+              i = brace
+              while i < len(text):
+                  ch = text[i]
+                  if ch == '{':
+                      depth += 1
+                  elif ch == '}':
+                      depth -= 1
+                      if depth == 0:
+                          end = i + 1
+                          return text[:start] + replacement + text[end:]
+                  i += 1
+              raise SystemExit('unterminated method: ' + signature)
+
+          gradle = Path('app/build.gradle')
+          g = gradle.read_text(encoding='utf-8')
+          g = g.replace('versionCode 2026080872', 'versionCode 2026080873', 1)
+          g = g.replace('versionName "2026.08.08.v172-compact-search-mode"', 'versionName "2026.08.08.v173-log-history"', 1)
+          if 'versionCode 2026080873' not in g or 'versionName "2026.08.08.v173-log-history"' not in g:
+              raise SystemExit('v173 version patch failed')
+          gradle.write_text(g, encoding='utf-8')
+
+          path = Path('app/src/main/java/com/jianglab/babywife/MainActivity.java')
+          text = path.read_text(encoding='utf-8')
+
+          key_anchor = '    private static final String KEY_CRASH_REPORT_DISMISSED = "last_crash_report_dismissed";\n'
+          key_insert = key_anchor + '    private static final String KEY_PROBLEM_REPORT_HISTORY = "problem_report_history_v1";\n    private static final int MAX_PROBLEM_REPORT_HISTORY = 10;\n'
+          if 'KEY_PROBLEM_REPORT_HISTORY' not in text:
+              if key_anchor not in text:
+                  raise SystemExit('history key anchor missing')
+              text = text.replace(key_anchor, key_insert, 1)
+
+          create_old = '''        loadPlaylists();\n        suppressCrashReportAfterAppUpdate();\n        captureLastProcessExitReport();'''
+          create_new = '''        loadPlaylists();\n        migrateLegacyProblemReportIfNeeded();\n        suppressCrashReportAfterAppUpdate();\n        captureLastProcessExitReport();'''
+          if create_new not in text:
+              if create_old not in text:
+                  raise SystemExit('onCreate report sequence anchor missing')
+              text = text.replace(create_old, create_new, 1)
+
+          suppress_method = '''    private void suppressCrashReportAfterAppUpdate() {\n        try {\n            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);\n            PackageInfo packageInfo = getPackageManager().getPackageInfo(getPackageName(), 0);\n            long currentVersion = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P\n                ? packageInfo.getLongVersionCode() : packageInfo.versionCode;\n            boolean hasVersionMarker = prefs.contains(KEY_LAST_APP_VERSION_CODE);\n            long previousVersion = prefs.getLong(KEY_LAST_APP_VERSION_CODE, currentVersion);\n            boolean packageHasBeenUpdated = packageInfo.lastUpdateTime > packageInfo.firstInstallTime + 1000L;\n            boolean firstLaunchWithMarkerSupportAfterUpdate = !hasVersionMarker && packageHasBeenUpdated;\n            boolean versionChanged = hasVersionMarker && previousVersion != currentVersion;\n\n            SharedPreferences.Editor editor = prefs.edit()\n                .putLong(KEY_LAST_APP_VERSION_CODE, currentVersion);\n            if (firstLaunchWithMarkerSupportAfterUpdate || versionChanged) {\n                // A normal APK update may kill the old process. Mark all pre-launch exit\n                // history as handled, but keep previously recorded real diagnostic logs.\n                editor.putLong(KEY_LAST_HANDLED_EXIT_TIME, System.currentTimeMillis())\n                    .putBoolean(KEY_CRASH_REPORT_DISMISSED, true)\n                    .putBoolean(KEY_PLAYBACK_TRANSITION_PENDING, false)\n                    .remove(KEY_PLAYBACK_TRANSITION_DETAIL)\n                    .remove(KEY_PLAYBACK_TRANSITION_TIME);\n            }\n            editor.apply();\n        } catch (Throwable ignored) {\n        }\n    }'''
+          text = replace_method(text, '    private void suppressCrashReportAfterAppUpdate()', suppress_method)
+
+          store_method = '''    private void storeProblemReport(String reportText) {\n        String text = trimForReport(reportText, 60000);\n        long now = System.currentTimeMillis();\n        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);\n        appendProblemReportHistory(prefs, text, now);\n        prefs.edit()\n            .putString(KEY_CRASH_REPORT, text)\n            .putLong(KEY_CRASH_REPORT_TIME, now)\n            .putBoolean(KEY_CRASH_REPORT_DISMISSED, false)\n            .apply();\n    }'''
+          text = replace_method(text, '    private void storeProblemReport(String reportText)', store_method)
+
+          open_method = '''    private void openSavedCrashReport() {\n        migrateLegacyProblemReportIfNeeded();\n        JSONArray history = readProblemReportHistory();\n        if (history.length() == 0) {\n            toast("暂无播放/闪退问题报告");\n            return;\n        }\n        showProblemReportHistoryDialog(history);\n    }'''
+          text = replace_method(text, '    private void openSavedCrashReport()', open_method)
+
+          insert_marker = '    private void maybeRequireJiangLabPassphrase() {'
+          history_methods = r'''    private void migrateLegacyProblemReportIfNeeded() {
+        try {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            JSONArray existingHistory = readProblemReportHistory();
+            if (existingHistory.length() > 0) return;
+            String legacy = prefs.getString(KEY_CRASH_REPORT, "");
+            if (legacy == null || legacy.trim().isEmpty()) return;
+            long time = prefs.getLong(KEY_CRASH_REPORT_TIME, System.currentTimeMillis());
+            appendProblemReportHistory(prefs, legacy, time);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private JSONArray readProblemReportHistory() {
+        try {
+            String raw = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(KEY_PROBLEM_REPORT_HISTORY, "[]");
+            return new JSONArray(raw == null || raw.trim().isEmpty() ? "[]" : raw);
+        } catch (Throwable ignored) {
+            return new JSONArray();
+        }
+    }
+
+    private String problemReportName(long timestamp) {
+        try {
+            return new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.ROOT)
+                .format(new java.util.Date(timestamp));
+        } catch (Throwable ignored) {
+            return String.valueOf(timestamp);
+        }
+    }
+
+    private void appendProblemReportHistory(SharedPreferences prefs, String report, long timestamp) {
+        try {
+            JSONArray old = readProblemReportHistory();
+            JSONArray next = new JSONArray();
+            JSONObject newest = new JSONObject();
+            newest.put("name", problemReportName(timestamp));
+            newest.put("time", timestamp);
+            newest.put("text", trimForReport(report, 60000));
+            next.put(newest);
+            for (int i = 0; i < old.length() && next.length() < MAX_PROBLEM_REPORT_HISTORY; i++) {
+                JSONObject item = old.optJSONObject(i);
+                if (item == null) continue;
+                long oldTime = item.optLong("time", 0L);
+                String oldText = item.optString("text", "");
+                if (oldTime == timestamp && oldText.equals(report)) continue;
+                next.put(item);
+            }
+            prefs.edit().putString(KEY_PROBLEM_REPORT_HISTORY, next.toString()).apply();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void showProblemReportHistoryDialog(JSONArray history) {
+        if (isFinishing()) return;
+        int count = Math.min(history.length(), MAX_PROBLEM_REPORT_HISTORY);
+        CharSequence[] names = new CharSequence[count];
+        for (int i = 0; i < count; i++) {
+            JSONObject item = history.optJSONObject(i);
+            names[i] = item == null ? "未知日志" : item.optString("name", "未知日志");
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("播放/闪退日志（最多10条）")
+            .setItems(names, (dialog, which) -> {
+                JSONObject item = history.optJSONObject(which);
+                if (item != null) showProblemReportActions(item);
+            })
+            .setNegativeButton("关闭", null)
+            .show();
+    }
+
+    private void showProblemReportActions(JSONObject item) {
+        String name = item.optString("name", "未知日志");
+        String report = item.optString("text", "");
+        new AlertDialog.Builder(this)
+            .setTitle(name)
+            .setItems(new CharSequence[] {"查看", "复制", "删除"}, (dialog, which) -> {
+                if (which == 0) {
+                    showCrashReportDialog(report);
+                } else if (which == 1) {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(ClipData.newPlainText(name, report));
+                        toast("已复制日志：" + name);
+                    }
+                } else if (which == 2) {
+                    confirmDeleteProblemReport(item);
+                }
+            })
+            .setNegativeButton("取消", null)
+            .show();
+    }
+
+    private void confirmDeleteProblemReport(JSONObject target) {
+        String name = target.optString("name", "未知日志");
+        new AlertDialog.Builder(this)
+            .setTitle("删除日志")
+            .setMessage("确定删除 " + name + "？")
+            .setPositiveButton("删除", (dialog, which) -> deleteProblemReport(target))
+            .setNegativeButton("取消", null)
+            .show();
+    }
+
+    private void deleteProblemReport(JSONObject target) {
+        try {
+            JSONArray old = readProblemReportHistory();
+            JSONArray next = new JSONArray();
+            long targetTime = target.optLong("time", Long.MIN_VALUE);
+            String targetText = target.optString("text", "");
+            for (int i = 0; i < old.length(); i++) {
+                JSONObject item = old.optJSONObject(i);
+                if (item == null) continue;
+                if (item.optLong("time", Long.MAX_VALUE) == targetTime
+                    && item.optString("text", "").equals(targetText)) {
+                    continue;
+                }
+                next.put(item);
+            }
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            SharedPreferences.Editor editor = prefs.edit()
+                .putString(KEY_PROBLEM_REPORT_HISTORY, next.toString());
+            if (next.length() == 0) {
+                editor.remove(KEY_CRASH_REPORT)
+                    .remove(KEY_CRASH_REPORT_TIME)
+                    .putBoolean(KEY_CRASH_REPORT_DISMISSED, true);
+            } else {
+                JSONObject latest = next.optJSONObject(0);
+                if (latest != null) {
+                    editor.putString(KEY_CRASH_REPORT, latest.optString("text", ""))
+                        .putLong(KEY_CRASH_REPORT_TIME, latest.optLong("time", 0L))
+                        .putBoolean(KEY_CRASH_REPORT_DISMISSED, true);
+                }
+            }
+            editor.apply();
+            toast("已删除日志：" + target.optString("name", ""));
+            JSONArray refreshed = readProblemReportHistory();
+            if (refreshed.length() > 0) showProblemReportHistoryDialog(refreshed);
+        } catch (Throwable ignored) {
+            toast("删除日志失败");
+        }
+    }
+
+'''
+          if 'private void showProblemReportHistoryDialog' not in text:
+              if insert_marker not in text:
+                  raise SystemExit('history method insertion marker missing')
+              text = text.replace(insert_marker, history_methods + insert_marker, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          if ! git diff --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add app/build.gradle app/src/main/java/com/jianglab/babywife/MainActivity.java
+            git commit -m 'v173: keep ten timestamped diagnostic logs with actions [skip ci]'
+            git push origin HEAD:agent/v173-log-history
+          fi
+
+      - name: Verify v173 source
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode 2026080873' app/build.gradle
+          grep -q 'versionName "2026.08.08.v173-log-history"' app/build.gradle
+          grep -q 'MAX_PROBLEM_REPORT_HISTORY = 10' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'yyyyMMdd_HHmmss' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'new CharSequence\[\] {"查看", "复制", "删除"}' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'migrateLegacyProblemReportIfNeeded();' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'appendProblemReportHistory(prefs, text, now);' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'putLong(KEY_LAST_HANDLED_EXIT_TIME, System.currentTimeMillis())' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          ! grep -A24 'private void suppressCrashReportAfterAppUpdate' app/src/main/java/com/jianglab/babywife/MainActivity.java | grep -q 'remove(KEY_CRASH_REPORT)'
+          grep -q 'new FrameLayout.LayoutParams(dp(20), dp(32));' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'final String\[\] modes = {"默认", "歌名", "歌手"};' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q '添加时间↑' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'cacheReplacedPlaylistSongAsync' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'next.setAudioAttributes(audioAttributes, true);' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
+
+      - name: Prepare Android toolchain
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+          curl -fL --retry 5 --retry-delay 5 https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle-8.7-bin.zip
+          rm -rf /tmp/gradle-8.7
+          unzip -q /tmp/gradle-8.7-bin.zip -d /tmp
+
+      - name: Build four unsigned v173 APKs
+        env:
+          JIANG_LAB_PASSPHRASE_SHA256: ${{ secrets.JIANG_LAB_PASSPHRASE_SHA256 }}
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$JAVA_HOME/bin:/tmp/gradle-8.7/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          mkdir -p build
+          /tmp/gradle-8.7/bin/gradle --no-daemon assembleRelease 2>&1 | tee build/assemble-v173-release.log
+
+      - name: Align and verify package identities
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          aapt="$ANDROID_HOME/build-tools/37.0.0/aapt"
+          zipalign="$ANDROID_HOME/build-tools/37.0.0/zipalign"
+          mkdir -p v173-unsigned-aligned signing-tools/lib
+          declare -A expected=(
+            [babywifeclassic]='com.jianglab.babywife'
+            [lidacaizhu]='com.jianglab.babywife.lidacaizhu'
+            [jianglab]='com.jianglab.babywife.jianglab'
+            [niubi]='com.jianglab.babywife.niubi'
+          )
+          for flavor in babywifeclassic lidacaizhu jianglab niubi; do
+            input="app/build/outputs/apk/${flavor}/release/app-${flavor}-release-unsigned.apk"
+            test -s "$input"
+            output="v173-unsigned-aligned/${flavor}_v173_unsigned_aligned.apk"
+            "$zipalign" -f -p 4 "$input" "$output"
+            "$zipalign" -c -p 4 "$output"
+            badging=$("$aapt" dump badging "$output")
+            package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
+            test "$package_name" = "${expected[$flavor]}"
+            test "$version_code" = '2026080873'
+          done
+          cp "$ANDROID_HOME/build-tools/37.0.0/apksigner" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/zipalign" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/lib/apksigner.jar" signing-tools/lib/
+          chmod +x signing-tools/apksigner signing-tools/zipalign
+          sha256sum v173-unsigned-aligned/*.apk | tee v173-unsigned-aligned/SHA256.txt
+          git rev-parse HEAD | tee v173-unsigned-aligned/SOURCE_HEAD.txt
+
+      - name: Upload v173 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v173-unsigned-aligned-and-signing-tools
+          path: |
+            v173-unsigned-aligned/
+            signing-tools/
+            build/assemble-v173-release.log
+          if-no-files-found: error
+          retention-days: 7
