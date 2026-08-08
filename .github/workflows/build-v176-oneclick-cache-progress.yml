@@ -19,15 +19,19 @@ jobs:
           ref: agent/v176-oneclick-cache-progress
           fetch-depth: 0
 
-      - name: Apply v176 patch
+      - name: Apply v176 patches
         run: |
           set -euo pipefail
           python3 scripts/apply_v176_oneclick_progress_center.py
+          python3 scripts/apply_v176_replacement_playlist_sync.py
+          python3 scripts/apply_v176_stability_rules.py
           if ! git diff --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add app/build.gradle app/src/main/java/com/jianglab/babywife/MainActivity.java
-            git commit -m 'v176: show one-click cache progress and recenter search mode [skip ci]'
+            git add app/build.gradle \
+              app/src/main/java/com/jianglab/babywife/MainActivity.java \
+              app/src/main/java/com/jianglab/babywife/PlayableAudioResolver.java
+            git commit -m 'v176: cache progress, sync replacement metadata and prevent UI ANR [skip ci]'
             git push origin HEAD:agent/v176-oneclick-cache-progress
           fi
 
@@ -40,6 +44,10 @@ jobs:
           grep -q 'searchModeParams.setMargins(dp(10), 0, 0, 0);' app/src/main/java/com/jianglab/babywife/MainActivity.java
           grep -q 'searchInput.setPadding(dp(42), 0, dp(48), 0);' app/src/main/java/com/jianglab/babywife/MainActivity.java
           grep -q 'searchMatchModeButton.setIncludeFontPadding(false);' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'syncReplacementMetadataToPlaylistCopies' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'playlistPersistenceExecutor' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'song.unavailable || song.cacheFailed' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'probe.durationMs <= 60_000L' app/src/main/java/com/jianglab/babywife/PlayableAudioResolver.java
           grep -q 'next.setAudioAttributes(audioAttributes, true);' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
 
       - name: Prepare Android toolchain
