@@ -26,13 +26,14 @@ jobs:
           python3 scripts/apply_v176_replacement_playlist_sync.py
           python3 scripts/apply_v176_stability_rules.py
           python3 scripts/apply_v176_reuse_uncached_targets.py
+          python3 scripts/apply_v176_manual_red_reset.py
           if ! git diff --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add app/build.gradle \
               app/src/main/java/com/jianglab/babywife/MainActivity.java \
               app/src/main/java/com/jianglab/babywife/PlayableAudioResolver.java
-            git commit -m 'v176: reuse missing-cache targets and skip red songs [skip ci]'
+            git commit -m 'v176: finalize cache rules, manual red reset and ANR fixes [skip ci]'
             git push origin HEAD:agent/v176-oneclick-cache-progress
           fi
 
@@ -52,6 +53,7 @@ jobs:
           grep -q 'playlistOneClickTargets' app/src/main/java/com/jianglab/babywife/MainActivity.java
           grep -q 'isManualOnlyCacheSong(song)' app/src/main/java/com/jianglab/babywife/MainActivity.java
           grep -q 'final List<Song> targets = new ArrayList<>(playlistOneClickTargets);' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'clearManualCacheFailureState(existing)' app/src/main/java/com/jianglab/babywife/MainActivity.java
           grep -q 'next.setAudioAttributes(audioAttributes, true);' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
 
       - name: Prepare Android toolchain
