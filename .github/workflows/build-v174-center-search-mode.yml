@@ -1,0 +1,116 @@
+name: Build v174 Center Search Mode
+
+on:
+  push:
+    branches: [agent/v174-search-mode-centered]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v174-search-mode-centered
+          fetch-depth: 0
+
+      - name: Apply v174 patch
+        run: |
+          set -euo pipefail
+          python3 scripts/apply_v174_center_search_mode.py
+          if ! git diff --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add app/build.gradle app/src/main/java/com/jianglab/babywife/MainActivity.java
+            git commit -m 'v174: center search mode label [skip ci]'
+            git push origin HEAD:agent/v174-search-mode-centered
+          fi
+
+      - name: Verify source
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode 2026080874' app/build.gradle
+          grep -q 'versionName "2026.08.08.v174-search-mode-centered"' app/build.gradle
+          grep -q 'searchMatchModeButton.setGravity(Gravity.CENTER_HORIZONTAL | Gravity.CENTER_VERTICAL);' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'searchMatchModeButton.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'searchMatchModeButton.setIncludeFontPadding(false);' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'new FrameLayout.LayoutParams(dp(20), dp(32));' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'MAX_PROBLEM_REPORT_HISTORY = 10' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'yyyyMMdd_HHmmss' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'final String\[\] modes = {"默认", "歌名", "歌手"};' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q '添加时间↑' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'cacheReplacedPlaylistSongAsync' app/src/main/java/com/jianglab/babywife/MainActivity.java
+          grep -q 'next.setAudioAttributes(audioAttributes, true);' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
+
+      - name: Prepare Android toolchain
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+          curl -fL --retry 5 --retry-delay 5 https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle-8.7-bin.zip
+          rm -rf /tmp/gradle-8.7
+          unzip -q /tmp/gradle-8.7-bin.zip -d /tmp
+
+      - name: Build four unsigned releases
+        env:
+          JIANG_LAB_PASSPHRASE_SHA256: ${{ secrets.JIANG_LAB_PASSPHRASE_SHA256 }}
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$JAVA_HOME/bin:/tmp/gradle-8.7/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          mkdir -p build
+          /tmp/gradle-8.7/bin/gradle --no-daemon assembleRelease 2>&1 | tee build/assemble-v174-release.log
+
+      - name: Align and verify APKs
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          aapt="$ANDROID_HOME/build-tools/37.0.0/aapt"
+          zipalign="$ANDROID_HOME/build-tools/37.0.0/zipalign"
+          mkdir -p v174-unsigned-aligned signing-tools/lib
+          declare -A expected
+          expected[babywifeclassic]='com.jianglab.babywife'
+          expected[lidacaizhu]='com.jianglab.babywife.lidacaizhu'
+          expected[jianglab]='com.jianglab.babywife.jianglab'
+          expected[niubi]='com.jianglab.babywife.niubi'
+          for flavor in babywifeclassic lidacaizhu jianglab niubi; do
+            input="app/build/outputs/apk/${flavor}/release/app-${flavor}-release-unsigned.apk"
+            output="v174-unsigned-aligned/${flavor}_v174_unsigned_aligned.apk"
+            test -s "$input"
+            "$zipalign" -f -p 4 "$input" "$output"
+            "$zipalign" -c -p 4 "$output"
+            badging=$("$aapt" dump badging "$output")
+            package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
+            test "$package_name" = "${expected[$flavor]}"
+            test "$version_code" = '2026080874'
+          done
+          cp "$ANDROID_HOME/build-tools/37.0.0/apksigner" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/zipalign" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/lib/apksigner.jar" signing-tools/lib/
+          chmod +x signing-tools/apksigner signing-tools/zipalign
+          sha256sum v174-unsigned-aligned/*.apk > v174-unsigned-aligned/SHA256.txt
+          git rev-parse HEAD > v174-unsigned-aligned/SOURCE_HEAD.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v174-unsigned-aligned-and-signing-tools
+          path: |
+            v174-unsigned-aligned/
+            signing-tools/
+            build/assemble-v174-release.log
+          if-no-files-found: error
+          retention-days: 7
