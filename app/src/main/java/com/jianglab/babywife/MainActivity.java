@@ -1175,7 +1175,7 @@ public class MainActivity extends Activity {
         searchInput.setHint("搜索歌曲 / 歌手");
         searchInput.setTextColor(TEXT_MAIN);
         searchInput.setHintTextColor(Color.argb(190, 255, 255, 255));
-        searchInput.setPadding(dp(72), 0, dp(48), 0);
+        searchInput.setPadding(dp(34), 0, dp(48), 0);
         searchInput.setBackground(rounded(Color.argb(72, 255, 255, 255), dp(22)));
         searchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         searchInput.setOnEditorActionListener((view, actionId, event) -> {
@@ -1196,15 +1196,15 @@ public class MainActivity extends Activity {
         searchMatchModeButton = new TextView(this);
         searchMatchModeButton.setText(savedSearchMatchMode);
         searchMatchModeButton.setTextColor(TEXT_MUTED);
-        searchMatchModeButton.setTextSize(12);
+        searchMatchModeButton.setTextSize(9);
         searchMatchModeButton.setGravity(Gravity.CENTER);
         searchMatchModeButton.setSingleLine(true);
         searchMatchModeButton.setContentDescription("搜索模式");
         searchMatchModeButton.setOnClickListener(view -> showSearchMatchModeDialog());
         attachSubtlePressFeedback(searchMatchModeButton);
-        FrameLayout.LayoutParams searchModeParams = new FrameLayout.LayoutParams(dp(56), dp(32));
+        FrameLayout.LayoutParams searchModeParams = new FrameLayout.LayoutParams(dp(20), dp(32));
         searchModeParams.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
-        searchModeParams.setMargins(dp(6), 0, 0, 0);
+        searchModeParams.setMargins(dp(4), 0, 0, 0);
         searchBox.addView(searchMatchModeButton, searchModeParams);
 
         TextView clearSearchButton = new TextView(this);
