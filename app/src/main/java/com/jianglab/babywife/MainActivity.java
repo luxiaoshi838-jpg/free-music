@@ -263,6 +263,8 @@ public class MainActivity extends Activity {
     private volatile boolean transientCacheCleanupRunning = false;
     private final ExecutorService playlistCacheScanExecutor = Executors.newSingleThreadExecutor();
     private volatile int playlistCacheScanSerial = 0;
+    private final ExecutorService playlistPersistenceExecutor = Executors.newSingleThreadExecutor();
+    private volatile int playlistPersistenceSerial = 0;
     private volatile int replacementCacheSerial = 0;
     private volatile boolean responsivenessWatchdogRunning = false;
     private volatile boolean noResponseReportWritten = false;
@@ -2209,7 +2211,7 @@ public class MainActivity extends Activity {
             ((TextView) row.getChildAt(0)).setText(song.title);
             ((TextView) row.getChildAt(1)).setText(song.artist);
             ((TextView) row.getChildAt(2)).setText(song.source);
-            int color = song.unavailable ? Color.rgb(255, 96, 96) : TEXT_MAIN;
+            int color = (song.unavailable || song.cacheFailed) ? Color.rgb(255, 96, 96) : TEXT_MAIN;
             for (int i = 0; i < row.getChildCount(); i++) {
                 ((TextView) row.getChildAt(i)).setTextColor(color);
             }
@@ -2922,8 +2924,7 @@ public class MainActivity extends Activity {
             song.title, song.artist, song.catalogJson);
         String indexedUri = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
         if (!indexedUri.isEmpty()) {
-            boolean changed = recoverCachedSongState(song, indexedUri);
-            if (changed) savePlaylists();
+            recoverCachedSongState(song, indexedUri);
             return true;
         }
         return false;
@@ -3191,8 +3192,8 @@ public class MainActivity extends Activity {
         target.manualUnavailable = false;
         target.unavailable = false;
         target.cacheFailed = false;
+        syncReplacementMetadataToPlaylistCopies(target, originalKey);
         clearPendingLyricPreview();
-        savePlaylists();
         renderCurrentPlaylist();
         switchPlaybackToPlaylistSong(target);
         titleView.setText(target.title);
@@ -3284,17 +3285,42 @@ public class MainActivity extends Activity {
 
     private void persistResolvedCatalogToPlaylistCopies(Song song, String originalKey) {
         if (song == null || originalKey == null || originalKey.isEmpty()) return;
+        syncReplacementMetadataToPlaylistCopies(song, originalKey);
+    }
+
+    private void syncReplacementMetadataToPlaylistCopies(Song song, String originalKey) {
+        if (song == null) return;
+        String oldKey = originalKey == null ? "" : originalKey;
+        String logical = dedupeKey(song);
         for (Playlist playlist : playlists) {
             for (Song item : playlist.songs) {
-                if (item == song || item.key().equals(originalKey)) {
-                    item.source = song.source;
-                    item.catalogJson = song.catalogJson;
-                    item.artworkUrl = song.artworkUrl;
-                    item.cachedUri = song.cachedUri;
-                    item.uri = song.uri;
-                }
+                if (item == null) continue;
+                boolean sameObject = item == song;
+                boolean sameOldKey = !oldKey.isEmpty() && item.key().equals(oldKey);
+                boolean sameLogical = !logical.isEmpty() && dedupeKey(item).equals(logical);
+                if (!sameObject && !sameOldKey && !sameLogical) continue;
+
+                item.title = song.title;
+                item.artist = song.artist;
+                item.source = song.source;
+                item.catalogJson = song.catalogJson;
+                item.artworkUrl = song.artworkUrl;
+                item.cachedUri = song.cachedUri;
+                item.uri = song.uri;
+                item.lyric = song.lyric;
+                item.lyricLabel = song.lyricLabel;
+                item.unavailable = song.unavailable;
+                item.autoUnavailable = song.autoUnavailable;
+                item.manualUnavailable = song.manualUnavailable;
+                item.manualAttempt = song.manualAttempt;
+                item.cacheFailed = song.cacheFailed;
             }
         }
+        applyPlaylistFilter();
+        if (playlistAdapter != null) playlistAdapter.notifyDataSetChanged();
+        if (resultAdapter != null) resultAdapter.notifyDataSetChanged();
+        updatePlaylistCacheButtonVisibility();
+        savePlaylists();
     }
 
     private void commitResolvedPlayback(Song song, PendingPlaybackCommit commit, int playToken) {
@@ -3751,6 +3777,26 @@ public class MainActivity extends Activity {
         if (song.lyric != null && !song.lyric.trim().isEmpty()) return;
         String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
         if (key.isEmpty()) return;
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            try {
+                searchCacheExecutor.submit(() -> {
+                    String cachedLyric = CacheStorage.readLyricForSong(
+                        this, key, song.title, song.artist);
+                    if (cachedLyric == null || cachedLyric.trim().isEmpty()) return;
+                    runOnUiThread(() -> {
+                        if (activityDestroyed || song.lyric != null && !song.lyric.trim().isEmpty()) return;
+                        song.lyric = cachedLyric;
+                        if (song.lyricLabel == null || song.lyricLabel.trim().isEmpty()) {
+                            song.lyricLabel = song.title + " / " + song.artist + " / " + song.source;
+                        }
+                        if (currentSong == song && lyricView != null) applyLyricText(cachedLyric);
+                        if (isSongInAnyPlaylist(song)) savePlaylists();
+                    });
+                });
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            }
+            return;
+        }
         String cachedLyric = CacheStorage.readLyricForSong(this, key, song.title, song.artist);
         if (cachedLyric != null && !cachedLyric.trim().isEmpty()) {
             song.lyric = cachedLyric;
@@ -6639,13 +6685,49 @@ public class MainActivity extends Activity {
     }
 
     private void savePlaylists() {
-        JSONArray array = new JSONArray();
-        for (Playlist playlist : playlists) array.put(playlist.toJson());
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            .edit()
-            .putString(KEY_PLAYLISTS, array.toString())
-            .putInt(KEY_CURRENT_PLAYLIST, currentPlaylistIndex)
-            .apply();
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            runOnUiThread(this::savePlaylists);
+            return;
+        }
+        final List<Playlist> snapshot = new ArrayList<>();
+        for (Playlist playlist : playlists) {
+            if (playlist == null) continue;
+            Playlist playlistCopy = new Playlist(playlist.name);
+            for (Song song : playlist.songs) {
+                if (song != null) playlistCopy.songs.add(copySongForPersistence(song));
+            }
+            snapshot.add(playlistCopy);
+        }
+        final int selectedIndex = currentPlaylistIndex;
+        final int serial = ++playlistPersistenceSerial;
+        try {
+            playlistPersistenceExecutor.execute(() -> {
+                if (serial != playlistPersistenceSerial) return;
+                JSONArray array = new JSONArray();
+                for (Playlist playlist : snapshot) array.put(playlist.toJson());
+                if (serial != playlistPersistenceSerial) return;
+                getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                    .edit()
+                    .putString(KEY_PLAYLISTS, array.toString())
+                    .putInt(KEY_CURRENT_PLAYLIST, selectedIndex)
+                    .apply();
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+        }
+    }
+
+    private Song copySongForPersistence(Song song) {
+        Song copy = new Song(song.title, song.artist, song.source, song.lyric,
+            song.uri, song.catalogJson, song.cachedUri);
+        copy.lyricLabel = song.lyricLabel;
+        copy.artworkUrl = song.artworkUrl;
+        copy.addedAt = song.addedAt;
+        copy.unavailable = song.unavailable;
+        copy.autoUnavailable = song.autoUnavailable;
+        copy.manualUnavailable = song.manualUnavailable;
+        copy.manualAttempt = song.manualAttempt;
+        copy.cacheFailed = song.cacheFailed;
+        return copy;
     }
 
     private int dp(int value) {
@@ -6705,6 +6787,7 @@ public class MainActivity extends Activity {
         responsivenessHandler.removeCallbacks(responsivenessHeartbeat);
         ++playlistCacheScanSerial;
         playlistCacheScanExecutor.shutdownNow();
+        playlistPersistenceExecutor.shutdown();
         if (playbackReceiverRegistered) {
             try {
                 unregisterReceiver(playbackCommandReceiver);

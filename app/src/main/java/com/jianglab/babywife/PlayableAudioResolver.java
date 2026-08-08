@@ -152,6 +152,9 @@ final class PlayableAudioResolver {
                         }
 
                         AudioPlaybackVerifier.Probe probe = AudioPlaybackVerifier.probeFile(decodedSource);
+                        if (probe.durationMs <= 60_000L) {
+                            throw new IllegalStateException("候选实际时长不超过60秒");
+                        }
                         String actualExtension = detectAudioExtension(decodedSource,
                             hintedExtension, probe.mimeType);
                         status(callback, "候选可播放：" + displayFormat(actualExtension)
