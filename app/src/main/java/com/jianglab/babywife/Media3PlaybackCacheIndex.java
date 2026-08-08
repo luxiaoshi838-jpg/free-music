@@ -102,6 +102,11 @@ final class Media3PlaybackCacheIndex {
         return read(context, key).optString("friendlyUri", "").trim();
     }
 
+    static synchronized boolean isComplete(Context context, String key) {
+        if (context == null || empty(key)) return false;
+        return read(context, key).optBoolean("complete", false);
+    }
+
     static synchronized String artworkUrl(Context context, String key) {
         if (context == null || empty(key)) return "";
         return read(context, key).optString("artworkUrl", "").trim();

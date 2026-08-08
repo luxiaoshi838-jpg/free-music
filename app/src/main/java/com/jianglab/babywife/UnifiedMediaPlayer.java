@@ -240,6 +240,7 @@ final class UnifiedMediaPlayer {
     }
 
     void release() {
+        if (released) return;
         released = true;
         userRequestedPlayback = false;
         communicationPaused = false;
@@ -247,7 +248,10 @@ final class UnifiedMediaPlayer {
         completionListener = null;
         errorListener = null;
         mainHandler.removeCallbacks(communicationModeWatcher);
-        runOnMain(this::releaseInternalPlayer);
+        // Always enqueue the real ExoPlayer release. Calling existing.release()
+        // inline from a song-row MotionEvent can block Xiaomi/Android 16 input
+        // dispatch long enough to trigger a 5-second ANR.
+        mainHandler.post(this::releaseInternalPlayer);
     }
 
     boolean isPlaying() {
