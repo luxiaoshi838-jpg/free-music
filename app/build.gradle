@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080870
-        versionName "2026.08.08.v170-playlist-sort-added-time"
+        versionCode 2026080871
+        versionName "2026.08.08.v171-search-match-mode"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 

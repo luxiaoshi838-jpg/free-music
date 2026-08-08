@@ -117,6 +117,7 @@ public class MainActivity extends Activity {
     private static final String KEY_JIANGLAB_VERIFIED = "jianglab_verified";
     private static final String KEY_PLAY_MODE = "play_mode";
     private static final String KEY_SEARCH_SOURCE = "search_source";
+    private static final String KEY_SEARCH_MATCH_MODE = "search_match_mode";
     private static final int REQUEST_BACKGROUND_IMAGE = 7301;
     private static final int REQUEST_AUDIO_FILES = 7302;
     private static final int REQUEST_AUDIO_FOLDER = 7303;
@@ -176,6 +177,7 @@ public class MainActivity extends Activity {
     private Button cacheLocationButton;
     private Button uninstallCleanupButton;
     private EditText searchInput;
+    private TextView searchMatchModeButton;
     private Spinner sourceSpinner;
     private Spinner playlistSpinner;
     private ListView playlistManagerList;
@@ -205,6 +207,8 @@ public class MainActivity extends Activity {
     private int searchSongIndex = -1;
     private int playMode = 0;
     private String savedSearchSource = "\u5feb\u901f\u641c\u7d22";
+    private String savedSearchMatchMode = "默认";
+    private String activeSearchMatchMode = "默认";
     private final Random random = new Random();
     private final Handler lyricHandler = new Handler(Looper.getMainLooper());
     private final Handler responsivenessHandler = new Handler(Looper.getMainLooper());
@@ -913,6 +917,41 @@ public class MainActivity extends Activity {
         if (savedSearchSource == null || savedSearchSource.trim().isEmpty()) {
             savedSearchSource = "\u5feb\u901f\u641c\u7d22";
         }
+        savedSearchMatchMode = normalizeSearchMatchMode(
+            prefs.getString(KEY_SEARCH_MATCH_MODE, "默认"));
+        activeSearchMatchMode = savedSearchMatchMode;
+    }
+
+    private String normalizeSearchMatchMode(String mode) {
+        if ("歌名".equals(mode) || "歌手".equals(mode)) return mode;
+        return "默认";
+    }
+
+    private void saveSearchMatchMode(String mode) {
+        savedSearchMatchMode = normalizeSearchMatchMode(mode);
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_SEARCH_MATCH_MODE, savedSearchMatchMode)
+            .apply();
+        if (searchMatchModeButton != null) {
+            searchMatchModeButton.setText(savedSearchMatchMode);
+        }
+    }
+
+    private void showSearchMatchModeDialog() {
+        final String[] modes = {"默认", "歌名", "歌手"};
+        int selected = "歌名".equals(savedSearchMatchMode) ? 1
+            : ("歌手".equals(savedSearchMatchMode) ? 2 : 0);
+        new AlertDialog.Builder(this)
+            .setTitle("搜索模式")
+            .setSingleChoiceItems(modes, selected, (dialog, which) -> {
+                if (which >= 0 && which < modes.length) {
+                    saveSearchMatchMode(modes[which]);
+                }
+                dialog.dismiss();
+            })
+            .setNegativeButton("取消", null)
+            .show();
     }
 
     private int clampPlayMode(int value) {
@@ -1136,7 +1175,7 @@ public class MainActivity extends Activity {
         searchInput.setHint("搜索歌曲 / 歌手");
         searchInput.setTextColor(TEXT_MAIN);
         searchInput.setHintTextColor(Color.argb(190, 255, 255, 255));
-        searchInput.setPadding(dp(22), 0, dp(48), 0);
+        searchInput.setPadding(dp(72), 0, dp(48), 0);
         searchInput.setBackground(rounded(Color.argb(72, 255, 255, 255), dp(22)));
         searchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         searchInput.setOnEditorActionListener((view, actionId, event) -> {
@@ -1153,6 +1192,20 @@ public class MainActivity extends Activity {
         });
         searchBox.addView(searchInput, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        searchMatchModeButton = new TextView(this);
+        searchMatchModeButton.setText(savedSearchMatchMode);
+        searchMatchModeButton.setTextColor(TEXT_MUTED);
+        searchMatchModeButton.setTextSize(12);
+        searchMatchModeButton.setGravity(Gravity.CENTER);
+        searchMatchModeButton.setSingleLine(true);
+        searchMatchModeButton.setContentDescription("搜索模式");
+        searchMatchModeButton.setOnClickListener(view -> showSearchMatchModeDialog());
+        attachSubtlePressFeedback(searchMatchModeButton);
+        FrameLayout.LayoutParams searchModeParams = new FrameLayout.LayoutParams(dp(56), dp(32));
+        searchModeParams.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
+        searchModeParams.setMargins(dp(6), 0, 0, 0);
+        searchBox.addView(searchMatchModeButton, searchModeParams);
 
         TextView clearSearchButton = new TextView(this);
         clearSearchButton.setText("×");
@@ -2119,6 +2172,7 @@ public class MainActivity extends Activity {
             return;
         }
         String mode = String.valueOf(sourceSpinner.getSelectedItem());
+        activeSearchMatchMode = normalizeSearchMatchMode(savedSearchMatchMode);
         activeSearchKeyword = keyword;
         activeSearchSession = null;
         searchPageLoading = false;
@@ -2144,6 +2198,35 @@ public class MainActivity extends Activity {
         loadNextSearchBatch(true);
     }
 
+    private boolean searchMatchModeAccepts(Song song, String keyword, String mode) {
+        if (song == null) return false;
+        String query = normalizeSearchMatchText(keyword);
+        if (query.isEmpty()) return true;
+        String title = normalizeSearchMatchText(song.title);
+        String artist = normalizeSearchMatchText(song.artist);
+        String selectedMode = normalizeSearchMatchMode(mode);
+
+        String[] tokens = query.split("\\s+");
+        for (String token : tokens) {
+            if (token == null || token.isEmpty()) continue;
+            if ("歌名".equals(selectedMode)) {
+                if (!title.contains(token)) return false;
+            } else if ("歌手".equals(selectedMode)) {
+                if (!artist.contains(token)) return false;
+            } else if (!title.contains(token) && !artist.contains(token)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String normalizeSearchMatchText(String value) {
+        if (value == null) return "";
+        return java.text.Normalizer.normalize(
+            value.trim(), java.text.Normalizer.Form.NFKC)
+            .toLowerCase(java.util.Locale.ROOT);
+    }
+
     private void loadNextSearchBatch(boolean firstBatch) {
         CatalogSearch.Session session = activeSearchSession;
         if (session == null || searchPageLoading || session.isLoading() || !session.hasMore()) {
@@ -2162,7 +2245,12 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             CatalogSearch.Batch batch = session.loadNext();
             List<Song> rows = new ArrayList<>();
-            for (CatalogSearch.Track track : batch.tracks) rows.add(Song.fromCatalog(track));
+            for (CatalogSearch.Track track : batch.tracks) {
+                Song row = Song.fromCatalog(track);
+                if (searchMatchModeAccepts(row, activeSearchKeyword, activeSearchMatchMode)) {
+                    rows.add(row);
+                }
+            }
             runOnUiThread(() -> {
                 if (session != activeSearchSession) return;
                 appendUnique(searchResults, rows);
