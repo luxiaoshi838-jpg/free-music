@@ -139,6 +139,7 @@ public class MainActivity extends Activity {
     private static final long PLAYBACK_HEALTH_CHECK_INTERVAL_MS = 2000L;
     private static final long PLAYBACK_STALL_REPORT_MS = 12000L;
     private static final String KEY_LAST_HANDLED_EXIT_TIME = "last_handled_exit_time";
+    private static final String KEY_LAST_APP_VERSION_CODE = "last_app_version_code";
     private static final String KEY_PLAYBACK_TRANSITION_PENDING = "playback_transition_pending";
     private static final String KEY_PLAYBACK_TRANSITION_DETAIL = "playback_transition_detail";
     private static final String KEY_PLAYBACK_TRANSITION_TIME = "playback_transition_time";
@@ -330,6 +331,7 @@ public class MainActivity extends Activity {
         installCrashReporter();
         normalStatusBarColor = getWindow().getStatusBarColor();
         loadPlaylists();
+        suppressCrashReportAfterAppUpdate();
         captureLastProcessExitReport();
         loadSavedUiSettings();
         setContentView(buildContentView());
@@ -437,6 +439,37 @@ public class MainActivity extends Activity {
         }
     }
 
+
+    private void suppressCrashReportAfterAppUpdate() {
+        try {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            PackageInfo packageInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+            long currentVersion = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                ? packageInfo.getLongVersionCode() : packageInfo.versionCode;
+            boolean hasVersionMarker = prefs.contains(KEY_LAST_APP_VERSION_CODE);
+            long previousVersion = prefs.getLong(KEY_LAST_APP_VERSION_CODE, currentVersion);
+            boolean packageHasBeenUpdated = packageInfo.lastUpdateTime > packageInfo.firstInstallTime + 1000L;
+            boolean firstLaunchWithMarkerSupportAfterUpdate = !hasVersionMarker && packageHasBeenUpdated;
+            boolean versionChanged = hasVersionMarker && previousVersion != currentVersion;
+
+            SharedPreferences.Editor editor = prefs.edit()
+                .putLong(KEY_LAST_APP_VERSION_CODE, currentVersion);
+            if (firstLaunchWithMarkerSupportAfterUpdate || versionChanged) {
+                // Installing a newer APK legitimately kills/restarts the old process.
+                // Treat all exit history before this launch as handled, and discard
+                // pending reports left by the previous package version.
+                editor.putLong(KEY_LAST_HANDLED_EXIT_TIME, System.currentTimeMillis())
+                    .remove(KEY_CRASH_REPORT)
+                    .remove(KEY_CRASH_REPORT_TIME)
+                    .putBoolean(KEY_CRASH_REPORT_DISMISSED, true)
+                    .putBoolean(KEY_PLAYBACK_TRANSITION_PENDING, false)
+                    .remove(KEY_PLAYBACK_TRANSITION_DETAIL)
+                    .remove(KEY_PLAYBACK_TRANSITION_TIME);
+            }
+            editor.apply();
+        } catch (Throwable ignored) {
+        }
+    }
 
     private void captureLastProcessExitReport() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
