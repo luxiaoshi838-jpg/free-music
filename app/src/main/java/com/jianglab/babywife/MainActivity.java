@@ -2281,7 +2281,8 @@ public class MainActivity extends Activity {
     private void appendLocalSearch(String keyword) {
         for (Playlist playlist : playlists) {
             for (Song song : playlist.songs) {
-                if (song.matches(keyword)) {
+                if (song.matches(keyword)
+                    && searchMatchModeAccepts(song, keyword, activeSearchMatchMode)) {
                     searchResults.add(song);
                 }
             }
