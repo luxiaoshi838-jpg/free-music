@@ -2706,7 +2706,14 @@ public class MainActivity extends Activity {
         Playlist playlist = isLocalSong(song) ? localPlaylist() : onlineTargetPlaylist();
         int existingIndex = indexOfSong(playlist, song);
         if (existingIndex >= 0) {
-            if (currentSong == song) switchPlaybackToPlaylist(playlist, existingIndex);
+            Song existing = playlist.songs.get(existingIndex);
+            clearManualCacheFailureState(existing);
+            if (currentSong == song) {
+                clearManualCacheFailureState(song);
+                switchPlaybackToPlaylist(playlist, existingIndex);
+            }
+            savePlaylists();
+            renderCurrentPlaylist();
             toast((isLocalPlaylist(playlist) ? "\u672c\u5730\u6b4c\u5355\u5df2\u6709\uff1a" : "\u5f53\u524d\u5728\u7ebf\u6b4c\u5355\u5df2\u6709\uff1a") + song.title);
             return;
         }
@@ -2714,8 +2721,8 @@ public class MainActivity extends Activity {
         playlist.songs.add(playlistSong);
         playlistSong.addedAt = System.currentTimeMillis();
         int addedIndex = playlist.songs.size() - 1;
-        playlistSong.unavailable = false;
-        playlistSong.cacheFailed = false;
+        clearManualCacheFailureState(playlistSong);
+        if (currentSong == song) clearManualCacheFailureState(song);
         savePlaylists();
         renderCurrentPlaylist();
         if (currentSong == song) {
@@ -2723,6 +2730,15 @@ public class MainActivity extends Activity {
             updateLyricActionVisibility(currentSong);
         }
         toast("\u5df2\u52a0\u5165" + playlist.name + "\uff1a" + song.title);
+    }
+
+    private void clearManualCacheFailureState(Song song) {
+        if (song == null) return;
+        song.unavailable = false;
+        song.autoUnavailable = false;
+        song.manualUnavailable = false;
+        song.manualAttempt = false;
+        song.cacheFailed = false;
     }
 
     private Song copySongForPlaylist(Song song) {
@@ -2899,6 +2915,18 @@ public class MainActivity extends Activity {
         playlistCacheButton.setEnabled(missing > 0);
         playlistCacheButton.setVisibility(missing > 0 ? View.VISIBLE : View.GONE);
         playlistCacheButton.setText("一键缓存未缓存歌曲（" + missing + "）");
+    }
+
+    private boolean isManualOnlyCacheSong(Song song) {
+        return song != null && (song.unavailable || song.cacheFailed);
+    }
+
+    private boolean songHasRecordedCacheQuick(Song song) {
+        if (song == null || !song.isNetworkCatalog()) return true;
+        String cached = song.cachedUri == null ? "" : song.cachedUri.trim();
+        if (!cached.isEmpty()) return true;
+        String direct = song.uri == null ? "" : song.uri.trim();
+        return direct.startsWith("file:") || direct.startsWith("content:");
     }
 
     private boolean isManualOnlyCacheSong(Song song) {
@@ -6749,6 +6777,20 @@ public class MainActivity extends Activity {
             });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
         }
+    }
+
+    private Song copySongForPersistence(Song song) {
+        Song copy = new Song(song.title, song.artist, song.source, song.lyric,
+            song.uri, song.catalogJson, song.cachedUri);
+        copy.lyricLabel = song.lyricLabel;
+        copy.artworkUrl = song.artworkUrl;
+        copy.addedAt = song.addedAt;
+        copy.unavailable = song.unavailable;
+        copy.autoUnavailable = song.autoUnavailable;
+        copy.manualUnavailable = song.manualUnavailable;
+        copy.manualAttempt = song.manualAttempt;
+        copy.cacheFailed = song.cacheFailed;
+        return copy;
     }
 
     private Song copySongForPersistence(Song song) {
