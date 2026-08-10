@@ -4,6 +4,7 @@ import android.content.Context;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
 
 import androidx.media3.common.AudioAttributes;
@@ -23,9 +24,6 @@ import org.json.JSONObject;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Small MediaPlayer-shaped adapter backed by Media3 ExoPlayer.
@@ -37,6 +35,15 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 @UnstableApi
 final class UnifiedMediaPlayer {
+    private static final HandlerThread PLAYER_THREAD;
+    private static final Handler PLAYER_HANDLER;
+
+    static {
+        PLAYER_THREAD = new HandlerThread("babywife-media3-player");
+        PLAYER_THREAD.start();
+        PLAYER_HANDLER = new Handler(PLAYER_THREAD.getLooper());
+    }
+
     interface OnPreparedListener {
         void onPrepared(UnifiedMediaPlayer player);
     }
@@ -73,18 +80,21 @@ final class UnifiedMediaPlayer {
                 }
                 communicationPaused = false;
             }
-            mainHandler.postDelayed(this, 400L);
+            PLAYER_HANDLER.postDelayed(this, 400L);
         }
     };
     private Uri sourceUri;
     private String cacheKey = "";
     private Map<String, String> requestHeaders = Collections.emptyMap();
     private ExoPlayer player;
-    private OnPreparedListener preparedListener;
-    private OnCompletionListener completionListener;
-    private OnErrorListener errorListener;
+    private volatile OnPreparedListener preparedListener;
+    private volatile OnCompletionListener completionListener;
+    private volatile OnErrorListener errorListener;
     private boolean preparedDelivered;
-    private boolean released;
+    private volatile boolean released;
+    private volatile boolean snapshotPlaying;
+    private volatile int snapshotDurationMs;
+    private volatile int snapshotPositionMs;
 
     UnifiedMediaPlayer(Context context) {
         appContext = context.getApplicationContext();
@@ -120,7 +130,7 @@ final class UnifiedMediaPlayer {
     }
 
     void prepareAsync() {
-        runOnMain(this::prepareInternal);
+        runOnPlayer(this::prepareInternal);
     }
 
     private void prepareInternal() {
@@ -147,7 +157,7 @@ final class UnifiedMediaPlayer {
                 ? upstream : Media3CacheStore.dataSourceFactory(appContext, upstream);
 
             ExoPlayer next = new ExoPlayer.Builder(appContext)
-                .setLooper(Looper.getMainLooper())
+                .setLooper(PLAYER_THREAD.getLooper())
                 .build();
             AudioAttributes audioAttributes = new AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
@@ -163,14 +173,33 @@ final class UnifiedMediaPlayer {
                 @Override
                 public void onPlaybackStateChanged(int playbackState) {
                     if (next != player || released) return;
+                    updateSnapshot();
                     if (playbackState == Player.STATE_READY && !preparedDelivered) {
                         preparedDelivered = true;
                         OnPreparedListener listener = preparedListener;
-                        if (listener != null) listener.onPrepared(UnifiedMediaPlayer.this);
+                        if (listener != null) {
+                            mainHandler.post(() -> {
+                                if (!released && preparedListener == listener) {
+                                    listener.onPrepared(UnifiedMediaPlayer.this);
+                                }
+                            });
+                        }
                     } else if (playbackState == Player.STATE_ENDED) {
                         OnCompletionListener listener = completionListener;
-                        if (listener != null) listener.onCompletion(UnifiedMediaPlayer.this);
+                        if (listener != null) {
+                            mainHandler.post(() -> {
+                                if (!released && completionListener == listener) {
+                                    listener.onCompletion(UnifiedMediaPlayer.this);
+                                }
+                            });
+                        }
                     }
+                }
+
+                @Override
+                public void onIsPlayingChanged(boolean isPlaying) {
+                    snapshotPlaying = isPlaying;
+                    updateSnapshot();
                 }
 
                 @Override
@@ -198,7 +227,7 @@ final class UnifiedMediaPlayer {
     }
 
     void start() {
-        runOnMain(() -> {
+        runOnPlayer(() -> {
             userRequestedPlayback = true;
             scheduleCommunicationModeWatch();
             if (player == null || released) return;
@@ -213,25 +242,28 @@ final class UnifiedMediaPlayer {
     }
 
     void pause() {
-        runOnMain(() -> {
+        runOnPlayer(() -> {
             userRequestedPlayback = false;
             communicationPaused = false;
+            snapshotPlaying = false;
             if (player != null && !released) player.pause();
         });
     }
 
     void stop() {
-        runOnMain(() -> {
+        runOnPlayer(() -> {
             userRequestedPlayback = false;
             communicationPaused = false;
+            snapshotPlaying = false;
             if (player != null && !released) player.stop();
         });
     }
 
     void reset() {
-        runOnMain(() -> {
+        runOnPlayer(() -> {
             userRequestedPlayback = false;
             communicationPaused = false;
+            snapshotPlaying = false;
             if (player != null && !released) {
                 player.stop();
                 player.clearMediaItems();
@@ -247,32 +279,33 @@ final class UnifiedMediaPlayer {
         preparedListener = null;
         completionListener = null;
         errorListener = null;
-        mainHandler.removeCallbacks(communicationModeWatcher);
-        // Always enqueue the real ExoPlayer release. Calling existing.release()
-        // inline from a song-row MotionEvent can block Xiaomi/Android 16 input
-        // dispatch long enough to trigger a 5-second ANR.
-        mainHandler.post(this::releaseInternalPlayer);
+        PLAYER_HANDLER.removeCallbacks(communicationModeWatcher);
+        snapshotPlaying = false;
+        // ExoPlayer.release() now runs on the dedicated Media3 looper. Even if a
+        // device codec/cache teardown is slow, it cannot block MotionEvent/layout.
+        PLAYER_HANDLER.post(this::releaseInternalPlayer);
     }
 
     boolean isPlaying() {
-        return callOnMain(() -> player != null && !released && player.isPlaying(), false);
+        requestSnapshot();
+        return snapshotPlaying;
     }
 
     int getDuration() {
-        long value = callOnMain(() -> player == null ? C.TIME_UNSET : player.getDuration(),
-            C.TIME_UNSET);
-        if (value == C.TIME_UNSET || value < 0L) return 0;
-        return (int) Math.min(Integer.MAX_VALUE, value);
+        requestSnapshot();
+        return Math.max(0, snapshotDurationMs);
     }
 
     int getCurrentPosition() {
-        long value = callOnMain(() -> player == null ? 0L : player.getCurrentPosition(), 0L);
-        return (int) Math.max(0L, Math.min(Integer.MAX_VALUE, value));
+        requestSnapshot();
+        return Math.max(0, snapshotPositionMs);
     }
 
     void seekTo(int positionMs) {
-        runOnMain(() -> {
-            if (player != null && !released) player.seekTo(Math.max(0, positionMs));
+        int safe = Math.max(0, positionMs);
+        snapshotPositionMs = safe;
+        runOnPlayer(() -> {
+            if (player != null && !released) player.seekTo(safe);
         });
     }
 
@@ -284,18 +317,26 @@ final class UnifiedMediaPlayer {
     }
 
     private void scheduleCommunicationModeWatch() {
-        mainHandler.removeCallbacks(communicationModeWatcher);
-        if (!released) mainHandler.post(communicationModeWatcher);
+        PLAYER_HANDLER.removeCallbacks(communicationModeWatcher);
+        if (!released) PLAYER_HANDLER.post(communicationModeWatcher);
     }
 
     private void notifyError(int what, int extra) {
         OnErrorListener listener = errorListener;
-        if (listener != null) listener.onError(this, what, extra);
+        if (listener == null) return;
+        mainHandler.post(() -> {
+            if (!released && errorListener == listener) {
+                listener.onError(this, what, extra);
+            }
+        });
     }
 
     private void releaseInternalPlayer() {
         ExoPlayer existing = player;
         player = null;
+        snapshotPlaying = false;
+        snapshotDurationMs = 0;
+        snapshotPositionMs = 0;
         if (existing != null) {
             try {
                 existing.release();
@@ -304,42 +345,33 @@ final class UnifiedMediaPlayer {
         }
     }
 
-    private void runOnMain(Runnable action) {
-        if (Looper.myLooper() == Looper.getMainLooper()) {
+    private void requestSnapshot() {
+        if (!released) PLAYER_HANDLER.post(this::updateSnapshot);
+    }
+
+    private void updateSnapshot() {
+        ExoPlayer current = player;
+        if (current == null || released) {
+            snapshotPlaying = false;
+            return;
+        }
+        try {
+            snapshotPlaying = current.isPlaying();
+            long duration = current.getDuration();
+            snapshotDurationMs = duration == C.TIME_UNSET || duration < 0L
+                ? 0 : (int) Math.min(Integer.MAX_VALUE, duration);
+            long position = current.getCurrentPosition();
+            snapshotPositionMs = (int) Math.max(0L, Math.min(Integer.MAX_VALUE, position));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void runOnPlayer(Runnable action) {
+        if (Looper.myLooper() == PLAYER_THREAD.getLooper()) {
             action.run();
         } else {
-            mainHandler.post(action);
+            PLAYER_HANDLER.post(action);
         }
-    }
-
-    private interface ValueCall<T> {
-        T call();
-    }
-
-    private <T> T callOnMain(ValueCall<T> action, T fallback) {
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            try {
-                return action.call();
-            } catch (Throwable ignored) {
-                return fallback;
-            }
-        }
-        AtomicReference<T> result = new AtomicReference<>(fallback);
-        CountDownLatch latch = new CountDownLatch(1);
-        mainHandler.post(() -> {
-            try {
-                result.set(action.call());
-            } catch (Throwable ignored) {
-            } finally {
-                latch.countDown();
-            }
-        });
-        try {
-            latch.await(2, TimeUnit.SECONDS);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-        }
-        return result.get();
     }
 
     static Map<String, String> requestHeadersFor(String catalogJson) {

@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080877
-        versionName "2026.08.08.v177-cache-recognition-anr"
+        versionCode 2026080878
+        versionName "2026.08.10.v178-playlist-open-rapid-next-stability"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 

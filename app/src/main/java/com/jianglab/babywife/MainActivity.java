@@ -270,6 +270,7 @@ public class MainActivity extends Activity {
     private volatile int playlistCacheScanSerial = 0;
     private final ExecutorService playlistPersistenceExecutor = Executors.newSingleThreadExecutor();
     private volatile int playlistPersistenceSerial = 0;
+    private boolean playlistUiDirty = false;
     private volatile int replacementCacheSerial = 0;
     private volatile boolean responsivenessWatchdogRunning = false;
     private volatile boolean noResponseReportWritten = false;
@@ -645,6 +646,11 @@ public class MainActivity extends Activity {
     private void checkPlaybackHealth() {
         if (!playbackExpectedPlaying || playbackPreparing || playbackUserPaused
             || activityDestroyed) return;
+        if (!activityResumed || !windowFocused) {
+            playbackLastProgressTime = System.currentTimeMillis();
+            playbackSilentStopReported = false;
+            return;
+        }
         UnifiedMediaPlayer player = mediaPlayer;
         if (player == null) {
             if (!playbackSilentStopReported) {
@@ -2394,12 +2400,19 @@ public class MainActivity extends Activity {
     }
 
     private void showPlaylistPage() {
-        hideKeyboardAndClearFocus(null);
+        // Page switching must stay a pure UI operation. Cache verification and
+        // persistence are never started from this click path.
+        View focused = getCurrentFocus();
+        if (focused instanceof EditText) hideKeyboardAndClearFocus(focused);
         if (headerBar != null) headerBar.setVisibility(View.GONE);
         if (statusView != null) statusView.setVisibility(View.GONE);
         if (playerPanel != null) playerPanel.setVisibility(View.GONE);
         if (searchPanel != null) searchPanel.setVisibility(View.GONE);
         if (playlistPanel != null) playlistPanel.setVisibility(View.VISIBLE);
+        if (playlistUiDirty && playlistAdapter != null) {
+            playlistAdapter.notifyDataSetChanged();
+            playlistUiDirty = false;
+        }
     }
 
     private void performSearch() {
@@ -2908,7 +2921,7 @@ public class MainActivity extends Activity {
                 playlistOneClickManualOnlyCount++;
                 continue;
             }
-            if (!songHasRecordedCache(song)) playlistOneClickTargets.add(song);
+            if (!songHasRecordedCacheQuick(song)) playlistOneClickTargets.add(song);
         }
 
         int missing = playlistOneClickTargets.size();
@@ -3053,17 +3066,27 @@ public class MainActivity extends Activity {
                         String identity = cacheRecognitionIdentity(song);
                         String uri = friendlyUris.get(identity);
                         if (uri != null && !uri.isEmpty()) {
-                            changed |= recoverCachedSongState(song, uri);
+                            changed |= applyRecoveredCacheState(song, uri);
                         }
                     }
                     playlistOneClickTargets.removeIf(
                         item -> recognized.contains(cacheRecognitionIdentity(item)));
                     if (changed) savePlaylists();
                     refreshRetainedOneClickButton();
-                    if (playlistAdapter != null) playlistAdapter.notifyDataSetChanged();
+                    if (changed) notifyPlaylistAdapterStateChanged();
                 });
             });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
+        }
+    }
+
+    private void notifyPlaylistAdapterStateChanged() {
+        if (playlistAdapter == null) return;
+        if (playlistPanel != null && playlistPanel.getVisibility() == View.VISIBLE) {
+            playlistAdapter.notifyDataSetChanged();
+            playlistUiDirty = false;
+        } else {
+            playlistUiDirty = true;
         }
     }
 
@@ -3077,58 +3100,36 @@ public class MainActivity extends Activity {
 
     private void confirmSuccessfulPlaybackCacheState(Song song) {
         if (song == null || !song.isNetworkCatalog()) return;
+        boolean playlistSong = isPlaylistSongObject(song);
+        boolean changed = false;
 
-        // A real successful manual playback clears stale red/failure state.
-        boolean playlistSong = isSongInAnyPlaylist(song);
         if (playlistSong) {
-            song.unavailable = false;
-            song.autoUnavailable = false;
-            song.manualUnavailable = false;
-            song.manualAttempt = false;
-            song.cacheFailed = false;
+            if (song.unavailable || song.autoUnavailable || song.manualUnavailable
+                || song.manualAttempt || song.cacheFailed) {
+                song.unavailable = false;
+                song.autoUnavailable = false;
+                song.manualUnavailable = false;
+                song.manualAttempt = false;
+                song.cacheFailed = false;
+                changed = true;
+            }
         }
 
         String uri = song.uri == null ? "" : song.uri.trim();
-        if (uri.startsWith("file:") || uri.startsWith("content:")) {
-            boolean changed = recoverCachedSongState(song, uri);
+        if (playlistSong && (uri.startsWith("file:") || uri.startsWith("content:"))) {
+            // The file just reached Media3 READY and start() was accepted. That is
+            // stronger evidence than a second filesystem/index scan. Update only
+            // this actual playlist row; cache workers handle any other copies.
+            changed |= applyRecoveredCacheState(song, uri);
             String identity = cacheRecognitionIdentity(song);
             playlistOneClickTargets.removeIf(
                 item -> identity.equals(cacheRecognitionIdentity(item)));
-            if (playlistSong || changed) savePlaylists();
             refreshRetainedOneClickButton();
-            if (playlistAdapter != null) playlistAdapter.notifyDataSetChanged();
-            return;
         }
 
-        if (!playlistSong || (!uri.startsWith("http://") && !uri.startsWith("https://"))) {
-            return;
-        }
-        final String media3Key = Media3CacheStore.keyFor(song.title, song.artist, song.catalogJson);
-        final String identity = cacheRecognitionIdentity(song);
-        if (media3Key.isEmpty() || identity.isEmpty()) {
+        if (changed) {
             savePlaylists();
-            return;
-        }
-        try {
-            playlistCacheScanExecutor.execute(() -> {
-                boolean full = Media3CacheStore.isFullyCached(this, media3Key);
-                if (full) {
-                    long bytes = Media3CacheStore.cachedBytes(this, media3Key);
-                    if (bytes > 0L) Media3PlaybackCacheIndex.updateProgress(this, media3Key, bytes, bytes);
-                }
-                runOnUiThread(() -> {
-                    if (activityDestroyed) return;
-                    if (full) {
-                        playlistOneClickTargets.removeIf(
-                            item -> identity.equals(cacheRecognitionIdentity(item)));
-                        refreshRetainedOneClickButton();
-                    }
-                    savePlaylists();
-                    if (playlistAdapter != null) playlistAdapter.notifyDataSetChanged();
-                });
-            });
-        } catch (java.util.concurrent.RejectedExecutionException ignored) {
-            savePlaylists();
+            notifyPlaylistAdapterStateChanged();
         }
     }
 
