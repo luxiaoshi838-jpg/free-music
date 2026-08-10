@@ -134,8 +134,8 @@ public class MainActivity extends Activity {
     private static final int MIN_LYRIC_EDGE_BLANK_LINES = 6;
     private static final float ACTIVE_LYRIC_SCALE = 20f / 18f;
     private static final int PLAYLIST_CACHE_TRACK_TIMEOUT_SECONDS = 45;
-    private static final long NO_RESPONSE_THRESHOLD_MS = 12000L;
-    private static final long NO_RESPONSE_CHECK_INTERVAL_MS = 3000L;
+    private static final long NO_RESPONSE_THRESHOLD_MS = 4500L;
+    private static final long NO_RESPONSE_CHECK_INTERVAL_MS = 1000L;
     private static final long UI_HEARTBEAT_INTERVAL_MS = 1000L;
     private static final long PLAYBACK_NAVIGATION_DEBOUNCE_MS = 220L;
     private static final long PLAYBACK_HEALTH_CHECK_INTERVAL_MS = 2000L;
@@ -145,6 +145,8 @@ public class MainActivity extends Activity {
     private static final String KEY_PLAYBACK_TRANSITION_PENDING = "playback_transition_pending";
     private static final String KEY_PLAYBACK_TRANSITION_DETAIL = "playback_transition_detail";
     private static final String KEY_PLAYBACK_TRANSITION_TIME = "playback_transition_time";
+    private static final String KEY_RECENT_ACTIONS = "recent_actions_v1";
+    private static final int MAX_RECENT_ACTIONS = 50;
 
     private static final int ACCENT = Color.rgb(255, 78, 92);
     private static final int ACCENT_SOFT = Color.rgb(255, 128, 112);
@@ -269,8 +271,10 @@ public class MainActivity extends Activity {
     private final ExecutorService playlistCacheScanExecutor = Executors.newSingleThreadExecutor();
     private volatile int playlistCacheScanSerial = 0;
     private final ExecutorService playlistPersistenceExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService cacheLookupExecutor = Executors.newFixedThreadPool(2);
     private volatile int playlistPersistenceSerial = 0;
     private boolean playlistUiDirty = false;
+    private final java.util.ArrayDeque<String> recentActions = new java.util.ArrayDeque<>();
     private volatile int replacementCacheSerial = 0;
     private volatile boolean responsivenessWatchdogRunning = false;
     private volatile boolean noResponseReportWritten = false;
@@ -342,11 +346,13 @@ public class MainActivity extends Activity {
         installCrashReporter();
         normalStatusBarColor = getWindow().getStatusBarColor();
         loadPlaylists();
+        restoreRecentActions();
         migrateLegacyProblemReportIfNeeded();
         suppressCrashReportAfterAppUpdate();
         captureLastProcessExitReport();
         loadSavedUiSettings();
         setContentView(buildContentView());
+        recordRecentAction("软件启动完成");
         attachPressFeedbackTree(shellView);
         maybeRequireJiangLabPassphrase();
         registerPlaybackControlReceiver();
@@ -423,6 +429,81 @@ public class MainActivity extends Activity {
         }, "cache-name-normalizer").start();
     }
 
+    private void restoreRecentActions() {
+        String raw = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getString(KEY_RECENT_ACTIONS, "");
+        if (raw == null || raw.trim().isEmpty()) return;
+        synchronized (recentActions) {
+            recentActions.clear();
+            for (String line : raw.split("\n")) {
+                String safe = line == null ? "" : line.trim();
+                if (safe.isEmpty()) continue;
+                recentActions.addLast(safe);
+                while (recentActions.size() > MAX_RECENT_ACTIONS) recentActions.removeFirst();
+            }
+        }
+    }
+
+    private void recordRecentAction(String action) {
+        String safeAction = action == null ? "" : action.replace('\n', ' ').replace('\r', ' ').trim();
+        if (safeAction.isEmpty()) return;
+        String timestamp = new java.text.SimpleDateFormat(
+            "HH:mm:ss.SSS", java.util.Locale.ROOT).format(new java.util.Date());
+        String page = currentPageForLog();
+        Song song = currentSong;
+        String songText = song == null ? ""
+            : trimForReport(song.title + " / " + song.artist, 100);
+        String line = timestamp
+            + " page=" + page
+            + " action=" + trimForReport(safeAction, 180)
+            + " playlistIndex=" + currentPlaylistIndex
+            + " songIndex=" + currentSongIndex
+            + (songText.isEmpty() ? "" : " song=" + songText);
+        String snapshot;
+        synchronized (recentActions) {
+            recentActions.addLast(line);
+            while (recentActions.size() > MAX_RECENT_ACTIONS) recentActions.removeFirst();
+            snapshot = recentActionsTextLocked();
+        }
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+            .putString(KEY_RECENT_ACTIONS, snapshot)
+            .apply();
+    }
+
+    private String currentPageForLog() {
+        if (playlistPanel != null && playlistPanel.getVisibility() == View.VISIBLE) return "playlist";
+        if (searchPanel != null && searchPanel.getVisibility() == View.VISIBLE) return "search";
+        if (playerPanel != null && playerPanel.getVisibility() == View.VISIBLE) return "player";
+        return "startup";
+    }
+
+    private String recentActionsTextLocked() {
+        StringBuilder out = new StringBuilder();
+        for (String line : recentActions) {
+            if (out.length() > 0) out.append('\n');
+            out.append(line);
+        }
+        return out.toString();
+    }
+
+    private String recentActionsText() {
+        synchronized (recentActions) {
+            return recentActionsTextLocked();
+        }
+    }
+
+    private void appendRecentActions(StringBuilder report) {
+        if (report == null) return;
+        String actions = recentActionsText();
+        if (actions.trim().isEmpty()) {
+            actions = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(KEY_RECENT_ACTIONS, "");
+        }
+        if (actions == null || actions.trim().isEmpty()) return;
+        report.append("\nRecent actions (oldest -> newest):\n")
+            .append(trimForReport(actions, 14000)).append('\n');
+    }
+
     private void installCrashReporter() {
         Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
         if (previous instanceof CrashReportHandler) return;
@@ -473,7 +554,11 @@ public class MainActivity extends Activity {
                     .putBoolean(KEY_CRASH_REPORT_DISMISSED, true)
                     .putBoolean(KEY_PLAYBACK_TRANSITION_PENDING, false)
                     .remove(KEY_PLAYBACK_TRANSITION_DETAIL)
-                    .remove(KEY_PLAYBACK_TRANSITION_TIME);
+                    .remove(KEY_PLAYBACK_TRANSITION_TIME)
+                    .remove(KEY_RECENT_ACTIONS);
+                synchronized (recentActions) {
+                    recentActions.clear();
+                }
             }
             editor.apply();
         } catch (Throwable ignored) {
@@ -595,7 +680,8 @@ public class MainActivity extends Activity {
             isDeviceInteractive(),
             playbackPreparing,
             playbackExpectedPlaying,
-            playbackUserPaused
+            playbackUserPaused,
+            recentActionsText()
         );
     }
 
@@ -710,23 +796,32 @@ public class MainActivity extends Activity {
     }
 
     private void deleteIncompletePlaybackCache(Song song, String playbackUri) {
-        try {
-            CacheFileState.deleteDirect(this, playbackUri);
-        } catch (Exception ignored) {
-        }
         if (song == null) return;
-        try {
-            NetworkMediaCache.deleteCatalogCache(this, song.catalogJson);
-        } catch (Exception ignored) {
-        }
-        try {
-            Media3CacheStore.remove(this,
-                Media3CacheStore.keyFor(song.title, song.artist, song.catalogJson));
-        } catch (Exception ignored) {
-        }
+        final String oldCatalog = song.catalogJson;
+        final String oldTitle = song.title;
+        final String oldArtist = song.artist;
         song.cachedUri = "";
         song.uri = "";
         savePlaylists();
+        recordRecentAction("无效缓存已从播放状态摘除，后台删除文件");
+        try {
+            cacheLookupExecutor.execute(() -> {
+                try {
+                    CacheFileState.deleteDirect(this, playbackUri);
+                } catch (Exception ignored) {
+                }
+                try {
+                    NetworkMediaCache.deleteCatalogCache(this, oldCatalog);
+                } catch (Exception ignored) {
+                }
+                try {
+                    Media3CacheStore.remove(this,
+                        Media3CacheStore.keyFor(oldTitle, oldArtist, oldCatalog));
+                } catch (Exception ignored) {
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+        }
     }
 
     private void persistCrashReport(Thread thread, Throwable throwable) {
@@ -786,6 +881,7 @@ public class MainActivity extends Activity {
             report.append("uri=").append(trimForReport(snapshotSong.uri, 260)).append('\n');
             report.append("catalog=").append(trimForReport(snapshotSong.catalogJson, 1200)).append('\n');
         }
+        appendRecentActions(report);
     }
 
     private void storeProblemReport(String reportText) {
@@ -2381,15 +2477,21 @@ public class MainActivity extends Activity {
     }
 
     private void showPlayerPage() {
-        hideKeyboardAndClearFocus(null);
+        recordRecentAction("打开播放页/从子页面返回");
+        View focused = getCurrentFocus();
         if (headerBar != null) headerBar.setVisibility(View.VISIBLE);
         if (statusView != null) statusView.setVisibility(View.VISIBLE);
         if (playerPanel != null) playerPanel.setVisibility(View.VISIBLE);
         if (searchPanel != null) searchPanel.setVisibility(View.GONE);
         if (playlistPanel != null) playlistPanel.setVisibility(View.GONE);
+        if (focused instanceof EditText) {
+            focused.clearFocus();
+            focused.post(() -> hideKeyboardAndClearFocus(focused));
+        }
     }
 
     private void showSearchPage() {
+        recordRecentAction("打开搜索页");
         hideKeyboardAndClearFocus(null);
         if (headerBar != null) headerBar.setVisibility(View.GONE);
         if (statusView != null) statusView.setVisibility(View.GONE);
@@ -2402,6 +2504,7 @@ public class MainActivity extends Activity {
     private void showPlaylistPage() {
         // Page switching must stay a pure UI operation. Cache verification and
         // persistence are never started from this click path.
+        recordRecentAction("打开当前歌单");
         View focused = getCurrentFocus();
         if (focused instanceof EditText) hideKeyboardAndClearFocus(focused);
         if (headerBar != null) headerBar.setVisibility(View.GONE);
@@ -4020,6 +4123,13 @@ public class MainActivity extends Activity {
 
     private void writeNetworkLyricCache(Song song, String lyric) {
         if (song == null || !song.isNetworkCatalog() || lyric == null || lyric.trim().isEmpty()) return;
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            try {
+                cacheLookupExecutor.execute(() -> writeNetworkLyricCache(song, lyric));
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            }
+            return;
+        }
         String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
         if (key.isEmpty()) return;
         try {
@@ -4720,32 +4830,31 @@ public class MainActivity extends Activity {
 
     private void attachExistingFriendlyCache(Song song) {
         if (song == null || !song.isNetworkCatalog()) return;
+        if (Looper.myLooper() == Looper.getMainLooper()) return;
 
-        // Click-to-play must never walk SAF/filesystem on the UI thread. Trust
-        // recorded state and the SharedPreferences-backed Media3 export index;
-        // a stale URI is cleared by the normal asynchronous playback failure path.
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            String recorded = song.cachedUri == null ? "" : song.cachedUri.trim();
-            if (!recorded.isEmpty()) return;
-            String media3Key = Media3CacheStore.keyFor(
-                song.title, song.artist, song.catalogJson);
-            String indexedUri = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
-            if (!indexedUri.isEmpty()) {
-                recoverCachedSongState(song, indexedUri);
-            }
-            return;
-        }
-
-        String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
-        String uri = CacheStorage.findAudioUri(this, key);
-        if (uri.isEmpty()) {
-            String media3Key = Media3CacheStore.keyFor(song.title, song.artist, song.catalogJson);
-            uri = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
-        }
-        if (!uri.isEmpty() && CacheFileState.exists(this, uri)) {
-            boolean changed = recoverCachedSongState(song, uri);
+        String uri = findExistingFriendlyCacheUriBackground(song);
+        if (!uri.isEmpty()) {
+            boolean changed = applyRecoveredCacheState(song, uri);
             if (changed) savePlaylists();
         }
+    }
+
+    private String findExistingFriendlyCacheUriBackground(Song song) {
+        if (song == null || !song.isNetworkCatalog()) return "";
+        String recorded = song.cachedUri == null ? "" : song.cachedUri.trim();
+        if (!recorded.isEmpty() && CacheFileState.exists(this, recorded)) return recorded;
+        String direct = song.uri == null ? "" : song.uri.trim();
+        if ((direct.startsWith("file:") || direct.startsWith("content:"))
+            && CacheFileState.exists(this, direct)) return direct;
+
+        String key = NetworkMediaCache.cacheKeyForCatalog(song.catalogJson);
+        String uri = key.isEmpty() ? "" : CacheStorage.findAudioUri(this, key);
+        if (!uri.isEmpty() && CacheFileState.exists(this, uri)) return uri;
+
+        String media3Key = Media3CacheStore.keyFor(song.title, song.artist, song.catalogJson);
+        String indexed = Media3PlaybackCacheIndex.friendlyUri(this, media3Key);
+        if (!indexed.isEmpty() && CacheFileState.exists(this, indexed)) return indexed;
+        return "";
     }
 
     private void persistSearchCacheToPlaylistCopies(
@@ -4784,21 +4893,53 @@ public class MainActivity extends Activity {
 
 
     private void playPlaylistSongFromCacheFirst(Song song, int playToken) {
-        attachExistingFriendlyCache(song);
         String recorded = song.cachedUri == null ? "" : song.cachedUri.trim();
-        if (recorded.isEmpty()) {
-            statusView.setText("歌单没有完整友好缓存，正在在线播放并复用Media3缓存...");
-            trySearchPlaybackCandidate(song, playToken, 0);
+        if (!recorded.isEmpty()) {
+            song.uri = recorded;
+            recordRecentAction("使用已记录本地缓存，异步交给播放器读取");
+            statusView.setText("已读取歌单记录缓存，正在后台启动播放...");
+            startLocalPlayback(song, playToken, null, () -> {
+                song.cachedUri = "";
+                song.uri = "";
+                recordRecentAction("记录缓存播放失败，转在线资源");
+                statusView.setText("歌单记录缓存无法播放，正在在线播放并重新补齐缓存...");
+                trySearchPlaybackCandidate(song, playToken, 0);
+            });
             return;
         }
-        song.uri = recorded;
-        statusView.setText("已读取歌单记录缓存，正在启动播放...");
-        startLocalPlayback(song, playToken, null, () -> {
-            song.cachedUri = "";
-            song.uri = "";
-            statusView.setText("歌单记录缓存无法播放，正在在线播放并重新补齐缓存...");
+
+        recordRecentAction("后台查找本地缓存开始");
+        statusView.setText("正在后台查找本地缓存；界面可继续操作...");
+        try {
+            cacheLookupExecutor.execute(() -> {
+                String found = findExistingFriendlyCacheUriBackground(song);
+                runOnUiThread(() -> {
+                    if (activityDestroyed || currentSong != song
+                        || playToken != playbackRequestSerial) return;
+                    if (!found.isEmpty()) {
+                        applyRecoveredCacheState(song, found);
+                        song.uri = found;
+                        savePlaylists();
+                        notifyPlaylistAdapterStateChanged();
+                        recordRecentAction("后台找到本地缓存，交给播放器读取");
+                        statusView.setText("已找到本地缓存，正在后台启动播放...");
+                        startLocalPlayback(song, playToken, null, () -> {
+                            song.cachedUri = "";
+                            song.uri = "";
+                            recordRecentAction("找到的缓存无法播放，转在线资源");
+                            statusView.setText("本地缓存无法播放，正在在线播放并重新补齐缓存...");
+                            trySearchPlaybackCandidate(song, playToken, 0);
+                        });
+                    } else {
+                        recordRecentAction("未找到本地缓存，转在线资源");
+                        statusView.setText("未找到完整本地缓存，正在在线播放并复用Media3缓存...");
+                        trySearchPlaybackCandidate(song, playToken, 0);
+                    }
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
             trySearchPlaybackCandidate(song, playToken, 0);
-        });
+        }
     }
 
     private void cacheAndPlay(Song song, int playToken) {
@@ -4950,6 +5091,7 @@ public class MainActivity extends Activity {
 
     private void playSongFromPlaylist(int index) {
         if (index < 0 || index >= currentPlaylist().songs.size()) return;
+        recordRecentAction("点击/切换歌单歌曲 index=" + index);
         playingSearchQueue = false;
         searchSongIndex = -1;
         currentSongIndex = index;
@@ -4965,6 +5107,7 @@ public class MainActivity extends Activity {
     }
 
     private void playPlaylistOffset(int offset) {
+        if (offset != 0) recordRecentAction(offset > 0 ? "点击下一首" : "点击上一首");
         if (offset == 0) {
             performPlaylistOffset(0);
             return;
@@ -5047,6 +5190,9 @@ public class MainActivity extends Activity {
     }
 
     private void startLocalPlayback(Song song, int playToken, Runnable onStarted, Runnable onFailed) {
+        String sourceForLog = song == null || song.uri == null ? "" : song.uri.trim();
+        recordRecentAction(sourceForLog.startsWith("content:") || sourceForLog.startsWith("file:")
+            ? "本地缓存读取交给后台播放器" : "在线音频读取交给后台播放器");
         stopPlayback();
         playbackPreparing = true;
         playbackUserPaused = false;
@@ -5224,6 +5370,7 @@ public class MainActivity extends Activity {
         lyricHandler.removeCallbacks(lyricTicker);
         lyricHandler.post(lyricTicker);
         statusView.setText("当前播放：" + song.title);
+        recordRecentAction("播放开始成功");
         // Successful playback is the strongest cache-state signal. Reconcile the
         // playlist immediately instead of leaving a stale "uncached"/red entry.
         confirmSuccessfulPlaybackCacheState(song);
@@ -5233,6 +5380,8 @@ public class MainActivity extends Activity {
     }
 
     private void togglePlayback() {
+        recordRecentAction(mediaPlayer == null ? "点击播放"
+            : (mediaPlayer.isPlaying() ? "点击暂停" : "点击继续播放"));
         if (mediaPlayer == null) {
             if (currentSong != null) {
                 playSong(currentSong);
@@ -6899,14 +7048,12 @@ public class MainActivity extends Activity {
             runOnUiThread(this::savePlaylists);
             return;
         }
-        final List<Playlist> snapshot = new ArrayList<>();
+        final List<String> playlistNames = new ArrayList<>();
+        final List<List<Song>> songRefs = new ArrayList<>();
         for (Playlist playlist : playlists) {
             if (playlist == null) continue;
-            Playlist playlistCopy = new Playlist(playlist.name);
-            for (Song song : playlist.songs) {
-                if (song != null) playlistCopy.songs.add(copySongForPersistence(song));
-            }
-            snapshot.add(playlistCopy);
+            playlistNames.add(playlist.name);
+            songRefs.add(new ArrayList<>(playlist.songs));
         }
         final int selectedIndex = currentPlaylistIndex;
         final int serial = ++playlistPersistenceSerial;
@@ -6914,7 +7061,13 @@ public class MainActivity extends Activity {
             playlistPersistenceExecutor.execute(() -> {
                 if (serial != playlistPersistenceSerial) return;
                 JSONArray array = new JSONArray();
-                for (Playlist playlist : snapshot) array.put(playlist.toJson());
+                for (int i = 0; i < songRefs.size(); i++) {
+                    Playlist copy = new Playlist(playlistNames.get(i));
+                    for (Song song : songRefs.get(i)) {
+                        if (song != null) copy.songs.add(copySongForPersistence(song));
+                    }
+                    array.put(copy.toJson());
+                }
                 if (serial != playlistPersistenceSerial) return;
                 getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                     .edit()
@@ -6961,6 +7114,7 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        recordRecentAction("系统返回键");
         if (drawerPanel != null && drawerPanel.getVisibility() == View.VISIBLE) {
             closeDrawer();
             return;
@@ -7002,6 +7156,7 @@ public class MainActivity extends Activity {
         responsivenessHandler.removeCallbacks(responsivenessHeartbeat);
         ++playlistCacheScanSerial;
         playlistCacheScanExecutor.shutdownNow();
+        cacheLookupExecutor.shutdownNow();
         playlistPersistenceExecutor.shutdown();
         if (playbackReceiverRegistered) {
             try {

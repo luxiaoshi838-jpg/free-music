@@ -10,6 +10,8 @@ final class PlaybackProblemReporter {
     private static final String KEY_REPORT = "last_crash_report";
     private static final String KEY_REPORT_TIME = "last_crash_report_time";
     private static final String KEY_REPORT_DISMISSED = "last_crash_report_dismissed";
+    private static final String KEY_HISTORY = "problem_report_history_v1";
+    private static final int MAX_HISTORY = 10;
 
     private PlaybackProblemReporter() {
     }
@@ -21,7 +23,8 @@ final class PlaybackProblemReporter {
                       String uri, String cachedUri, String catalogJson,
                       boolean activityResumed, boolean windowFocused,
                       boolean deviceInteractive, boolean preparing,
-                      boolean expectedPlaying, boolean userPaused) {
+                      boolean expectedPlaying, boolean userPaused,
+                      String recentActions) {
         if (context == null) return;
         try {
             StringBuilder report = new StringBuilder();
@@ -55,12 +58,38 @@ final class PlaybackProblemReporter {
             report.append("uri=").append(trim(uri, 800)).append('\n');
             report.append("cachedUri=").append(trim(cachedUri, 800)).append('\n');
             report.append("catalog=").append(trim(catalogJson, 1800)).append('\n');
+            if (recentActions != null && !recentActions.trim().isEmpty()) {
+                report.append("\nRecent actions (oldest -> newest):\n")
+                    .append(trim(recentActions, 14000)).append('\n');
+            }
 
             String text = trim(report.toString(), 60000);
+            long now = System.currentTimeMillis();
             SharedPreferences preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            org.json.JSONArray oldHistory;
+            try {
+                oldHistory = new org.json.JSONArray(preferences.getString(KEY_HISTORY, "[]"));
+            } catch (Throwable ignored) {
+                oldHistory = new org.json.JSONArray();
+            }
+            org.json.JSONArray next = new org.json.JSONArray();
+            try {
+                org.json.JSONObject newest = new org.json.JSONObject();
+                newest.put("name", new java.text.SimpleDateFormat(
+                    "yyyyMMdd_HHmmss", java.util.Locale.ROOT).format(new java.util.Date(now)));
+                newest.put("time", now);
+                newest.put("text", text);
+                next.put(newest);
+                for (int i = 0; i < oldHistory.length() && next.length() < MAX_HISTORY; i++) {
+                    org.json.JSONObject item = oldHistory.optJSONObject(i);
+                    if (item != null) next.put(item);
+                }
+            } catch (Throwable ignored) {
+            }
             preferences.edit()
+                .putString(KEY_HISTORY, next.toString())
                 .putString(KEY_REPORT, text)
-                .putLong(KEY_REPORT_TIME, System.currentTimeMillis())
+                .putLong(KEY_REPORT_TIME, now)
                 .putBoolean(KEY_REPORT_DISMISSED, false)
                 .commit();
         } catch (Throwable ignored) {
