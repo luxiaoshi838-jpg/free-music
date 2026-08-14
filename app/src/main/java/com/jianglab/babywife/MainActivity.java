@@ -20,6 +20,7 @@ import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import android.net.Uri;
 import android.os.Build;
@@ -140,6 +141,8 @@ public class MainActivity extends Activity {
     private static final long PLAYBACK_NAVIGATION_DEBOUNCE_MS = 220L;
     private static final long PLAYBACK_HEALTH_CHECK_INTERVAL_MS = 2000L;
     private static final long PLAYBACK_STALL_REPORT_MS = 12000L;
+    private static final long PLAYBACK_SNAPSHOT_MAX_AGE_MS = 5000L;
+    private static final int PLAYBACK_STALL_FRESH_SAMPLE_MIN = 3;
     private static final String KEY_LAST_HANDLED_EXIT_TIME = "last_handled_exit_time";
     private static final String KEY_LAST_APP_VERSION_CODE = "last_app_version_code";
     private static final String KEY_PLAYBACK_TRANSITION_PENDING = "playback_transition_pending";
@@ -261,6 +264,7 @@ public class MainActivity extends Activity {
     private boolean playbackSilentStopReported = false;
     private long playbackLastObservedPosition = -1L;
     private long playbackLastProgressTime = 0L;
+    private int playbackFreshStallSamples = 0;
     private volatile boolean playlistCacheRunning = false;
     private volatile boolean transientCacheCleanupRunning = false;
     // Built when the playlist cache button is refreshed. One-click caching consumes
@@ -717,6 +721,7 @@ public class MainActivity extends Activity {
         playbackExpectedPlaying = true;
         playbackUserPaused = false;
         playbackSilentStopReported = false;
+        playbackFreshStallSamples = 0;
         playbackLastObservedPosition = safePlaybackPosition(player);
         playbackLastProgressTime = System.currentTimeMillis();
         playbackHealthHandler.removeCallbacks(playbackHealthTicker);
@@ -726,6 +731,7 @@ public class MainActivity extends Activity {
 
     private void stopPlaybackHealthWatch() {
         playbackExpectedPlaying = false;
+        playbackFreshStallSamples = 0;
         playbackHealthHandler.removeCallbacks(playbackHealthTicker);
     }
 
@@ -735,6 +741,7 @@ public class MainActivity extends Activity {
         if (!activityResumed || !windowFocused) {
             playbackLastProgressTime = System.currentTimeMillis();
             playbackSilentStopReported = false;
+            playbackFreshStallSamples = 0;
             return;
         }
         UnifiedMediaPlayer player = mediaPlayer;
@@ -753,45 +760,72 @@ public class MainActivity extends Activity {
         long position = safePlaybackPosition(player);
         long duration = safePlaybackDuration(player);
         boolean playing = safePlaybackIsPlaying(player);
+        long snapshotAgeMs = player.getSnapshotAgeMs();
+        int playbackState = player.getPlaybackStateSnapshot();
+        boolean playWhenReady = player.getPlayWhenReadySnapshot();
+        int suppressionReason = player.getPlaybackSuppressionReasonSnapshot();
+
+        if (snapshotAgeMs > PLAYBACK_SNAPSHOT_MAX_AGE_MS
+            || playbackState == Player.STATE_BUFFERING
+            || suppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE) {
+            playbackFreshStallSamples = 0;
+            playbackLastProgressTime = now;
+            playbackSilentStopReported = false;
+            return;
+        }
+
         if (position >= 0L && position > playbackLastObservedPosition + 250L) {
             playbackLastObservedPosition = position;
             playbackLastProgressTime = now;
             playbackSilentStopReported = false;
+            playbackFreshStallSamples = 0;
             return;
         }
 
         boolean nearEnd = duration > 0L && position >= 0L
             && position + 3000L >= duration;
-        if (nearEnd || now - playbackLastProgressTime < PLAYBACK_STALL_REPORT_MS
-            || playbackSilentStopReported) return;
+        if (nearEnd || playbackSilentStopReported) {
+            playbackFreshStallSamples = 0;
+            return;
+        }
 
-        playbackSilentStopReported = true;
-        reportPlaybackProblem(
-            playing ? "playback-position-stalled"
-                : "playback-stopped-without-callback",
-            player, 0, 0, currentSong == null ? "" : currentSong.uri);
-        if (playing) {
-            if (statusView != null) {
-                statusView.setText("播放进度长时间未变化，已生成播放问题报告");
+        if (playbackState == Player.STATE_IDLE) {
+            playbackFreshStallSamples = 0;
+            if (now - playbackLastProgressTime < 4000L) return;
+            playbackSilentStopReported = true;
+            reportPlaybackProblem(
+                "playback-unexpected-idle", player, 0, 0,
+                currentSong == null ? "" : currentSong.uri);
+            try {
+                player.start();
+                playbackLastProgressTime = now;
+                playbackSilentStopReported = false;
+                if (statusView != null) statusView.setText("检测到播放器异常进入空闲状态，已尝试恢复");
+                publishPlaybackControlState(true);
+            } catch (Exception ignored) {
+                stopPlaybackHealthWatch();
             }
             return;
         }
 
-        try {
-            player.start();
+        if (playbackState != Player.STATE_READY || !playWhenReady) {
+            playbackFreshStallSamples = 0;
             playbackLastProgressTime = now;
-            playbackSilentStopReported = false;
-            if (statusView != null) {
-                statusView.setText("检测到播放意外停止，已自动尝试恢复并生成报告");
-            }
-            publishPlaybackControlState(true);
-        } catch (Exception error) {
-            stopPlaybackHealthWatch();
-            if (playButton != null) playButton.setText("▶");
-            if (statusView != null) {
-                statusView.setText("播放意外停止，自动恢复失败，已生成报告");
-            }
-            publishPlaybackControlState(true);
+            return;
+        }
+        playbackFreshStallSamples++;
+        if (playbackFreshStallSamples < PLAYBACK_STALL_FRESH_SAMPLE_MIN
+            || now - playbackLastProgressTime < PLAYBACK_STALL_REPORT_MS) return;
+
+        playbackSilentStopReported = true;
+        reportPlaybackProblem(
+            playing ? "playback-position-stalled-confirmed"
+                : "playback-ready-not-playing-confirmed",
+            player, 0, 0, currentSong == null ? "" : currentSong.uri);
+        if (statusView != null) {
+            statusView.setText(playing
+                ? "播放进度经多次实时确认未变化，已生成播放问题报告"
+                : "播放器处于可播放状态但未实际播放，已生成播放问题报告");
         }
     }
 

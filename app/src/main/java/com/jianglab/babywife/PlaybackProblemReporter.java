@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
 
+import androidx.media3.common.Player;
+
 /** Stores non-crash playback failures in the existing copyable problem-report slot. */
 final class PlaybackProblemReporter {
     private static final String PREFS_NAME = "babywife_state";
@@ -55,6 +57,12 @@ final class PlaybackProblemReporter {
             report.append("positionMs=").append(position(player)).append('\n');
             report.append("durationMs=").append(duration(player)).append('\n');
             report.append("isPlaying=").append(isPlaying(player)).append('\n');
+            report.append("snapshotAgeMs=").append(snapshotAge(player)).append('\n');
+            int playbackState = playbackState(player);
+            report.append("playbackState=").append(playbackStateName(playbackState))
+                .append(" (").append(playbackState).append(")\n");
+            report.append("playWhenReady=").append(playWhenReady(player)).append('\n');
+            report.append("suppressionReason=").append(suppressionReason(player)).append('\n');
             report.append("uri=").append(trim(uri, 800)).append('\n');
             report.append("cachedUri=").append(trim(cachedUri, 800)).append('\n');
             report.append("catalog=").append(trim(catalogJson, 1800)).append('\n');
@@ -121,6 +129,36 @@ final class PlaybackProblemReporter {
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private static long snapshotAge(UnifiedMediaPlayer player) {
+        if (player == null) return -1L;
+        try { return player.getSnapshotAgeMs(); } catch (Exception ignored) { return -1L; }
+    }
+
+    private static int playbackState(UnifiedMediaPlayer player) {
+        if (player == null) return Player.STATE_IDLE;
+        try { return player.getPlaybackStateSnapshot(); }
+        catch (Exception ignored) { return Player.STATE_IDLE; }
+    }
+
+    private static boolean playWhenReady(UnifiedMediaPlayer player) {
+        if (player == null) return false;
+        try { return player.getPlayWhenReadySnapshot(); }
+        catch (Exception ignored) { return false; }
+    }
+
+    private static int suppressionReason(UnifiedMediaPlayer player) {
+        if (player == null) return Player.PLAYBACK_SUPPRESSION_REASON_NONE;
+        try { return player.getPlaybackSuppressionReasonSnapshot(); }
+        catch (Exception ignored) { return Player.PLAYBACK_SUPPRESSION_REASON_NONE; }
+    }
+
+    private static String playbackStateName(int state) {
+        if (state == Player.STATE_BUFFERING) return "BUFFERING";
+        if (state == Player.STATE_READY) return "READY";
+        if (state == Player.STATE_ENDED) return "ENDED";
+        return "IDLE";
     }
 
     private static String safe(String value) {

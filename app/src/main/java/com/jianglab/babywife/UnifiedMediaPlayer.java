@@ -95,6 +95,10 @@ final class UnifiedMediaPlayer {
     private volatile boolean snapshotPlaying;
     private volatile int snapshotDurationMs;
     private volatile int snapshotPositionMs;
+    private volatile long snapshotUpdatedAtMs;
+    private volatile int snapshotPlaybackState = Player.STATE_IDLE;
+    private volatile boolean snapshotPlayWhenReady;
+    private volatile int snapshotSuppressionReason = Player.PLAYBACK_SUPPRESSION_REASON_NONE;
 
     UnifiedMediaPlayer(Context context) {
         appContext = context.getApplicationContext();
@@ -301,6 +305,28 @@ final class UnifiedMediaPlayer {
         return Math.max(0, snapshotPositionMs);
     }
 
+    long getSnapshotAgeMs() {
+        long updated = snapshotUpdatedAtMs;
+        requestSnapshot();
+        if (updated <= 0L) return Long.MAX_VALUE;
+        return Math.max(0L, System.currentTimeMillis() - updated);
+    }
+
+    int getPlaybackStateSnapshot() {
+        requestSnapshot();
+        return snapshotPlaybackState;
+    }
+
+    boolean getPlayWhenReadySnapshot() {
+        requestSnapshot();
+        return snapshotPlayWhenReady;
+    }
+
+    int getPlaybackSuppressionReasonSnapshot() {
+        requestSnapshot();
+        return snapshotSuppressionReason;
+    }
+
     void seekTo(int positionMs) {
         int safe = Math.max(0, positionMs);
         snapshotPositionMs = safe;
@@ -337,6 +363,10 @@ final class UnifiedMediaPlayer {
         snapshotPlaying = false;
         snapshotDurationMs = 0;
         snapshotPositionMs = 0;
+        snapshotPlaybackState = Player.STATE_IDLE;
+        snapshotPlayWhenReady = false;
+        snapshotSuppressionReason = Player.PLAYBACK_SUPPRESSION_REASON_NONE;
+        snapshotUpdatedAtMs = System.currentTimeMillis();
         if (existing != null) {
             try {
                 existing.release();
@@ -353,15 +383,23 @@ final class UnifiedMediaPlayer {
         ExoPlayer current = player;
         if (current == null || released) {
             snapshotPlaying = false;
+            snapshotPlaybackState = Player.STATE_IDLE;
+            snapshotPlayWhenReady = false;
+            snapshotSuppressionReason = Player.PLAYBACK_SUPPRESSION_REASON_NONE;
+            snapshotUpdatedAtMs = System.currentTimeMillis();
             return;
         }
         try {
             snapshotPlaying = current.isPlaying();
+            snapshotPlaybackState = current.getPlaybackState();
+            snapshotPlayWhenReady = current.getPlayWhenReady();
+            snapshotSuppressionReason = current.getPlaybackSuppressionReason();
             long duration = current.getDuration();
             snapshotDurationMs = duration == C.TIME_UNSET || duration < 0L
                 ? 0 : (int) Math.min(Integer.MAX_VALUE, duration);
             long position = current.getCurrentPosition();
             snapshotPositionMs = (int) Math.max(0L, Math.min(Integer.MAX_VALUE, position));
+            snapshotUpdatedAtMs = System.currentTimeMillis();
         } catch (Throwable ignored) {
         }
     }
