@@ -20,6 +20,9 @@ import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioDeviceCallback;
+import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import android.net.Uri;
@@ -242,6 +245,20 @@ public class MainActivity extends Activity {
     private int highlightedLyricIndex = -1;
     private int lyricEdgeBlankLineCount = MIN_LYRIC_EDGE_BLANK_LINES;
     private boolean playbackReceiverRegistered = false;
+    private AudioManager audioManager;
+    private boolean audioDeviceCallbackRegistered = false;
+    private final AudioDeviceCallback bluetoothAudioDeviceCallback = new AudioDeviceCallback() {
+        @Override
+        public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) {
+            if (!containsBluetoothAudioDevice(removedDevices)) return;
+            // Give Android a brief moment to finish route replacement. If another
+            // Bluetooth output is still connected, playback must continue.
+            playbackHealthHandler.postDelayed(() -> {
+                if (activityDestroyed || hasConnectedBluetoothAudioOutput()) return;
+                pauseForBluetoothDisconnect();
+            }, 300L);
+        }
+    };
     private int playbackRequestSerial = 0;
     private volatile int foregroundPlaybackSerial = 0;
     private final Handler playbackNavigationHandler = new Handler(Looper.getMainLooper());
@@ -360,6 +377,7 @@ public class MainActivity extends Activity {
         attachPressFeedbackTree(shellView);
         maybeRequireJiangLabPassphrase();
         registerPlaybackControlReceiver();
+        registerBluetoothDisconnectPause();
         PlaybackControlService.ensureStarted(this);
         renderPlaylists();
         renderCurrentPlaylist();
@@ -408,6 +426,82 @@ public class MainActivity extends Activity {
             && isDeviceInteractive()) {
             responsivenessHandler.post(responsivenessHeartbeat);
         }
+    }
+
+    private void registerBluetoothDisconnectPause() {
+        if (audioDeviceCallbackRegistered) return;
+        try {
+            audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
+            if (audioManager == null) return;
+            audioManager.registerAudioDeviceCallback(
+                bluetoothAudioDeviceCallback, new Handler(Looper.getMainLooper()));
+            audioDeviceCallbackRegistered = true;
+        } catch (Throwable ignored) {
+            audioDeviceCallbackRegistered = false;
+        }
+    }
+
+    private void unregisterBluetoothDisconnectPause() {
+        if (!audioDeviceCallbackRegistered || audioManager == null) return;
+        try {
+            audioManager.unregisterAudioDeviceCallback(bluetoothAudioDeviceCallback);
+        } catch (Throwable ignored) {
+        }
+        audioDeviceCallbackRegistered = false;
+    }
+
+    private boolean containsBluetoothAudioDevice(AudioDeviceInfo[] devices) {
+        if (devices == null) return false;
+        for (AudioDeviceInfo device : devices) {
+            if (device != null && isBluetoothAudioType(device.getType())) return true;
+        }
+        return false;
+    }
+
+    private boolean hasConnectedBluetoothAudioOutput() {
+        AudioManager manager = audioManager;
+        if (manager == null) return false;
+        try {
+            AudioDeviceInfo[] outputs = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+            return containsBluetoothAudioDevice(outputs);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private boolean isBluetoothAudioType(int type) {
+        if (type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+            || type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) return true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+            && type == AudioDeviceInfo.TYPE_HEARING_AID) return true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            && (type == AudioDeviceInfo.TYPE_BLE_HEADSET
+                || type == AudioDeviceInfo.TYPE_BLE_SPEAKER)) return true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+            && type == AudioDeviceInfo.TYPE_BLE_BROADCAST) return true;
+        return false;
+    }
+
+    private void pauseForBluetoothDisconnect() {
+        UnifiedMediaPlayer player = mediaPlayer;
+        if (player == null || playbackUserPaused || !playbackExpectedPlaying) return;
+        // Bluetooth route loss is an expected user/device event, not a playback
+        // failure. Pause silently: do not create recent-action, playback-problem,
+        // ANR, or crash diagnostics for this transition.
+        playbackUserPaused = true;
+        stopPlaybackHealthWatch();
+        try {
+            player.pause();
+        } catch (Throwable ignored) {
+        }
+        if (playButton != null) playButton.setText("▶");
+        try {
+            saveLastSong(player.getCurrentPosition());
+        } catch (Throwable ignored) {
+        }
+        lyricHandler.removeCallbacks(lyricTicker);
+        if (statusView != null) statusView.setText("蓝牙音频已断开，已自动暂停");
+        publishPlaybackControlState(true);
     }
 
     private void scheduleStartupWork() {
@@ -7189,6 +7283,7 @@ public class MainActivity extends Activity {
         responsivenessWatchdogRunning = false;
         responsivenessHandler.removeCallbacks(responsivenessHeartbeat);
         ++playlistCacheScanSerial;
+        unregisterBluetoothDisconnectPause();
         playlistCacheScanExecutor.shutdownNow();
         cacheLookupExecutor.shutdownNow();
         playlistPersistenceExecutor.shutdown();

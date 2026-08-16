@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080880
-        versionName "2026.08.14.v180-playback-health-snapshot"
+        versionCode 2026080881
+        versionName "2026.08.16.v181-bluetooth-disconnect-pause"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
