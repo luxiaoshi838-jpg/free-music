@@ -11,8 +11,8 @@ android {
         applicationId "com.jianglab.babywife"
         minSdk 23
         targetSdk 35
-        versionCode 2026080881
-        versionName "2026.08.16.v181-bluetooth-disconnect-pause"
+        versionCode 2026080882
+        versionName "2026.08.17.v182-jianle-brand"
         buildConfigField "boolean", "REQUIRE_FIRST_RUN_PASSPHRASE", "false"
     }
 
@@ -30,6 +30,11 @@ android {
             dimension "brand"
             applicationIdSuffix ".lidacaizhu"
             versionNameSuffix "-lidacaizhu"
+        }
+        jianle {
+            dimension "brand"
+            applicationIdSuffix ".jianle"
+            versionNameSuffix "-jianle"
         }
         jianglab {
             dimension "brand"

@@ -1,0 +1,4 @@
+<resources>
+    <bool name="dual_background_selector">false</bool>
+    <bool name="icon_selector_enabled">false</bool>
+</resources>
