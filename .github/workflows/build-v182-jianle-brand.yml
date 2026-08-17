@@ -1,0 +1,96 @@
+name: Build v182 Jianle Brand
+
+on:
+  push:
+    branches: [agent/v182-jianle-brand]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v182-jianle-brand
+          fetch-depth: 0
+
+      - name: Verify Jianle brand source
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode 2026080882' app/build.gradle
+          grep -q 'versionName "2026.08.17.v182-jianle-brand"' app/build.gradle
+          grep -q 'jianle {' app/build.gradle
+          grep -q 'applicationIdSuffix ".jianle"' app/build.gradle
+          grep -q '<string name="app_name">简乐</string>' app/src/jianle/res/values/strings.xml
+          grep -q '<bool name="dual_background_selector">false</bool>' app/src/jianle/res/values/brand_config.xml
+          grep -q '<bool name="icon_selector_enabled">false</bool>' app/src/jianle/res/values/brand_config.xml
+          test -s app/src/jianle/res/drawable-nodpi/default_background.webp
+          test -s app/src/jianle/res/mipmap-xxxhdpi/ic_launcher.webp
+
+      - name: Prepare Android toolchain
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+          curl -fL --retry 5 --retry-delay 5 https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle-8.7-bin.zip
+          rm -rf /tmp/gradle-8.7
+          unzip -q /tmp/gradle-8.7-bin.zip -d /tmp
+
+      - name: Build Jianle unsigned release
+        env:
+          JIANG_LAB_PASSPHRASE_SHA256: ${{ secrets.JIANG_LAB_PASSPHRASE_SHA256 }}
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$JAVA_HOME/bin:/tmp/gradle-8.7/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          mkdir -p build
+          /tmp/gradle-8.7/bin/gradle --no-daemon assembleJianleRelease 2>&1 | tee build/assemble-v182-jianle-release.log
+
+      - name: Align and verify APK
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          aapt="$ANDROID_HOME/build-tools/37.0.0/aapt"
+          zipalign="$ANDROID_HOME/build-tools/37.0.0/zipalign"
+          mkdir -p v182-unsigned-aligned signing-tools/lib
+          input="app/build/outputs/apk/jianle/release/app-jianle-release-unsigned.apk"
+          output="v182-unsigned-aligned/jianle_v182_unsigned_aligned.apk"
+          test -s "$input"
+          "$zipalign" -f -p 4 "$input" "$output"
+          "$zipalign" -c -p 4 "$output"
+          badging=$("$aapt" dump badging "$output")
+          package_name=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+          version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
+          app_label=$(printf '%s\n' "$badging" | sed -n "s/^application-label:'\(.*\)'/\1/p" | head -n1)
+          test "$package_name" = 'com.jianglab.babywife.jianle'
+          test "$version_code" = '2026080882'
+          test "$app_label" = '简乐'
+          cp "$ANDROID_HOME/build-tools/37.0.0/apksigner" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/zipalign" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/lib/apksigner.jar" signing-tools/lib/
+          chmod +x signing-tools/apksigner signing-tools/zipalign
+          sha256sum "$output" > v182-unsigned-aligned/SHA256.txt
+          git rev-parse HEAD > v182-unsigned-aligned/SOURCE_HEAD.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v182-jianle-unsigned-aligned-and-signing-tools
+          path: |
+            v182-unsigned-aligned/
+            signing-tools/
+            build/assemble-v182-jianle-release.log
+          if-no-files-found: error
+          retention-days: 7
