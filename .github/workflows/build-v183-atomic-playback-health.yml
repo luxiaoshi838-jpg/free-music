@@ -1,0 +1,106 @@
+name: Build v183 Atomic Playback Health
+
+on:
+  push:
+    branches: [agent/v183-atomic-playback-health]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v183-atomic-playback-health
+          fetch-depth: 0
+
+      - name: Apply v183 runtime patch
+        run: |
+          set -euo pipefail
+          python3 scripts/apply_v183_atomic_playback_health.py
+          grep -q 'versionCode 2026080883' app/build.gradle
+          grep -q '2026.08.25.v183-atomic-playback-health' app/build.gradle
+          grep -q 'static final class PlaybackSnapshot' app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java
+          grep -q 'playback-position-stalled-atomic-confirmed' app/src/main/java/com/jianglab/babywife/MainActivity.java
+
+      - name: Commit patched runtime source
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add app/build.gradle app/src/main/java/com/jianglab/babywife/UnifiedMediaPlayer.java app/src/main/java/com/jianglab/babywife/MainActivity.java
+            git commit -m 'v183: atomic playback snapshots and confirmed-stall recovery [skip ci]'
+            git push origin HEAD:agent/v183-atomic-playback-health
+          fi
+
+      - name: Prepare Android toolchain
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;37.0.0'
+          curl -fL --retry 5 --retry-delay 5 https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle-8.7-bin.zip
+          rm -rf /tmp/gradle-8.7
+          unzip -q /tmp/gradle-8.7-bin.zip -d /tmp
+
+      - name: Build five unsigned releases
+        env:
+          JIANG_LAB_PASSPHRASE_SHA256: ${{ secrets.JIANG_LAB_PASSPHRASE_SHA256 }}
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$JAVA_HOME/bin:/tmp/gradle-8.7/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          mkdir -p build
+          /tmp/gradle-8.7/bin/gradle --no-daemon \
+            assembleBabywifeclassicRelease \
+            assembleLidacaizhuRelease \
+            assembleJianleRelease \
+            assembleJianglabRelease \
+            assembleNiubiRelease 2>&1 | tee build/assemble-v183.log
+
+      - name: Align and verify APKs
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          aapt="$ANDROID_HOME/build-tools/37.0.0/aapt"
+          zipalign="$ANDROID_HOME/build-tools/37.0.0/zipalign"
+          mkdir -p v183-unsigned-aligned signing-tools/lib
+          for flavor in babywifeclassic lidacaizhu jianle jianglab niubi; do
+            input="app/build/outputs/apk/${flavor}/release/app-${flavor}-release-unsigned.apk"
+            output="v183-unsigned-aligned/${flavor}_v183_unsigned_aligned.apk"
+            test -s "$input"
+            "$zipalign" -f -p 4 "$input" "$output"
+            "$zipalign" -c -p 4 "$output"
+            badging=$("$aapt" dump badging "$output")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p")
+            test "$version_code" = '2026080883'
+          done
+          cp "$ANDROID_HOME/build-tools/37.0.0/apksigner" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/zipalign" signing-tools/
+          cp "$ANDROID_HOME/build-tools/37.0.0/lib/apksigner.jar" signing-tools/lib/
+          chmod +x signing-tools/apksigner signing-tools/zipalign
+          sha256sum v183-unsigned-aligned/*.apk > v183-unsigned-aligned/SHA256.txt
+          git rev-parse HEAD > v183-unsigned-aligned/SOURCE_HEAD.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v183-unsigned-aligned-and-signing-tools
+          path: |
+            v183-unsigned-aligned/
+            signing-tools/
+            build/assemble-v183.log
+          if-no-files-found: error
+          retention-days: 7
