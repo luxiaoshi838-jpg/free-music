@@ -56,6 +56,36 @@ final class UnifiedMediaPlayer {
         boolean onError(UnifiedMediaPlayer player, int what, int extra);
     }
 
+
+    static final class PlaybackSnapshot {
+        final long sequence;
+        final int positionMs;
+        final int durationMs;
+        final boolean playing;
+        final long updatedAtMs;
+        final int playbackState;
+        final boolean playWhenReady;
+        final int suppressionReason;
+
+        PlaybackSnapshot(long sequence, int positionMs, int durationMs,
+                         boolean playing, long updatedAtMs, int playbackState,
+                         boolean playWhenReady, int suppressionReason) {
+            this.sequence = sequence;
+            this.positionMs = positionMs;
+            this.durationMs = durationMs;
+            this.playing = playing;
+            this.updatedAtMs = updatedAtMs;
+            this.playbackState = playbackState;
+            this.playWhenReady = playWhenReady;
+            this.suppressionReason = suppressionReason;
+        }
+
+        long ageMs(long nowMs) {
+            if (updatedAtMs <= 0L) return Long.MAX_VALUE;
+            return Math.max(0L, nowMs - updatedAtMs);
+        }
+    }
+
     private final Context appContext;
     private final AudioManager audioManager;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -99,6 +129,10 @@ final class UnifiedMediaPlayer {
     private volatile int snapshotPlaybackState = Player.STATE_IDLE;
     private volatile boolean snapshotPlayWhenReady;
     private volatile int snapshotSuppressionReason = Player.PLAYBACK_SUPPRESSION_REASON_NONE;
+    private long snapshotSequence = 0L;
+    private volatile PlaybackSnapshot playbackSnapshot = new PlaybackSnapshot(
+        0L, 0, 0, false, 0L, Player.STATE_IDLE, false,
+        Player.PLAYBACK_SUPPRESSION_REASON_NONE);
 
     UnifiedMediaPlayer(Context context) {
         appContext = context.getApplicationContext();
@@ -305,6 +339,12 @@ final class UnifiedMediaPlayer {
         return Math.max(0, snapshotPositionMs);
     }
 
+    PlaybackSnapshot getPlaybackSnapshot() {
+        PlaybackSnapshot current = playbackSnapshot;
+        requestSnapshot();
+        return current;
+    }
+
     long getSnapshotAgeMs() {
         long updated = snapshotUpdatedAtMs;
         requestSnapshot();
@@ -360,13 +400,17 @@ final class UnifiedMediaPlayer {
     private void releaseInternalPlayer() {
         ExoPlayer existing = player;
         player = null;
+        long now = System.currentTimeMillis();
         snapshotPlaying = false;
         snapshotDurationMs = 0;
         snapshotPositionMs = 0;
         snapshotPlaybackState = Player.STATE_IDLE;
         snapshotPlayWhenReady = false;
         snapshotSuppressionReason = Player.PLAYBACK_SUPPRESSION_REASON_NONE;
-        snapshotUpdatedAtMs = System.currentTimeMillis();
+        snapshotUpdatedAtMs = now;
+        playbackSnapshot = new PlaybackSnapshot(
+            ++snapshotSequence, 0, 0, false, now, Player.STATE_IDLE, false,
+            Player.PLAYBACK_SUPPRESSION_REASON_NONE);
         if (existing != null) {
             try {
                 existing.release();
@@ -381,26 +425,45 @@ final class UnifiedMediaPlayer {
 
     private void updateSnapshot() {
         ExoPlayer current = player;
+        long now = System.currentTimeMillis();
         if (current == null || released) {
             snapshotPlaying = false;
+            snapshotDurationMs = 0;
+            snapshotPositionMs = 0;
             snapshotPlaybackState = Player.STATE_IDLE;
             snapshotPlayWhenReady = false;
             snapshotSuppressionReason = Player.PLAYBACK_SUPPRESSION_REASON_NONE;
-            snapshotUpdatedAtMs = System.currentTimeMillis();
+            snapshotUpdatedAtMs = now;
+            playbackSnapshot = new PlaybackSnapshot(
+                ++snapshotSequence, 0, 0, false, now, Player.STATE_IDLE, false,
+                Player.PLAYBACK_SUPPRESSION_REASON_NONE);
             return;
         }
         try {
-            snapshotPlaying = current.isPlaying();
-            snapshotPlaybackState = current.getPlaybackState();
-            snapshotPlayWhenReady = current.getPlayWhenReady();
-            snapshotSuppressionReason = current.getPlaybackSuppressionReason();
+            boolean playing = current.isPlaying();
+            int playbackState = current.getPlaybackState();
+            boolean playWhenReady = current.getPlayWhenReady();
+            int suppressionReason = current.getPlaybackSuppressionReason();
             long duration = current.getDuration();
-            snapshotDurationMs = duration == C.TIME_UNSET || duration < 0L
+            int durationMs = duration == C.TIME_UNSET || duration < 0L
                 ? 0 : (int) Math.min(Integer.MAX_VALUE, duration);
             long position = current.getCurrentPosition();
-            snapshotPositionMs = (int) Math.max(0L, Math.min(Integer.MAX_VALUE, position));
-            snapshotUpdatedAtMs = System.currentTimeMillis();
+            int positionMs = (int) Math.max(0L, Math.min(Integer.MAX_VALUE, position));
+
+            snapshotPlaying = playing;
+            snapshotPlaybackState = playbackState;
+            snapshotPlayWhenReady = playWhenReady;
+            snapshotSuppressionReason = suppressionReason;
+            snapshotDurationMs = durationMs;
+            snapshotPositionMs = positionMs;
+            snapshotUpdatedAtMs = now;
+            // Single volatile publication: every field below belongs to the same
+            // ExoPlayer read on the same player looper turn.
+            playbackSnapshot = new PlaybackSnapshot(
+                ++snapshotSequence, positionMs, durationMs, playing, now,
+                playbackState, playWhenReady, suppressionReason);
         } catch (Throwable ignored) {
+            // Do not publish a half-updated state if Media3 throws while sampling.
         }
     }
 

@@ -282,6 +282,8 @@ public class MainActivity extends Activity {
     private long playbackLastObservedPosition = -1L;
     private long playbackLastProgressTime = 0L;
     private int playbackFreshStallSamples = 0;
+    private long playbackLastSnapshotSequence = -1L;
+    private UnifiedMediaPlayer playbackHealthSnapshotPlayer;
     private volatile boolean playlistCacheRunning = false;
     private volatile boolean transientCacheCleanupRunning = false;
     // Built when the playlist cache button is refreshed. One-click caching consumes
@@ -838,26 +840,32 @@ public class MainActivity extends Activity {
             playbackFreshStallSamples = 0;
             return;
         }
+
         UnifiedMediaPlayer player = mediaPlayer;
-        if (player == null) {
-            if (!playbackSilentStopReported) {
-                playbackSilentStopReported = true;
-                reportPlaybackProblem(
-                    "player-disappeared-without-error-callback",
-                    null, 0, 0, currentSong == null ? "" : currentSong.uri);
-            }
-            stopPlaybackHealthWatch();
+        if (player == null) return;
+        long now = System.currentTimeMillis();
+        UnifiedMediaPlayer.PlaybackSnapshot snapshot = player.getPlaybackSnapshot();
+        if (snapshot == null) return;
+
+        // A newly-created player has its own sequence space. Never compare it with
+        // the previous song/player's samples after rapid next/previous presses.
+        if (playbackHealthSnapshotPlayer != player) {
+            playbackHealthSnapshotPlayer = player;
+            playbackLastSnapshotSequence = snapshot.sequence;
+            playbackLastObservedPosition = snapshot.positionMs;
+            playbackLastProgressTime = now;
+            playbackFreshStallSamples = 0;
+            playbackSilentStopReported = false;
             return;
         }
 
-        long now = System.currentTimeMillis();
-        long position = safePlaybackPosition(player);
-        long duration = safePlaybackDuration(player);
-        boolean playing = safePlaybackIsPlaying(player);
-        long snapshotAgeMs = player.getSnapshotAgeMs();
-        int playbackState = player.getPlaybackStateSnapshot();
-        boolean playWhenReady = player.getPlayWhenReadySnapshot();
-        int suppressionReason = player.getPlaybackSuppressionReasonSnapshot();
+        long snapshotAgeMs = snapshot.ageMs(now);
+        int playbackState = snapshot.playbackState;
+        boolean playWhenReady = snapshot.playWhenReady;
+        int suppressionReason = snapshot.suppressionReason;
+        boolean playing = snapshot.playing;
+        long position = snapshot.positionMs;
+        long duration = snapshot.durationMs;
 
         if (snapshotAgeMs > PLAYBACK_SNAPSHOT_MAX_AGE_MS
             || playbackState == Player.STATE_BUFFERING
@@ -865,61 +873,65 @@ public class MainActivity extends Activity {
             playbackFreshStallSamples = 0;
             playbackLastProgressTime = now;
             playbackSilentStopReported = false;
-            return;
-        }
-
-        if (position >= 0L && position > playbackLastObservedPosition + 250L) {
+            playbackLastSnapshotSequence = snapshot.sequence;
             playbackLastObservedPosition = position;
+            return;
+        }
+
+        if (playbackState == Player.STATE_ENDED) {
+            playbackFreshStallSamples = 0;
             playbackLastProgressTime = now;
-            playbackSilentStopReported = false;
-            playbackFreshStallSamples = 0;
-            return;
-        }
-
-        boolean nearEnd = duration > 0L && position >= 0L
-            && position + 3000L >= duration;
-        if (nearEnd || playbackSilentStopReported) {
-            playbackFreshStallSamples = 0;
-            return;
-        }
-
-        if (playbackState == Player.STATE_IDLE) {
-            playbackFreshStallSamples = 0;
-            if (now - playbackLastProgressTime < 4000L) return;
-            playbackSilentStopReported = true;
-            reportPlaybackProblem(
-                "playback-unexpected-idle", player, 0, 0,
-                currentSong == null ? "" : currentSong.uri);
-            try {
-                player.start();
-                playbackLastProgressTime = now;
-                playbackSilentStopReported = false;
-                if (statusView != null) statusView.setText("检测到播放器异常进入空闲状态，已尝试恢复");
-                publishPlaybackControlState(true);
-            } catch (Exception ignored) {
-                stopPlaybackHealthWatch();
-            }
             return;
         }
 
         if (playbackState != Player.STATE_READY || !playWhenReady) {
             playbackFreshStallSamples = 0;
             playbackLastProgressTime = now;
+            playbackLastSnapshotSequence = snapshot.sequence;
             return;
         }
+
+        // The same immutable snapshot must never count twice. This is the key fix
+        // for false stalls caused by asynchronous state getters racing each other.
+        if (snapshot.sequence == playbackLastSnapshotSequence) return;
+        playbackLastSnapshotSequence = snapshot.sequence;
+
+        if (playbackLastObservedPosition < 0L
+            || position > playbackLastObservedPosition
+            || position + 1000L < playbackLastObservedPosition) {
+            playbackLastObservedPosition = position;
+            playbackLastProgressTime = now;
+            playbackFreshStallSamples = 0;
+            playbackSilentStopReported = false;
+            return;
+        }
+
         playbackFreshStallSamples++;
         if (playbackFreshStallSamples < PLAYBACK_STALL_FRESH_SAMPLE_MIN
-            || now - playbackLastProgressTime < PLAYBACK_STALL_REPORT_MS) return;
+            || now - playbackLastProgressTime < PLAYBACK_STALL_REPORT_MS
+            || playbackSilentStopReported) return;
 
         playbackSilentStopReported = true;
         reportPlaybackProblem(
-            playing ? "playback-position-stalled-confirmed"
-                : "playback-ready-not-playing-confirmed",
+            playing ? "playback-position-stalled-atomic-confirmed"
+                : "playback-ready-not-playing-atomic-confirmed",
             player, 0, 0, currentSong == null ? "" : currentSong.uri);
+
+        // This is now a real, same-snapshot confirmed stall. Recover without
+        // touching cache validity or failure/red flags: re-seek the same position
+        // so Media3 rebuilds the read/decoder path, then keep playWhenReady active.
+        try {
+            int resumePosition = (int) Math.max(0L,
+                Math.min(Integer.MAX_VALUE, Math.min(position,
+                    duration > 0L ? Math.max(0L, duration - 1L) : position)));
+            player.seekTo(resumePosition);
+            player.start();
+        } catch (Throwable ignored) {
+        }
+        playbackLastProgressTime = now;
+        playbackFreshStallSamples = 0;
         if (statusView != null) {
-            statusView.setText(playing
-                ? "播放进度经多次实时确认未变化，已生成播放问题报告"
-                : "播放器处于可播放状态但未实际播放，已生成播放问题报告");
+            statusView.setText("检测到真实播放停滞，已自动从当前位置恢复播放");
         }
     }
 
